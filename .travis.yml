@@ -3,6 +3,10 @@ language: java
 jdk:
   - oraclejdk8
 
+before_install:
+  - apt-get update -qq
+  - apt-get install -y openssl apr
+
 install: true
 
 script: mvn clean test
