@@ -7,7 +7,7 @@ jdk:
 
 before_install:
   - sudo apt-get update -qq
-  - sudo apt-get install -y openssl apr
+  - sudo apt-get install -y openssl libapr1
 
 install: true
 
