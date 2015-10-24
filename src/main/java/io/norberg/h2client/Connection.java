@@ -1,102 +1,72 @@
 package io.norberg.h2client;
 
 import java.io.Closeable;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import javax.net.ssl.SSLException;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpRequest;
-import io.netty.handler.codec.http2.Http2SecurityUtil;
-import io.netty.handler.ssl.ApplicationProtocolConfig;
-import io.netty.handler.ssl.ApplicationProtocolNames;
-import io.netty.handler.ssl.OpenSsl;
+import io.netty.handler.codec.http2.DefaultHttp2Connection;
+import io.netty.handler.codec.http2.DelegatingDecompressorFrameListener;
+import io.netty.handler.codec.http2.Http2Connection;
+import io.netty.handler.codec.http2.Http2FrameLogger;
+import io.netty.handler.codec.http2.Http2Settings;
+import io.netty.handler.codec.http2.HttpToHttp2ConnectionHandler;
+import io.netty.handler.codec.http2.InboundHttp2ToHttpAdapter;
 import io.netty.handler.ssl.SslContext;
-import io.netty.handler.ssl.SslContextBuilder;
-import io.netty.handler.ssl.SslProvider;
-import io.netty.handler.ssl.SupportedCipherSuiteFilter;
-import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+
+import static io.netty.handler.codec.http2.HttpConversionUtil.ExtensionHeaderNames.STREAM_ID;
+import static io.netty.handler.logging.LogLevel.INFO;
 
 class Connection implements Closeable {
 
-  private final Channel channel;
+  private static final long DEFAULT_MAX_CONCURRENT_STREAMS = 100;
+  private static final int DEFAULT_MAX_FRAME_SIZE = 1024 * 1024;
 
-  private final AtomicInteger streamId = new AtomicInteger(3);
-  private volatile ResponseHandler responseHandler;
-
+  private final Handler handler = new Handler();
   private final CompletableFuture<Void> connectFuture = new CompletableFuture<>();
 
-  private volatile boolean connected = false;
+  private final Channel channel;
 
-  Connection(final String host, final int port, final EventLoopGroup workerGroup) {
-    final SslProvider provider = OpenSsl.isAlpnSupported() ? SslProvider.OPENSSL : SslProvider.JDK;
-    final SslContext sslCtx;
-    try {
-      sslCtx = SslContextBuilder.forClient()
-          .sslProvider(provider)
-          .ciphers(Http2SecurityUtil.CIPHERS, SupportedCipherSuiteFilter.INSTANCE)
-          .trustManager(InsecureTrustManagerFactory.INSTANCE)
-          .applicationProtocolConfig(new ApplicationProtocolConfig(
-              ApplicationProtocolConfig.Protocol.ALPN,
-              ApplicationProtocolConfig.SelectorFailureBehavior.NO_ADVERTISE,
-              ApplicationProtocolConfig.SelectedListenerFailureBehavior.ACCEPT,
-              ApplicationProtocolNames.HTTP_2))
-          .build();
-    } catch (SSLException e) {
-      throw new RuntimeException(e);
-    }
+  private int maxFrameSize;
+  private long maxConcurrentStreams;
 
+  private volatile boolean connected;
+
+  Connection(final String host, final int port, final EventLoopGroup workerGroup, final SslContext sslCtx) {
     final Initializer initializer = new Initializer(sslCtx, Integer.MAX_VALUE);
-
     final Bootstrap b = new Bootstrap();
     b.group(workerGroup);
     b.channel(NioSocketChannel.class);
     b.option(ChannelOption.SO_KEEPALIVE, true);
     b.remoteAddress(host, port);
     b.handler(initializer);
-
     final ChannelFuture connectFuture = b.connect();
-
     this.channel = connectFuture.channel();
-
-    connectFuture.addListener((f) -> {
-      if (!connectFuture.isSuccess()) {
-        // TODO: fail
-        return;
-      }
-
-      // Wait for the HTTP/2 upgrade to occur.
-      SettingsHandler settingsHandler = initializer.settingsHandler();
-      settingsHandler.promise.addListener((settings) -> {
-        if (!settings.isSuccess()) {
-          // TODO: fail
-          return;
-        }
-        this.responseHandler = initializer.responseHandler();
-        connected = true;
-        this.connectFuture.complete(null);
-      });
-    });
   }
 
   CompletableFuture<FullHttpResponse> send(final HttpRequest request) {
+    assert connected;
     final CompletableFuture<FullHttpResponse> future = new CompletableFuture<>();
-    final int streamId = this.streamId.getAndAdd(2);
-    responseHandler.expect(streamId, future);
-    final ChannelFuture writeFuture = channel.writeAndFlush(request);
-    writeFuture.addListener((f) -> {
-      if (!writeFuture.isSuccess()) {
-        responseHandler.cancel(streamId);
-        future.completeExceptionally(writeFuture.cause());
-      }
-    });
+    final ChannelPromise promise = new RequestPromise(channel, future);
+    channel.writeAndFlush(request, promise);
     return future;
   }
 
@@ -105,10 +75,127 @@ class Connection implements Closeable {
   }
 
   boolean isConnected() {
-    return connected;
+    return connected && channel.isActive();
   }
 
   public void close() {
     channel.close();
+  }
+
+  private class Initializer extends ChannelInitializer<SocketChannel> {
+
+    private final Http2FrameLogger logger = new Http2FrameLogger(INFO, Initializer.class);
+
+    private final SslContext sslCtx;
+    private final int maxContentLength;
+    private HttpToHttp2ConnectionHandler connectionHandler;
+
+    public Initializer(SslContext sslCtx, int maxContentLength) {
+      this.sslCtx = Objects.requireNonNull(sslCtx, "sslCtx");
+      this.maxContentLength = maxContentLength;
+    }
+
+    @Override
+    public void initChannel(SocketChannel ch) throws Exception {
+      final Http2Connection connection = new DefaultHttp2Connection(false);
+      connectionHandler = new HttpToHttp2ConnectionHandler.Builder()
+          .frameListener(new DelegatingDecompressorFrameListener(
+              connection,
+              new InboundHttp2ToHttpAdapter.Builder(connection)
+                  .maxContentLength(maxContentLength)
+                  .propagateSettings(true)
+                  .build()))
+          .frameLogger(logger)
+          .build(connection);
+      final SettingsHandler settingsHandler = new SettingsHandler();
+      ChannelPipeline pipeline = ch.pipeline();
+      pipeline.addLast(sslCtx.newHandler(ch.alloc()), connectionHandler, settingsHandler, handler);
+    }
+  }
+
+  private class Handler extends ChannelDuplexHandler {
+
+    private final Map<Integer, CompletableFuture<FullHttpResponse>> outstanding = new HashMap<>();
+
+    private int streamId = 1;
+
+    @Override
+    public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
+      if (!(msg instanceof FullHttpResponse)) {
+        ctx.fireChannelRead(msg);
+        return;
+      }
+
+      final FullHttpResponse response = (FullHttpResponse) msg;
+      final int streamId = response.headers().getInt(STREAM_ID.text(), -1);
+      if (streamId == -1) {
+        System.err.println("Received unexpected message: " + msg);
+        return;
+      }
+
+      final CompletableFuture<FullHttpResponse> future = outstanding.remove(streamId);
+      if (future == null) {
+        System.err.println("Received unexpected message with stream id: " + streamId);
+        return;
+      }
+
+      future.complete(response);
+    }
+
+    @Override
+    public void write(final ChannelHandlerContext ctx, final Object msg, final ChannelPromise promise)
+        throws Exception {
+      final HttpRequest request = (HttpRequest) msg;
+      final RequestPromise requestPromise = (RequestPromise) promise;
+      final int streamId = nextStreamId();
+      request.headers().set(STREAM_ID.text(), streamId);
+      outstanding.put(streamId, requestPromise.responseFuture);
+      super.write(ctx, msg, promise);
+    }
+
+    private int nextStreamId() {
+      streamId += 2;
+      return streamId;
+    }
+  }
+
+  private class SettingsHandler extends ChannelInboundHandlerAdapter {
+
+    @Override
+    public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
+      if (!(msg instanceof Http2Settings)) {
+        ctx.fireChannelRead(msg);
+        return;
+      }
+
+      final Http2Settings settings = (Http2Settings) msg;
+
+      // Only care about the first settings message
+      ctx.pipeline().remove(this);
+
+      maxConcurrentStreams = Optional.ofNullable(settings.maxConcurrentStreams())
+          .orElse(DEFAULT_MAX_CONCURRENT_STREAMS);
+      maxFrameSize = Optional.ofNullable(settings.maxFrameSize())
+          .orElse(DEFAULT_MAX_FRAME_SIZE);
+
+      // Publish the above settings
+      connected = true;
+      connectFuture.complete(null);
+    }
+  }
+
+  private class RequestPromise extends DefaultChannelPromise {
+
+    private final CompletableFuture<FullHttpResponse> responseFuture;
+
+    public RequestPromise(final Channel channel, final CompletableFuture<FullHttpResponse> responseFuture) {
+      super(channel);
+      this.responseFuture = responseFuture;
+      addListener(f -> {
+        if (!isSuccess()) {
+          responseFuture.completeExceptionally(cause());
+        }
+      });
+    }
   }
 }

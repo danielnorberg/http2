@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
 
+import javax.net.ssl.SSLException;
+
 import io.netty.buffer.Unpooled;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
@@ -13,7 +15,16 @@ import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http2.Http2SecurityUtil;
 import io.netty.handler.codec.http2.HttpConversionUtil;
+import io.netty.handler.ssl.ApplicationProtocolConfig;
+import io.netty.handler.ssl.ApplicationProtocolNames;
+import io.netty.handler.ssl.OpenSsl;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslProvider;
+import io.netty.handler.ssl.SupportedCipherSuiteFilter;
+import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.AsciiString;
 
 import static io.netty.handler.codec.http.HttpMethod.GET;
@@ -27,6 +38,7 @@ public class Http2Client implements Closeable {
 
   private final NioEventLoopGroup workerGroup;
   private final AsciiString hostName;
+  private final SslContext sslCtx;
 
   private volatile Connection connection;
 
@@ -35,8 +47,26 @@ public class Http2Client implements Closeable {
   }
 
   public Http2Client(final String host, final int port) {
+
+    // Set up SSL
+    final SslProvider provider = OpenSsl.isAlpnSupported() ? SslProvider.OPENSSL : SslProvider.JDK;
+    try {
+      this.sslCtx = SslContextBuilder.forClient()
+          .sslProvider(provider)
+          .ciphers(Http2SecurityUtil.CIPHERS, SupportedCipherSuiteFilter.INSTANCE)
+          .trustManager(InsecureTrustManagerFactory.INSTANCE)
+          .applicationProtocolConfig(new ApplicationProtocolConfig(
+              ApplicationProtocolConfig.Protocol.ALPN,
+              ApplicationProtocolConfig.SelectorFailureBehavior.NO_ADVERTISE,
+              ApplicationProtocolConfig.SelectedListenerFailureBehavior.ACCEPT,
+              ApplicationProtocolNames.HTTP_2))
+          .build();
+    } catch (SSLException e) {
+      throw new RuntimeException(e);
+    }
+
     this.workerGroup = new NioEventLoopGroup();
-    this.connection = new Connection(host, port, workerGroup);
+    this.connection = new Connection(host, port, workerGroup, sslCtx);
     this.hostName = new AsciiString(host + ':' + port);
   }
 
