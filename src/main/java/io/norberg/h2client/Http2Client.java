@@ -11,10 +11,10 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpRequest;
-import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http2.Http2SecurityUtil;
 import io.netty.handler.codec.http2.HttpConversionUtil;
 import io.netty.handler.ssl.ApplicationProtocolConfig;
@@ -24,7 +24,6 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslProvider;
 import io.netty.handler.ssl.SupportedCipherSuiteFilter;
-import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.AsciiString;
 
 import static io.netty.handler.codec.http.HttpMethod.GET;
@@ -54,7 +53,6 @@ public class Http2Client implements Closeable {
       this.sslCtx = SslContextBuilder.forClient()
           .sslProvider(provider)
           .ciphers(Http2SecurityUtil.CIPHERS, SupportedCipherSuiteFilter.INSTANCE)
-          .trustManager(InsecureTrustManagerFactory.INSTANCE)
           .applicationProtocolConfig(new ApplicationProtocolConfig(
               ApplicationProtocolConfig.Protocol.ALPN,
               ApplicationProtocolConfig.SelectorFailureBehavior.NO_ADVERTISE,
