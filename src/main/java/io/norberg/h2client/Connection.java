@@ -33,7 +33,7 @@ import io.netty.handler.codec.http2.InboundHttp2ToHttpAdapter;
 import io.netty.handler.ssl.SslContext;
 
 import static io.netty.handler.codec.http2.HttpConversionUtil.ExtensionHeaderNames.STREAM_ID;
-import static io.netty.handler.logging.LogLevel.INFO;
+import static io.netty.handler.logging.LogLevel.TRACE;
 
 class Connection implements Closeable {
 
@@ -87,7 +87,7 @@ class Connection implements Closeable {
 
   private class Initializer extends ChannelInitializer<SocketChannel> {
 
-    private final Http2FrameLogger logger = new Http2FrameLogger(INFO, Initializer.class);
+    private final Http2FrameLogger logger = new Http2FrameLogger(TRACE, Initializer.class);
 
     private final SslContext sslCtx;
     private final int maxContentLength;
