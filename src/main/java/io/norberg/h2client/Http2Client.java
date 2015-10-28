@@ -1,7 +1,6 @@
 package io.norberg.h2client;
 
 import java.io.Closeable;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -82,7 +81,7 @@ public class Http2Client implements Closeable {
   }
 
   @Override
-  public void close() throws IOException {
+  public void close() {
     closed = true;
     connection.close();
   }
@@ -99,7 +98,7 @@ public class Http2Client implements Closeable {
     return send(request);
   }
 
-  private CompletableFuture<FullHttpResponse> send(final HttpRequest request) {
+  public CompletableFuture<FullHttpResponse> send(final HttpRequest request) {
 
     final CompletableFuture<FullHttpResponse> future = new CompletableFuture<>();
 
