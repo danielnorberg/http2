@@ -4,6 +4,8 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.LongAdder;
 
 import javax.net.ssl.SSLException;
 
@@ -35,17 +37,28 @@ public class Http2Client implements Closeable {
 
   private static final int DEFAULT_PORT = HTTPS.port();
 
+  private final ConcurrentLinkedQueue<QueuedRequest> queue = new ConcurrentLinkedQueue<>();
+  private final LongAdder outstanding = new LongAdder();
+
+  // TODO: make configurable
+  private final int maxOutstanding = 100;
+
   private final NioEventLoopGroup workerGroup;
   private final AsciiString hostName;
   private final SslContext sslCtx;
+  private final String host;
+  private final int port;
 
   private volatile Connection connection;
+  private volatile boolean closed;
 
   public Http2Client(final String host) {
     this(host, DEFAULT_PORT);
   }
 
   public Http2Client(final String host, final int port) {
+    this.host = host;
+    this.port = port;
 
     // Set up SSL
     final SslProvider provider = OpenSsl.isAlpnSupported() ? SslProvider.OPENSSL : SslProvider.JDK;
@@ -64,12 +77,13 @@ public class Http2Client implements Closeable {
     }
 
     this.workerGroup = new NioEventLoopGroup();
-    this.connection = new Connection(host, port, workerGroup, sslCtx);
     this.hostName = new AsciiString(host + ':' + port);
+    connect();
   }
 
   @Override
   public void close() throws IOException {
+    closed = true;
     connection.close();
   }
 
@@ -86,13 +100,90 @@ public class Http2Client implements Closeable {
   }
 
   private CompletableFuture<FullHttpResponse> send(final HttpRequest request) {
-    // TODO: queue up requests and execute them when a connection is available
-    return connection.connectFuture().thenCompose((ignore) -> {
-      request.headers().add(HttpHeaderNames.HOST, hostName);
-      request.headers().add(HttpConversionUtil.ExtensionHeaderNames.SCHEME.text(), HTTPS.name());
-      request.headers().add(HttpHeaderNames.ACCEPT_ENCODING, HttpHeaderValues.GZIP);
-      request.headers().add(HttpHeaderNames.ACCEPT_ENCODING, HttpHeaderValues.DEFLATE);
-      return connection.send(request);
+
+    final CompletableFuture<FullHttpResponse> future = new CompletableFuture<>();
+
+    // Racy but that's fine, the real limiting happens on the connection
+    final long outstanding = this.outstanding.longValue();
+    if (outstanding > maxOutstanding) {
+      future.completeExceptionally(new OutstandingRequestLimitReachedException());
+      return future;
+    }
+    this.outstanding.increment();
+
+    // Decrement outstanding when the request completes
+    future.whenComplete((r, ex) -> this.outstanding.decrement());
+
+    final Connection connection = this.connection;
+
+    // Are we connected? Then send immediately.
+    if (connection.isConnected()) {
+      send(connection, request, future);
+      return future;
+    }
+
+    queue.add(new QueuedRequest(request, future));
+
+    return future;
+  }
+
+  private void send(final Connection connection, final HttpRequest request,
+                    final CompletableFuture<FullHttpResponse> future) {
+    request.headers().add(HttpHeaderNames.HOST, hostName);
+    request.headers().add(HttpConversionUtil.ExtensionHeaderNames.SCHEME.text(), HTTPS.name());
+    request.headers().add(HttpHeaderNames.ACCEPT_ENCODING, HttpHeaderValues.GZIP);
+    request.headers().add(HttpHeaderNames.ACCEPT_ENCODING, HttpHeaderValues.DEFLATE);
+    connection.send(request, future);
+  }
+
+  private void connect() {
+    // Do nothing if the client is closed
+    if (closed) {
+      return;
+    }
+
+    final Connection connection = new Connection(host, port, workerGroup, sslCtx);
+    connection.connectFuture().whenComplete((c, ex) -> {
+      if (ex != null) {
+        // Retry
+        // TODO: backoff
+        connect();
+        return;
+      }
+
+      // Reconnect on disconnect
+      connection.disconnectFuture().whenComplete((dc, dex) -> {
+        // TODO: backoff
+        connect();
+      });
+
+      // Send queued requests
+      pump();
     });
+
+    this.connection = connection;
+  }
+
+  private void pump() {
+    final Connection connection = this.connection;
+    while (true) {
+      final QueuedRequest queuedRequest = queue.poll();
+      if (queuedRequest == null) {
+        break;
+      }
+      send(connection, queuedRequest.request, queuedRequest.future);
+    }
+  }
+
+  private static class QueuedRequest {
+
+    private final HttpRequest request;
+    private final CompletableFuture<FullHttpResponse> future;
+
+    public QueuedRequest(final HttpRequest request, final CompletableFuture<FullHttpResponse> future) {
+
+      this.request = request;
+      this.future = future;
+    }
   }
 }

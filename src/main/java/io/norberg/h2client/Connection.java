@@ -41,7 +41,8 @@ class Connection implements Closeable {
   private static final int DEFAULT_MAX_FRAME_SIZE = 1024 * 1024;
 
   private final Handler handler = new Handler();
-  private final CompletableFuture<Void> connectFuture = new CompletableFuture<>();
+  private final CompletableFuture<Connection> connectFuture = new CompletableFuture<>();
+  private final CompletableFuture<Connection> disconnectFuture = new CompletableFuture<>();
 
   private final Channel channel;
 
@@ -62,16 +63,18 @@ class Connection implements Closeable {
     this.channel = connectFuture.channel();
   }
 
-  CompletableFuture<FullHttpResponse> send(final HttpRequest request) {
+  void send(final HttpRequest request, final CompletableFuture<FullHttpResponse> future) {
     assert connected;
-    final CompletableFuture<FullHttpResponse> future = new CompletableFuture<>();
     final ChannelPromise promise = new RequestPromise(channel, future);
     channel.writeAndFlush(request, promise);
-    return future;
   }
 
-  CompletableFuture<Void> connectFuture() {
+  CompletableFuture<Connection> connectFuture() {
     return connectFuture;
+  }
+
+  CompletableFuture<Connection> disconnectFuture() {
+    return disconnectFuture;
   }
 
   boolean isConnected() {
@@ -120,6 +123,11 @@ class Connection implements Closeable {
     private int streamId = 1;
 
     @Override
+    public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
+      disconnectFuture.complete(Connection.this);
+    }
+
+    @Override
     public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
       if (!(msg instanceof FullHttpResponse)) {
         ctx.fireChannelRead(msg);
@@ -147,9 +155,18 @@ class Connection implements Closeable {
         throws Exception {
       final HttpRequest request = (HttpRequest) msg;
       final RequestPromise requestPromise = (RequestPromise) promise;
+
+      // Already at max concurrent streams? Fail fast.
+      if (outstanding.size() >= maxConcurrentStreams) {
+        requestPromise.responseFuture.completeExceptionally(new MaxConcurrentStreamsLimitReachedException());
+        return;
+      }
+
+      // Generate ID and store response future in outstanding map to correlate with replies
       final int streamId = nextStreamId();
       request.headers().set(STREAM_ID.text(), streamId);
       outstanding.put(streamId, requestPromise.responseFuture);
+
       super.write(ctx, msg, promise);
     }
 
@@ -180,7 +197,7 @@ class Connection implements Closeable {
 
       // Publish the above settings
       connected = true;
-      connectFuture.complete(null);
+      connectFuture.complete(Connection.this);
     }
   }
 
