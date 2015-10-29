@@ -1,5 +1,7 @@
 package io.norberg.h2client;
 
+import com.spotify.netty4.util.BatchFlusher;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,11 +47,11 @@ class ClientConnection implements Closeable {
   private static final long DEFAULT_MAX_CONCURRENT_STREAMS = 100;
   private static final int DEFAULT_MAX_FRAME_SIZE = 1024 * 1024;
 
-  private final Handler handler = new Handler();
   private final CompletableFuture<ClientConnection> connectFuture = new CompletableFuture<>();
   private final CompletableFuture<ClientConnection> disconnectFuture = new CompletableFuture<>();
 
   private final Channel channel;
+  private final BatchFlusher flusher;
 
   private int maxFrameSize;
   private long maxConcurrentStreams;
@@ -66,12 +68,14 @@ class ClientConnection implements Closeable {
     b.handler(initializer);
     final ChannelFuture connectFuture = b.connect();
     this.channel = connectFuture.channel();
+    this.flusher = new BatchFlusher(channel);
   }
 
   void send(final HttpRequest request, final CompletableFuture<FullHttpResponse> future) {
     assert connected;
     final ChannelPromise promise = new RequestPromise(channel, future);
-    channel.writeAndFlush(request, promise);
+    channel.write(request, promise);
+    flusher.flush();
   }
 
   CompletableFuture<ClientConnection> connectFuture() {
@@ -117,6 +121,7 @@ class ClientConnection implements Closeable {
           .build(connection);
       final SettingsHandler settingsHandler = new SettingsHandler();
       ChannelPipeline pipeline = ch.pipeline();
+      final Handler handler = new Handler();
       pipeline.addLast(sslCtx.newHandler(ch.alloc()), connectionHandler, settingsHandler, handler);
     }
   }
