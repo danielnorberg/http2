@@ -1,5 +1,8 @@
 package io.norberg.h2client;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.Closeable;
 import java.util.HashMap;
 import java.util.Map;
@@ -35,14 +38,16 @@ import io.netty.handler.ssl.SslContext;
 import static io.netty.handler.codec.http2.HttpConversionUtil.ExtensionHeaderNames.STREAM_ID;
 import static io.netty.handler.logging.LogLevel.TRACE;
 
-class Connection implements Closeable {
+class ClientConnection implements Closeable {
+
+  private static final Logger log = LoggerFactory.getLogger(ClientConnection.class);
 
   private static final long DEFAULT_MAX_CONCURRENT_STREAMS = 100;
   private static final int DEFAULT_MAX_FRAME_SIZE = 1024 * 1024;
 
   private final Handler handler = new Handler();
-  private final CompletableFuture<Connection> connectFuture = new CompletableFuture<>();
-  private final CompletableFuture<Connection> disconnectFuture = new CompletableFuture<>();
+  private final CompletableFuture<ClientConnection> connectFuture = new CompletableFuture<>();
+  private final CompletableFuture<ClientConnection> disconnectFuture = new CompletableFuture<>();
 
   private final Channel channel;
 
@@ -51,7 +56,7 @@ class Connection implements Closeable {
 
   private volatile boolean connected;
 
-  Connection(final String host, final int port, final EventLoopGroup workerGroup, final SslContext sslCtx) {
+  ClientConnection(final String host, final int port, final EventLoopGroup workerGroup, final SslContext sslCtx) {
     final Initializer initializer = new Initializer(sslCtx, Integer.MAX_VALUE);
     final Bootstrap b = new Bootstrap();
     b.group(workerGroup);
@@ -69,11 +74,11 @@ class Connection implements Closeable {
     channel.writeAndFlush(request, promise);
   }
 
-  CompletableFuture<Connection> connectFuture() {
+  CompletableFuture<ClientConnection> connectFuture() {
     return connectFuture;
   }
 
-  CompletableFuture<Connection> disconnectFuture() {
+  CompletableFuture<ClientConnection> disconnectFuture() {
     return disconnectFuture;
   }
 
@@ -124,7 +129,10 @@ class Connection implements Closeable {
 
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
-      disconnectFuture.complete(Connection.this);
+      final Exception exception = new ConnectionClosedException();
+      connectFuture.completeExceptionally(exception);
+      outstanding.forEach((streamId, future) -> future.completeExceptionally(exception));
+      disconnectFuture.complete(ClientConnection.this);
     }
 
     @Override
@@ -174,6 +182,12 @@ class Connection implements Closeable {
       streamId += 2;
       return streamId;
     }
+
+    @Override
+    public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause) throws Exception {
+      log.error("caught exception, closing connection", cause);
+      ctx.close();
+    }
   }
 
   private class SettingsHandler extends ChannelInboundHandlerAdapter {
@@ -197,7 +211,7 @@ class Connection implements Closeable {
 
       // Publish the above settings
       connected = true;
-      connectFuture.complete(Connection.this);
+      connectFuture.complete(ClientConnection.this);
     }
   }
 

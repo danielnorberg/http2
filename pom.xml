@@ -34,6 +34,16 @@
 
     <!--test deps-->
     <dependency>
+      <groupId>com.spotify</groupId>
+      <artifactId>logging</artifactId>
+      <version>2.1.1</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>18.0</version>
+    </dependency>
+    <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
       <version>4.12</version>

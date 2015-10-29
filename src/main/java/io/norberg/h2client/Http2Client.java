@@ -4,33 +4,28 @@ import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.atomic.LongAdder;
 
-import javax.net.ssl.SSLException;
-
 import io.netty.buffer.Unpooled;
-import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.EventLoopGroup;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpRequest;
-import io.netty.handler.codec.http2.Http2SecurityUtil;
 import io.netty.handler.codec.http2.HttpConversionUtil;
-import io.netty.handler.ssl.ApplicationProtocolConfig;
-import io.netty.handler.ssl.ApplicationProtocolNames;
-import io.netty.handler.ssl.OpenSsl;
 import io.netty.handler.ssl.SslContext;
-import io.netty.handler.ssl.SslContextBuilder;
-import io.netty.handler.ssl.SslProvider;
-import io.netty.handler.ssl.SupportedCipherSuiteFilter;
 import io.netty.util.AsciiString;
+import io.netty.util.concurrent.DefaultThreadFactory;
 
 import static io.netty.handler.codec.http.HttpMethod.GET;
 import static io.netty.handler.codec.http.HttpMethod.POST;
 import static io.netty.handler.codec.http.HttpScheme.HTTPS;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class Http2Client implements Closeable {
 
@@ -39,16 +34,19 @@ public class Http2Client implements Closeable {
   private final ConcurrentLinkedQueue<QueuedRequest> queue = new ConcurrentLinkedQueue<>();
   private final LongAdder outstanding = new LongAdder();
 
+  private final ScheduledExecutorService scheduler = new ScheduledThreadPoolExecutor(
+      0, new DefaultThreadFactory(Http2Client.class, true));
+
   // TODO: make configurable
   private final int maxOutstanding = 100;
 
-  private final NioEventLoopGroup workerGroup;
+  private final EventLoopGroup workerGroup;
   private final AsciiString hostName;
   private final SslContext sslCtx;
   private final String host;
   private final int port;
 
-  private volatile Connection connection;
+  private volatile ClientConnection connection;
   private volatile boolean closed;
 
   public Http2Client(final String host) {
@@ -58,24 +56,8 @@ public class Http2Client implements Closeable {
   public Http2Client(final String host, final int port) {
     this.host = host;
     this.port = port;
-
-    // Set up SSL
-    final SslProvider provider = OpenSsl.isAlpnSupported() ? SslProvider.OPENSSL : SslProvider.JDK;
-    try {
-      this.sslCtx = SslContextBuilder.forClient()
-          .sslProvider(provider)
-          .ciphers(Http2SecurityUtil.CIPHERS, SupportedCipherSuiteFilter.INSTANCE)
-          .applicationProtocolConfig(new ApplicationProtocolConfig(
-              ApplicationProtocolConfig.Protocol.ALPN,
-              ApplicationProtocolConfig.SelectorFailureBehavior.NO_ADVERTISE,
-              ApplicationProtocolConfig.SelectedListenerFailureBehavior.ACCEPT,
-              ApplicationProtocolNames.HTTP_2))
-          .build();
-    } catch (SSLException e) {
-      throw new RuntimeException(e);
-    }
-
-    this.workerGroup = new NioEventLoopGroup();
+    this.sslCtx = Util.defaultClientSslContext();
+    this.workerGroup = Util.defaultEventLoopGroup();
     this.hostName = new AsciiString(host + ':' + port);
     connect();
   }
@@ -113,7 +95,7 @@ public class Http2Client implements Closeable {
     // Decrement outstanding when the request completes
     future.whenComplete((r, ex) -> this.outstanding.decrement());
 
-    final Connection connection = this.connection;
+    final ClientConnection connection = this.connection;
 
     // Are we connected? Then send immediately.
     if (connection.isConnected()) {
@@ -126,7 +108,7 @@ public class Http2Client implements Closeable {
     return future;
   }
 
-  private void send(final Connection connection, final HttpRequest request,
+  private void send(final ClientConnection connection, final HttpRequest request,
                     final CompletableFuture<FullHttpResponse> future) {
     request.headers().add(HttpHeaderNames.HOST, hostName);
     request.headers().add(HttpConversionUtil.ExtensionHeaderNames.SCHEME.text(), HTTPS.name());
@@ -141,12 +123,21 @@ public class Http2Client implements Closeable {
       return;
     }
 
-    final Connection connection = new Connection(host, port, workerGroup, sslCtx);
+    final ClientConnection connection = new ClientConnection(host, port, workerGroup, sslCtx);
     connection.connectFuture().whenComplete((c, ex) -> {
       if (ex != null) {
+        // Fail outstanding requests
+        while (true) {
+          final QueuedRequest request = queue.poll();
+          if (request == null) {
+            break;
+          }
+          request.future.completeExceptionally(ex);
+        }
+
         // Retry
-        // TODO: backoff
-        connect();
+        // TODO: exponential backoff
+        scheduler.schedule(this::connect, 1, SECONDS);
         return;
       }
 
@@ -164,8 +155,8 @@ public class Http2Client implements Closeable {
   }
 
   private void pump() {
-    final Connection connection = this.connection;
-    while (true) {
+    final ClientConnection connection = this.connection;
+    while (connection.isConnected()) {
       final QueuedRequest queuedRequest = queue.poll();
       if (queuedRequest == null) {
         break;
