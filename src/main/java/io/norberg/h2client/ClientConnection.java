@@ -150,13 +150,13 @@ class ClientConnection implements Closeable {
       final FullHttpResponse response = (FullHttpResponse) msg;
       final int streamId = response.headers().getInt(STREAM_ID.text(), -1);
       if (streamId == -1) {
-        System.err.println("Received unexpected message: " + msg);
+        log.warn("Received unexpected message: {}", msg);
         return;
       }
 
       final CompletableFuture<FullHttpResponse> future = outstanding.remove(streamId);
       if (future == null) {
-        System.err.println("Received unexpected message with stream id: " + streamId);
+        log.warn("Received unexpected message with stream id: {}", streamId);
         return;
       }
 

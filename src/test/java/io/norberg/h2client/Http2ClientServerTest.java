@@ -8,17 +8,31 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.IntStream;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpResponse;
 
-import static com.spotify.logging.LoggingConfigurator.Level.INFO;
+import static com.spotify.logging.LoggingConfigurator.Level.DEBUG;
+import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
+import static io.netty.util.CharsetUtil.UTF_8;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class Http2ClientServerTest {
 
   @Test
   public void testReqRep() throws Exception {
-    final Http2Server server = new Http2Server();
+//    final RequestHandler requestHandler = (request) ->
+//        CompletableFuture.completedFuture(new DefaultFullHttpResponse(HTTP_1_1, OK, EMPTY_BUFFER));
+
+    final RequestHandler requestHandler = (request) ->
+        CompletableFuture.completedFuture(new DefaultFullHttpResponse(HTTP_1_1, OK, Unpooled.copiedBuffer("pong", UTF_8)));
+
+    final Http2Server server = new Http2Server(requestHandler);
     server.bindFuture().syncUninterruptibly();
     final int port = server.port();
 
@@ -30,21 +44,30 @@ public class Http2ClientServerTest {
   @Ignore("this is not a test")
   @Test
   public void reqRepBenchmark() throws Exception {
-    LoggingConfigurator.configureDefaults("benchmark", INFO);
+    LoggingConfigurator.configureDefaults("benchmark", DEBUG);
 
-    final Http2Server server = new Http2Server();
+    final int payloadSize = 100 * 800;
+    final ByteBuf[] payloads = payloads(payloadSize, 1000);
+
+//    final RequestHandler requestHandler = (request) ->
+//        CompletableFuture.completedFuture(new DefaultFullHttpResponse(HTTP_1_1, OK, request.content()));
+
+    final RequestHandler requestHandler = (request) ->
+        CompletableFuture.completedFuture(new DefaultFullHttpResponse(HTTP_1_1, OK, Unpooled.copiedBuffer("pong", UTF_8)));
+
+    final Http2Server server = new Http2Server(requestHandler);
     server.bindFuture().syncUninterruptibly();
     final int port = server.port();
 
     final Http2Client client = new Http2Client("127.0.0.1", port);
 
-    final int concurrency = 100;
+    final int concurrency = 1;
 
     final ProgressMeter meter = new ProgressMeter();
     final ProgressMeter.Metric metric = meter.group("throughput").metric("requests", "requests");
 
     for (int i = 0; i < concurrency; i++) {
-      send(client, metric);
+      send(client, metric, payloads);
     }
 
     while(true) {
@@ -52,9 +75,24 @@ public class Http2ClientServerTest {
     }
   }
 
-  private void send(final Http2Client client, final ProgressMeter.Metric metric) {
+  private ByteBuf[] payloads(final int size, final int n) {
+    return IntStream.range(0, n).mapToObj(i -> payload(size)).toArray(ByteBuf[]::new);
+  }
+
+  private ByteBuf payload(final int size) {
+    final ThreadLocalRandom r = ThreadLocalRandom.current();
+    final ByteBuf payload = Unpooled.buffer(size);
+    for (int i = 0; i < size; i++) {
+      payload.writeByte(r.nextInt());
+    }
+    return Unpooled.unreleasableBuffer(payload);
+  }
+
+  private void send(final Http2Client client, final ProgressMeter.Metric metric, final ByteBuf[] payloads) {
+//    final ByteBuf payload = payloads[ThreadLocalRandom.current().nextInt(payloads.length)];
+    final ByteBuf payload = Unpooled.copiedBuffer("hello world", UTF_8);
     final long start = System.nanoTime();
-    client.get("/hello").whenComplete((response, ex) -> {
+    client.post("/hello", payload).whenComplete((response, ex) -> {
       if (ex != null) {
         ex.printStackTrace();
         return;
@@ -62,7 +100,7 @@ public class Http2ClientServerTest {
       final long end = System.nanoTime();
       final long latency = end - start;
       metric.inc(latency);
-      send(client, metric);
+      send(client, metric, payloads);
     });
   }
 }

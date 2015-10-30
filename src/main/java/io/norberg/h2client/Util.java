@@ -1,6 +1,7 @@
 package io.norberg.h2client;
 
 import java.security.cert.CertificateException;
+import java.util.concurrent.CompletableFuture;
 
 import javax.net.ssl.SSLException;
 
@@ -62,5 +63,11 @@ class Util {
 
   static NioEventLoopGroup defaultEventLoopGroup() {
     return LazyDefaultEventLoopGroup.INSTANCE;
+  }
+
+  static <T> CompletableFuture<T> failure(final Exception e) {
+    final CompletableFuture<T> failure = new CompletableFuture<>();
+    failure.completeExceptionally(e);
+    return failure;
   }
 }

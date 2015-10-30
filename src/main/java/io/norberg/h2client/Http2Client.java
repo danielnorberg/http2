@@ -8,6 +8,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.atomic.LongAdder;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.EventLoopGroup;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
@@ -75,8 +76,11 @@ public class Http2Client implements Closeable {
   }
 
   public CompletableFuture<FullHttpResponse> post(final String uri, final ByteBuffer data) {
-    final FullHttpRequest request = new DefaultFullHttpRequest(
-        HTTP_1_1, POST, uri, Unpooled.wrappedBuffer(data));
+    return post(uri, Unpooled.wrappedBuffer(data));
+  }
+
+  public CompletableFuture<FullHttpResponse> post(final String uri, final ByteBuf data) {
+    final FullHttpRequest request = new DefaultFullHttpRequest(HTTP_1_1, POST, uri, data);
     return send(request);
   }
 
