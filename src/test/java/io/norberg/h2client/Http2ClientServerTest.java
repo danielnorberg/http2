@@ -35,15 +35,17 @@ public class Http2ClientServerTest {
         CompletableFuture.completedFuture(new DefaultFullHttpResponse(
             HTTP_1_1, OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
+    // Start server
     final Http2Server server = new Http2Server(requestHandler);
     server.bindFuture().syncUninterruptibly();
     final int port = server.port();
 
+    // Start client
     final Http2Client client = new Http2Client("127.0.0.1", port);
+
+    // Make a request
     final CompletableFuture<FullHttpResponse> future = client.get("/hello/world");
-
     final FullHttpResponse response = future.get();
-
     final String payload = response.content().toString(UTF_8);
     assertThat(payload, is("hello world"));
   }
