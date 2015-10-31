@@ -1,6 +1,5 @@
 package io.norberg.h2client;
 
-import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -28,7 +27,7 @@ import static io.netty.handler.codec.http.HttpScheme.HTTPS;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
-public class Http2Client implements Closeable {
+public class Http2Client {
 
   private static final int DEFAULT_PORT = HTTPS.port();
 
@@ -47,6 +46,8 @@ public class Http2Client implements Closeable {
   private final String host;
   private final int port;
 
+  private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
+
   private volatile ClientConnection connection;
   private volatile boolean closed;
 
@@ -63,10 +64,15 @@ public class Http2Client implements Closeable {
     connect();
   }
 
-  @Override
-  public void close() {
+  public CompletableFuture<Void> close() {
     closed = true;
-    connection.close();
+    scheduler.shutdownNow();
+    if (connection != null) {
+      connection.close().addListener(future -> closeFuture.complete(null));
+    } else {
+      closeFuture.complete(null);
+    }
+    return closeFuture;
   }
 
   public CompletableFuture<FullHttpResponse> get(final String uri) {

@@ -16,6 +16,7 @@ import io.netty.handler.ssl.SslProvider;
 import io.netty.handler.ssl.SupportedCipherSuiteFilter;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.netty.util.concurrent.Future;
 
 class Util {
 
@@ -63,6 +64,18 @@ class Util {
 
   static NioEventLoopGroup defaultEventLoopGroup() {
     return LazyDefaultEventLoopGroup.INSTANCE;
+  }
+
+  static CompletableFuture<Void> completableFuture(final Future<Void> f) {
+    final CompletableFuture<Void> cf = new CompletableFuture<>();
+    f.addListener(future -> {
+      if (f.isSuccess()) {
+        cf.complete(null);
+      } else {
+        cf.completeExceptionally(f.cause());
+      }
+    });
+    return cf;
   }
 
   static <T> CompletableFuture<T> failure(final Exception e) {

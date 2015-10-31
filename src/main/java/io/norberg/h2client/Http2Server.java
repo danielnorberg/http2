@@ -16,6 +16,8 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.group.ChannelGroup;
+import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -39,6 +41,7 @@ import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.codec.http2.HttpToHttp2ConnectionHandler;
 import io.netty.handler.codec.http2.InboundHttp2ToHttpAdapter;
 import io.netty.handler.ssl.SslContext;
+import io.netty.util.concurrent.GlobalEventExecutor;
 
 import static io.netty.buffer.Unpooled.EMPTY_BUFFER;
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
@@ -53,20 +56,21 @@ public class Http2Server {
 
   private static final int MAX_CONTENT_LENGTH = Integer.MAX_VALUE;
 
+  private final ChannelGroup channels = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE, true);
+
   private final ChannelFuture bindFuture;
   private final Channel channel;
-
   private final RequestHandler requestHandler;
 
   public Http2Server(final RequestHandler requestHandler) {
-    this(0, requestHandler);
+    this(requestHandler, 0);
   }
 
-  public Http2Server(final int port, final RequestHandler requestHandler) {
-    this("", port, requestHandler);
+  public Http2Server(final RequestHandler requestHandler, final int port) {
+    this(requestHandler, "", port);
   }
 
-  public Http2Server(final String hostname, final int port, final RequestHandler requestHandler) {
+  public Http2Server(final RequestHandler requestHandler, final String hostname, final int port) {
     this.requestHandler = Objects.requireNonNull(requestHandler, "requestHandler");
 
     final SslContext sslCtx = Util.defaultServerSslContext();
@@ -78,6 +82,12 @@ public class Http2Server {
 
     this.bindFuture = b.bind(hostname, port);
     this.channel = bindFuture.channel();
+
+    channels.add(channel);
+  }
+
+  public CompletableFuture<Void> close() {
+    return Util.completableFuture(channels.close());
   }
 
   public String hostname() {
@@ -180,6 +190,8 @@ public class Http2Server {
 
     @Override
     protected void initChannel(SocketChannel ch) throws Exception {
+      channels.add(ch);
+
       final Http2Connection connection = new DefaultHttp2Connection(true);
       final InboundHttp2ToHttpAdapter listener = new InboundHttp2ToHttpAdapter.Builder(connection)
           .propagateSettings(true)

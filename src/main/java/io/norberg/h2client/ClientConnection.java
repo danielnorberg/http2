@@ -5,7 +5,6 @@ import com.spotify.netty4.util.BatchFlusher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Closeable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -50,7 +49,7 @@ import io.netty.handler.ssl.SslContext;
 import static io.netty.handler.codec.http2.HttpConversionUtil.ExtensionHeaderNames.STREAM_ID;
 import static io.netty.handler.logging.LogLevel.TRACE;
 
-class ClientConnection implements Closeable {
+class ClientConnection {
 
   private static final Logger log = LoggerFactory.getLogger(ClientConnection.class);
 
@@ -76,8 +75,14 @@ class ClientConnection implements Closeable {
     b.option(ChannelOption.SO_KEEPALIVE, true);
     b.remoteAddress(host, port);
     b.handler(initializer);
-    final ChannelFuture connectFuture = b.connect();
-    this.channel = connectFuture.channel();
+    b.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000);
+    final ChannelFuture future = b.connect();
+    future.addListener(f -> {
+      if (!future.isSuccess()) {
+        connectFuture.completeExceptionally(new ConnectionClosedException(future.cause()));
+      }
+    });
+    this.channel = future.channel();
     this.flusher = new BatchFlusher(channel);
   }
 
@@ -100,8 +105,12 @@ class ClientConnection implements Closeable {
     return connected && channel.isActive();
   }
 
-  public void close() {
-    channel.close();
+  ChannelFuture close() {
+    return channel.close();
+  }
+
+  ChannelFuture closeFuture() {
+    return channel.closeFuture();
   }
 
   private class Initializer extends ChannelInitializer<SocketChannel> {
@@ -167,7 +176,6 @@ class ClientConnection implements Closeable {
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
       final Exception exception = new ConnectionClosedException();
-      connectFuture.completeExceptionally(exception);
       outstanding.forEach((streamId, future) -> future.completeExceptionally(exception));
       disconnectFuture.complete(ClientConnection.this);
     }

@@ -8,6 +8,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.IntStream;
 
@@ -21,8 +22,10 @@ import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 import static io.netty.util.CharsetUtil.UTF_8;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.fail;
 
 public class Http2ClientServerTest {
 
@@ -43,6 +46,41 @@ public class Http2ClientServerTest {
 
     final String payload = response.content().toString(UTF_8);
     assertThat(payload, is("hello world"));
+  }
+
+  @Test
+  public void testClientReconnects() throws Exception {
+    final RequestHandler requestHandler = (request) ->
+        CompletableFuture.completedFuture(new DefaultFullHttpResponse(
+            HTTP_1_1, OK, Unpooled.copiedBuffer("hello world", UTF_8)));
+
+    // Start server
+    final Http2Server server1 = new Http2Server(requestHandler);
+    server1.bindFuture().syncUninterruptibly();
+    final int port = server1.port();
+
+    // Make a successful request
+    final Http2Client client = new Http2Client("127.0.0.1", port);
+    client.get("/hello1").get();
+
+    // Stop server
+    server1.close().get();
+
+    // Make another request, observe it fail
+    final CompletableFuture<FullHttpResponse> failure = client.get("/hello2");
+    try {
+      failure.get();
+      fail();
+    } catch (ExecutionException e) {
+      assertThat(e.getCause(), is(instanceOf(ConnectionClosedException.class)));
+    }
+
+    // Start server again
+    final Http2Server server2 = new Http2Server(requestHandler, port);
+    server2.bindFuture().syncUninterruptibly();
+
+    // Make another successful request after client reconnects
+    client.get("/hello2").get();
   }
 
   @Ignore("this is not a test")
