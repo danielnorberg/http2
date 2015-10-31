@@ -68,20 +68,25 @@ class ClientConnection {
   private volatile boolean connected;
 
   ClientConnection(final String host, final int port, final EventLoopGroup workerGroup, final SslContext sslCtx) {
-    final Initializer initializer = new Initializer(sslCtx, Integer.MAX_VALUE);
-    final Bootstrap b = new Bootstrap();
-    b.group(workerGroup);
-    b.channel(NioSocketChannel.class);
-    b.option(ChannelOption.SO_KEEPALIVE, true);
-    b.remoteAddress(host, port);
-    b.handler(initializer);
-    b.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000);
+
+    // Connect
+    final Bootstrap b = new Bootstrap()
+        .group(workerGroup)
+        .channel(NioSocketChannel.class)
+        .option(ChannelOption.SO_KEEPALIVE, true)
+        .remoteAddress(host, port)
+        .handler(new Initializer(sslCtx, Integer.MAX_VALUE))
+        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000);
+
     final ChannelFuture future = b.connect();
+
+    // Propagate connection failure
     future.addListener(f -> {
       if (!future.isSuccess()) {
         connectFuture.completeExceptionally(new ConnectionClosedException(future.cause()));
       }
     });
+
     this.channel = future.channel();
     this.flusher = new BatchFlusher(channel);
   }

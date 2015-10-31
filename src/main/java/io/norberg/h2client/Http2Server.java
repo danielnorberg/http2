@@ -76,9 +76,11 @@ public class Http2Server {
     final SslContext sslCtx = Util.defaultServerSslContext();
     final NioEventLoopGroup group = Util.defaultEventLoopGroup();
 
-    final ServerBootstrap b = new ServerBootstrap();
-    b.option(ChannelOption.SO_BACKLOG, 1024);
-    b.group(group).channel(NioServerSocketChannel.class).childHandler(new Initializer(sslCtx));
+    final ServerBootstrap b = new ServerBootstrap()
+        .option(ChannelOption.SO_BACKLOG, 1024)
+        .group(group)
+        .channel(NioServerSocketChannel.class)
+        .childHandler(new Initializer(sslCtx));
 
     this.bindFuture = b.bind(hostname, port);
     this.channel = bindFuture.channel();
