@@ -11,7 +11,7 @@
   <url>http://maven.apache.org</url>
 
   <properties>
-    <netty.version>4.1.0.Beta7</netty.version>
+    <netty.version>4.1.0.Beta8-SNAPSHOT</netty.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
