@@ -23,7 +23,18 @@ import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http2.DefaultHttp2Connection;
+import io.netty.handler.codec.http2.DefaultHttp2ConnectionDecoder;
+import io.netty.handler.codec.http2.DefaultHttp2ConnectionEncoder;
+import io.netty.handler.codec.http2.DefaultHttp2FrameReader;
+import io.netty.handler.codec.http2.DefaultHttp2FrameWriter;
+import io.netty.handler.codec.http2.Http2Connection;
+import io.netty.handler.codec.http2.Http2ConnectionDecoder;
+import io.netty.handler.codec.http2.Http2ConnectionEncoder;
 import io.netty.handler.codec.http2.Http2FrameLogger;
+import io.netty.handler.codec.http2.Http2FrameReader;
+import io.netty.handler.codec.http2.Http2FrameWriter;
+import io.netty.handler.codec.http2.Http2InboundFrameLogger;
+import io.netty.handler.codec.http2.Http2OutboundFrameLogger;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.codec.http2.HttpToHttp2ConnectionHandler;
 import io.netty.handler.codec.http2.InboundHttp2ToHttpAdapter;
@@ -169,20 +180,41 @@ public class Http2Server {
 
     @Override
     protected void initChannel(SocketChannel ch) throws Exception {
-      final DefaultHttp2Connection connection = new DefaultHttp2Connection(true);
+      final Http2Connection connection = new DefaultHttp2Connection(true);
       final InboundHttp2ToHttpAdapter listener = new InboundHttp2ToHttpAdapter.Builder(connection)
           .propagateSettings(true)
           .validateHttpHeaders(false)
           .maxContentLength(MAX_CONTENT_LENGTH)
           .build();
 
-      ch.pipeline().addLast(sslCtx.newHandler(ch.alloc()),
-                            new HttpToHttp2ConnectionHandler.Builder()
-                                .frameListener(listener)
-                                .frameLogger(logger)
-                                .build(connection),
-                            new Handler(ch));
+      final Http2FrameReader reader = new Http2InboundFrameLogger(new DefaultHttp2FrameReader(true), logger);
+      final Http2FrameWriter writer = new Http2OutboundFrameLogger(new DefaultHttp2FrameWriter(), logger);
+
+      final Http2ConnectionEncoder encoder = new DefaultHttp2ConnectionEncoder(connection, writer);
+      final Http2ConnectionDecoder decoder = new DefaultHttp2ConnectionDecoder(connection, encoder, reader);
+      decoder.frameListener(listener);
+
+      final Http2Settings settings = new Http2Settings();
+
+      final HttpToHttp2ConnectionHandler connectionHandler = new ConnectionHandler(decoder, encoder, settings);
+
+      ch.pipeline().addLast(sslCtx.newHandler(ch.alloc()), connectionHandler, new Handler(ch));
+
+      // XXX: The connection handler writes the settings immediately when it's added, without flushing.
+      ch.flush();
     }
+
+
   }
 
+  private static class ConnectionHandler extends HttpToHttp2ConnectionHandler {
+
+    public ConnectionHandler(final Http2ConnectionDecoder decoder, final Http2ConnectionEncoder encoder,
+                             final Http2Settings settings) {super(decoder, encoder, settings, true);}
+
+    @Override
+    public void channelReadComplete(final ChannelHandlerContext ctx) throws Exception {
+      // Override to not flush
+    }
+  }
 }

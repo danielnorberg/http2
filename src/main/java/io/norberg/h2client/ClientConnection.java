@@ -20,7 +20,6 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.EventLoopGroup;
@@ -29,9 +28,20 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http2.DefaultHttp2Connection;
+import io.netty.handler.codec.http2.DefaultHttp2ConnectionDecoder;
+import io.netty.handler.codec.http2.DefaultHttp2ConnectionEncoder;
+import io.netty.handler.codec.http2.DefaultHttp2FrameReader;
+import io.netty.handler.codec.http2.DefaultHttp2FrameWriter;
 import io.netty.handler.codec.http2.DelegatingDecompressorFrameListener;
 import io.netty.handler.codec.http2.Http2Connection;
+import io.netty.handler.codec.http2.Http2ConnectionDecoder;
+import io.netty.handler.codec.http2.Http2ConnectionEncoder;
+import io.netty.handler.codec.http2.Http2FrameListener;
 import io.netty.handler.codec.http2.Http2FrameLogger;
+import io.netty.handler.codec.http2.Http2FrameReader;
+import io.netty.handler.codec.http2.Http2FrameWriter;
+import io.netty.handler.codec.http2.Http2InboundFrameLogger;
+import io.netty.handler.codec.http2.Http2OutboundFrameLogger;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.codec.http2.HttpToHttp2ConnectionHandler;
 import io.netty.handler.codec.http2.InboundHttp2ToHttpAdapter;
@@ -100,7 +110,6 @@ class ClientConnection implements Closeable {
 
     private final SslContext sslCtx;
     private final int maxContentLength;
-    private HttpToHttp2ConnectionHandler connectionHandler;
 
     public Initializer(SslContext sslCtx, int maxContentLength) {
       this.sslCtx = Objects.requireNonNull(sslCtx, "sslCtx");
@@ -110,19 +119,42 @@ class ClientConnection implements Closeable {
     @Override
     public void initChannel(SocketChannel ch) throws Exception {
       final Http2Connection connection = new DefaultHttp2Connection(false);
-      connectionHandler = new HttpToHttp2ConnectionHandler.Builder()
-          .frameListener(new DelegatingDecompressorFrameListener(
-              connection,
-              new InboundHttp2ToHttpAdapter.Builder(connection)
-                  .maxContentLength(maxContentLength)
-                  .propagateSettings(true)
-                  .build()))
-          .frameLogger(logger)
-          .build(connection);
+
+      final Http2FrameListener listener = new DelegatingDecompressorFrameListener(
+          connection, new InboundHttp2ToHttpAdapter.Builder(connection)
+          .maxContentLength(maxContentLength)
+          .propagateSettings(true)
+          .build());
+
+      final Http2FrameReader reader = new Http2InboundFrameLogger(new DefaultHttp2FrameReader(true), logger);
+      final Http2FrameWriter writer = new Http2OutboundFrameLogger(new DefaultHttp2FrameWriter(), logger);
+
+      final Http2ConnectionEncoder encoder = new DefaultHttp2ConnectionEncoder(connection, writer);
+      final Http2ConnectionDecoder decoder = new DefaultHttp2ConnectionDecoder(connection, encoder, reader);
+      decoder.frameListener(listener);
+
+      final Http2Settings settings = new Http2Settings();
+
+      final HttpToHttp2ConnectionHandler connectionHandler = new ConnectionHandler(decoder, encoder, settings);
+
       final SettingsHandler settingsHandler = new SettingsHandler();
-      ChannelPipeline pipeline = ch.pipeline();
+
       final Handler handler = new Handler();
-      pipeline.addLast(sslCtx.newHandler(ch.alloc()), connectionHandler, settingsHandler, handler);
+
+      ch.pipeline().addLast(sslCtx.newHandler(ch.alloc()), connectionHandler, settingsHandler, handler);
+    }
+  }
+
+  private static class ConnectionHandler extends HttpToHttp2ConnectionHandler {
+
+    public ConnectionHandler(final Http2ConnectionDecoder decoder, final Http2ConnectionEncoder encoder,
+                             final Http2Settings settings) {
+      super(decoder, encoder, settings, true);
+    }
+
+    @Override
+    public void channelReadComplete(final ChannelHandlerContext ctx) throws Exception {
+      // Override to not flush
     }
   }
 

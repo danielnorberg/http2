@@ -21,16 +21,16 @@ import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 import static io.netty.util.CharsetUtil.UTF_8;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertThat;
 
 public class Http2ClientServerTest {
 
   @Test
   public void testReqRep() throws Exception {
-//    final RequestHandler requestHandler = (request) ->
-//        CompletableFuture.completedFuture(new DefaultFullHttpResponse(HTTP_1_1, OK, EMPTY_BUFFER));
-
     final RequestHandler requestHandler = (request) ->
-        CompletableFuture.completedFuture(new DefaultFullHttpResponse(HTTP_1_1, OK, Unpooled.copiedBuffer("pong", UTF_8)));
+        CompletableFuture.completedFuture(new DefaultFullHttpResponse(
+            HTTP_1_1, OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     final Http2Server server = new Http2Server(requestHandler);
     server.bindFuture().syncUninterruptibly();
@@ -38,7 +38,11 @@ public class Http2ClientServerTest {
 
     final Http2Client client = new Http2Client("127.0.0.1", port);
     final CompletableFuture<FullHttpResponse> future = client.get("/hello/world");
+
     final FullHttpResponse response = future.get();
+
+    final String payload = response.content().toString(UTF_8);
+    assertThat(payload, is("hello world"));
   }
 
   @Ignore("this is not a test")
@@ -46,14 +50,11 @@ public class Http2ClientServerTest {
   public void reqRepBenchmark() throws Exception {
     LoggingConfigurator.configureDefaults("benchmark", DEBUG);
 
-    final int payloadSize = 100 * 800;
+    final int payloadSize = 128;
     final ByteBuf[] payloads = payloads(payloadSize, 1000);
 
-//    final RequestHandler requestHandler = (request) ->
-//        CompletableFuture.completedFuture(new DefaultFullHttpResponse(HTTP_1_1, OK, request.content()));
-
     final RequestHandler requestHandler = (request) ->
-        CompletableFuture.completedFuture(new DefaultFullHttpResponse(HTTP_1_1, OK, Unpooled.copiedBuffer("pong", UTF_8)));
+        CompletableFuture.completedFuture(new DefaultFullHttpResponse(HTTP_1_1, OK, request.content()));
 
     final Http2Server server = new Http2Server(requestHandler);
     server.bindFuture().syncUninterruptibly();
@@ -61,7 +62,7 @@ public class Http2ClientServerTest {
 
     final Http2Client client = new Http2Client("127.0.0.1", port);
 
-    final int concurrency = 1;
+    final int concurrency = 100;
 
     final ProgressMeter meter = new ProgressMeter();
     final ProgressMeter.Metric metric = meter.group("throughput").metric("requests", "requests");
@@ -89,8 +90,7 @@ public class Http2ClientServerTest {
   }
 
   private void send(final Http2Client client, final ProgressMeter.Metric metric, final ByteBuf[] payloads) {
-//    final ByteBuf payload = payloads[ThreadLocalRandom.current().nextInt(payloads.length)];
-    final ByteBuf payload = Unpooled.copiedBuffer("hello world", UTF_8);
+    final ByteBuf payload = payloads[ThreadLocalRandom.current().nextInt(payloads.length)].duplicate();
     final long start = System.nanoTime();
     client.post("/hello", payload).whenComplete((response, ex) -> {
       if (ex != null) {
