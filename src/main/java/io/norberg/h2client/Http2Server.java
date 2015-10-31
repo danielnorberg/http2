@@ -213,22 +213,14 @@ public class Http2Server {
       final HttpToHttp2ConnectionHandler connectionHandler = new ConnectionHandler(decoder, encoder, settings);
 
       ch.pipeline().addLast(sslCtx.newHandler(ch.alloc()), connectionHandler, new Handler(ch));
-
-      // XXX: The connection handler writes the settings immediately when it's added, without flushing.
-      ch.flush();
     }
-
-
   }
 
   private static class ConnectionHandler extends HttpToHttp2ConnectionHandler {
 
     public ConnectionHandler(final Http2ConnectionDecoder decoder, final Http2ConnectionEncoder encoder,
-                             final Http2Settings settings) {super(decoder, encoder, settings, true);}
-
-    @Override
-    public void channelReadComplete(final ChannelHandlerContext ctx) throws Exception {
-      // Override to not flush
+                             final Http2Settings settings) {
+      super(decoder, encoder, settings, true);
     }
   }
 }

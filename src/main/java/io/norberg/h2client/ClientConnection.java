@@ -165,11 +165,6 @@ class ClientConnection {
                              final Http2Settings settings) {
       super(decoder, encoder, settings, true);
     }
-
-    @Override
-    public void channelReadComplete(final ChannelHandlerContext ctx) throws Exception {
-      // Override to not flush
-    }
   }
 
   private class Handler extends ChannelDuplexHandler {
