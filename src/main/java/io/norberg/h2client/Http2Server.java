@@ -48,6 +48,7 @@ import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERR
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 import static io.netty.handler.codec.http2.HttpConversionUtil.ExtensionHeaderNames.STREAM_ID;
 import static io.netty.handler.logging.LogLevel.TRACE;
+import static io.norberg.h2client.Util.completableFuture;
 import static io.norberg.h2client.Util.failure;
 
 public class Http2Server {
@@ -61,6 +62,8 @@ public class Http2Server {
   private final ChannelFuture bindFuture;
   private final Channel channel;
   private final RequestHandler requestHandler;
+
+  private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
 
   public Http2Server(final RequestHandler requestHandler) {
     this(requestHandler, 0);
@@ -89,7 +92,12 @@ public class Http2Server {
   }
 
   public CompletableFuture<Void> close() {
-    return Util.completableFuture(channels.close());
+    return completableFuture(channels.close())
+        .thenRun(() -> closeFuture.complete(null));
+  }
+
+  public CompletableFuture<Void> closeFuture() {
+    return closeFuture;
   }
 
   public String hostname() {
@@ -195,6 +203,7 @@ public class Http2Server {
       channels.add(ch);
 
       final Http2Connection connection = new DefaultHttp2Connection(true);
+
       final InboundHttp2ToHttpAdapter listener = new InboundHttp2ToHttpAdapter.Builder(connection)
           .propagateSettings(true)
           .validateHttpHeaders(false)

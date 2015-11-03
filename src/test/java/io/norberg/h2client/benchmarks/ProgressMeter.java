@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.norberg.h2client;
+package io.norberg.h2client.benchmarks;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;

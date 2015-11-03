@@ -75,6 +75,10 @@ public class Http2Client {
     return closeFuture;
   }
 
+  public CompletableFuture<Void> closeFuture() {
+    return closeFuture;
+  }
+
   public CompletableFuture<FullHttpResponse> get(final String uri) {
     final FullHttpRequest request = new DefaultFullHttpRequest(
         HTTP_1_1, GET, uri);

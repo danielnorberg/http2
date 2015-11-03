@@ -50,3 +50,14 @@ E.g.
 ```
 
 See more: http://netty.io/wiki/forked-tomcat-native.html
+
+Benchmark
+=========
+
+```
+mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath io.norberg.h2client.benchmarks.BenchmarkServer"
+```
+
+```
+mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath io.norberg.h2client.benchmarks.BenchmarkClient"
+```
