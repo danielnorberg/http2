@@ -10,6 +10,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
@@ -32,14 +33,17 @@ import io.netty.handler.codec.http2.DefaultHttp2FrameWriter;
 import io.netty.handler.codec.http2.Http2Connection;
 import io.netty.handler.codec.http2.Http2ConnectionDecoder;
 import io.netty.handler.codec.http2.Http2ConnectionEncoder;
+import io.netty.handler.codec.http2.Http2ConnectionHandler;
+import io.netty.handler.codec.http2.Http2Exception;
+import io.netty.handler.codec.http2.Http2Flags;
+import io.netty.handler.codec.http2.Http2FrameListener;
 import io.netty.handler.codec.http2.Http2FrameLogger;
 import io.netty.handler.codec.http2.Http2FrameReader;
 import io.netty.handler.codec.http2.Http2FrameWriter;
+import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.Http2InboundFrameLogger;
 import io.netty.handler.codec.http2.Http2OutboundFrameLogger;
 import io.netty.handler.codec.http2.Http2Settings;
-import io.netty.handler.codec.http2.HttpToHttp2ConnectionHandler;
-import io.netty.handler.codec.http2.InboundHttp2ToHttpAdapter;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
@@ -204,32 +208,106 @@ public class Http2Server {
 
       final Http2Connection connection = new DefaultHttp2Connection(true);
 
-      final InboundHttp2ToHttpAdapter listener = new InboundHttp2ToHttpAdapter.Builder(connection)
-          .propagateSettings(true)
-          .validateHttpHeaders(false)
-          .maxContentLength(MAX_CONTENT_LENGTH)
-          .build();
-
       final Http2FrameReader reader = new Http2InboundFrameLogger(new DefaultHttp2FrameReader(true), logger);
       final Http2FrameWriter writer = new Http2OutboundFrameLogger(new DefaultHttp2FrameWriter(), logger);
 
       final Http2ConnectionEncoder encoder = new DefaultHttp2ConnectionEncoder(connection, writer);
       final Http2ConnectionDecoder decoder = new DefaultHttp2ConnectionDecoder(connection, encoder, reader);
-      decoder.frameListener(listener);
+      decoder.frameListener(new FrameListener());
 
       final Http2Settings settings = new Http2Settings();
 
-      final HttpToHttp2ConnectionHandler connectionHandler = new ConnectionHandler(decoder, encoder, settings);
+      final Http2ConnectionHandler connectionHandler = new Http2ConnectionHandler(decoder, encoder, settings) {};
 
       ch.pipeline().addLast(sslCtx.newHandler(ch.alloc()), connectionHandler, new Handler(ch));
     }
   }
 
-  private static class ConnectionHandler extends HttpToHttp2ConnectionHandler {
+  private class FrameListener implements Http2FrameListener {
 
-    public ConnectionHandler(final Http2ConnectionDecoder decoder, final Http2ConnectionEncoder encoder,
-                             final Http2Settings settings) {
-      super(decoder, encoder, settings, true);
+    @Override
+    public int onDataRead(final ChannelHandlerContext ctx, final int streamId, final ByteBuf data, final int padding,
+                          final boolean endOfStream)
+        throws Http2Exception {
+      final Http2Request
+      if (endOfStream) {
+        requestHandler.handleRequest()
+      }
+    }
+
+    @Override
+    public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId, final Http2Headers headers,
+                              final int padding,
+                              final boolean endOfStream) throws Http2Exception {
+
+    }
+
+    @Override
+    public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId, final Http2Headers headers,
+                              final int streamDependency,
+                              final short weight, final boolean exclusive, final int padding, final boolean endOfStream)
+        throws Http2Exception {
+
+    }
+
+    @Override
+    public void onPriorityRead(final ChannelHandlerContext ctx, final int streamId, final int streamDependency,
+                               final short weight,
+                               final boolean exclusive) throws Http2Exception {
+
+    }
+
+    @Override
+    public void onRstStreamRead(final ChannelHandlerContext ctx, final int streamId, final long errorCode)
+        throws Http2Exception {
+
+    }
+
+    @Override
+    public void onSettingsAckRead(final ChannelHandlerContext ctx) throws Http2Exception {
+
+    }
+
+    @Override
+    public void onSettingsRead(final ChannelHandlerContext ctx, final Http2Settings settings) throws Http2Exception {
+
+    }
+
+    @Override
+    public void onPingRead(final ChannelHandlerContext ctx, final ByteBuf data) throws Http2Exception {
+
+    }
+
+    @Override
+    public void onPingAckRead(final ChannelHandlerContext ctx, final ByteBuf data) throws Http2Exception {
+
+    }
+
+    @Override
+    public void onPushPromiseRead(final ChannelHandlerContext ctx, final int streamId, final int promisedStreamId,
+                                  final Http2Headers headers,
+                                  final int padding) throws Http2Exception {
+
+    }
+
+    @Override
+    public void onGoAwayRead(final ChannelHandlerContext ctx, final int lastStreamId, final long errorCode,
+                             final ByteBuf debugData)
+        throws Http2Exception {
+
+    }
+
+    @Override
+    public void onWindowUpdateRead(final ChannelHandlerContext ctx, final int streamId, final int windowSizeIncrement)
+        throws Http2Exception {
+
+    }
+
+    @Override
+    public void onUnknownFrame(final ChannelHandlerContext ctx, final byte frameType, final int streamId,
+                               final Http2Flags flags, final ByteBuf payload)
+        throws Http2Exception {
+
     }
   }
 }
