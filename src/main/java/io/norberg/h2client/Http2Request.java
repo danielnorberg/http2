@@ -17,6 +17,10 @@ public class Http2Request {
     this.headers = headers;
   }
 
+  ByteBuf content() {
+    return content;
+  }
+
   void content(final ByteBuf content) {
     this.content = content;
   }
@@ -40,5 +44,9 @@ public class Http2Request {
            ", headers=" + headers +
            ", content=" + content +
            '}';
+  }
+
+  public Http2Headers headers() {
+    return null;
   }
 }

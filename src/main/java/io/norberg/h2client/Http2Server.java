@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import java.net.InetSocketAddress;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
@@ -160,11 +161,24 @@ public class Http2Server {
 
     private final IntObjectHashMap<Http2Request> requests = new IntObjectHashMap<>();
     private Http2FrameWriter encoder;
+    private final Channel channel;
 
     private BatchFlusher flusher;
 
+    private Executor executor = new Executor() {
+      @Override
+      public void execute(final Runnable command) {
+        if (channel.eventLoop().inEventLoop()) {
+          command.run();
+        } else {
+          channel.eventLoop().execute(command);
+        }
+      }
+    };
+
     private FrameHandler(final Http2FrameWriter encoder, final Channel channel) {
       this.encoder = encoder;
+      this.channel = channel;
       this.flusher = new BatchFlusher(channel);
     }
 
@@ -175,15 +189,19 @@ public class Http2Server {
       log.debug("got data: streamId={}, data={}, padding={}, endOfStream={}", streamId, data, padding, endOfStream);
       final Http2Request request = existingRequest(streamId);
       final int n = data.readableBytes();
-      request.content(data);
+      ByteBuf content = request.content();
+      if (content == null) {
+        content = ctx.alloc().buffer(data.readableBytes());
+        request.content(content);
+      }
+      content.writeBytes(data);
       maybeDispatch(ctx, streamId, endOfStream, request);
       return n + padding;
     }
 
     @Override
     public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId, final Http2Headers headers,
-                              final int padding,
-                              final boolean endOfStream) throws Http2Exception {
+                              final int padding, final boolean endOfStream) throws Http2Exception {
       log.debug("got headers: streamId={}, headers={}, padding={}, endOfStream={}",
                 streamId, headers, padding, endOfStream);
       final Http2Request request = newOrExistingRequest(streamId);
@@ -193,8 +211,8 @@ public class Http2Server {
 
     @Override
     public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId, final Http2Headers headers,
-                              final int streamDependency,
-                              final short weight, final boolean exclusive, final int padding, final boolean endOfStream)
+                              final int streamDependency, final short weight, final boolean exclusive,
+                              final int padding, final boolean endOfStream)
         throws Http2Exception {
       log.debug("got headers: streamId={}, headers={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
                 + "endOfStream={}", streamId, headers, streamDependency, weight, exclusive, padding, endOfStream);
@@ -205,8 +223,7 @@ public class Http2Server {
 
     @Override
     public void onPriorityRead(final ChannelHandlerContext ctx, final int streamId, final int streamDependency,
-                               final short weight,
-                               final boolean exclusive) throws Http2Exception {
+                               final short weight, final boolean exclusive) throws Http2Exception {
       log.debug("got priority: streamId={}, streamDependency={}, weight={}, exclusive={}",
                 streamId, streamDependency, weight, exclusive);
     }
@@ -293,13 +310,13 @@ public class Http2Server {
       final CompletableFuture<Http2Response> responseFuture = dispatch(request);
 
       // Handle response
-      responseFuture.whenComplete((response, ex) -> {
+      responseFuture.whenCompleteAsync((response, ex) -> {
         // Return 500 for request handler errors
         if (ex != null) {
           response = new Http2Response(streamId, INTERNAL_SERVER_ERROR.code());
         }
         sendResponse(ctx, response);
-      });
+      }, executor);
     }
 
     private void sendResponse(final ChannelHandlerContext ctx, final Http2Response response) {
