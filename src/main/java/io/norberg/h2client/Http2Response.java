@@ -1,14 +1,12 @@
 package io.norberg.h2client;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http2.DefaultHttp2Headers;
 import io.netty.handler.codec.http2.Http2Headers;
 
 public class Http2Response {
 
   private int streamId;
-  private HttpResponseStatus status;
   private ByteBuf content;
 
   private final Http2Headers headers = new DefaultHttp2Headers();
@@ -51,8 +49,8 @@ public class Http2Response {
   public String toString() {
     return "Http2Response{" +
            "streamId=" + streamId +
-           ", status=" + status +
            ", content=" + content +
+           ", headers=" + headers +
            '}';
   }
 }

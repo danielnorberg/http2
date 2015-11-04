@@ -306,6 +306,9 @@ public class Http2Server {
         return;
       }
 
+      // TODO: only add request if not only a single headers frame
+      requests.remove(streamId);
+
       // Hand off request to request handler
       final CompletableFuture<Http2Response> responseFuture = dispatch(request);
 

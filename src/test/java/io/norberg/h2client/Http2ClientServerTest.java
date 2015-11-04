@@ -56,6 +56,9 @@ public class Http2ClientServerTest {
     // Stop server
     server1.close().get();
 
+    // TODO: make deterministic
+    Thread.sleep(100);
+
     // Make another request, observe it fail
     final CompletableFuture<FullHttpResponse> failure = client.get("/hello2");
     try {
