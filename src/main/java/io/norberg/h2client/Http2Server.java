@@ -13,18 +13,17 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.ChannelPromise;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.codec.http.DefaultFullHttpResponse;
-import io.netty.handler.codec.http.FullHttpRequest;
-import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http2.DefaultHttp2Connection;
 import io.netty.handler.codec.http2.DefaultHttp2ConnectionDecoder;
 import io.netty.handler.codec.http2.DefaultHttp2ConnectionEncoder;
@@ -45,12 +44,11 @@ import io.netty.handler.codec.http2.Http2InboundFrameLogger;
 import io.netty.handler.codec.http2.Http2OutboundFrameLogger;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
+import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
-import static io.netty.buffer.Unpooled.EMPTY_BUFFER;
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
-import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
-import static io.netty.handler.codec.http2.HttpConversionUtil.ExtensionHeaderNames.STREAM_ID;
+import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
 import static io.netty.handler.logging.LogLevel.TRACE;
 import static io.norberg.h2client.Util.completableFuture;
 import static io.norberg.h2client.Util.failure;
@@ -124,73 +122,6 @@ public class Http2Server {
     return bindFuture;
   }
 
-  private class Handler extends ChannelInboundHandlerAdapter {
-
-    private final BatchFlusher flusher;
-
-    public Handler(Channel channel) {
-      flusher = new BatchFlusher(channel);
-    }
-
-    @Override
-    public void channelRead(final ChannelHandlerContext ctx, final Object msg) throws Exception {
-      if (!(msg instanceof FullHttpRequest)) {
-        if (msg instanceof Http2Settings) {
-          log.debug("Got settings: {}", msg);
-          return;
-        }
-        ctx.fireChannelRead(msg);
-        return;
-      }
-
-      final FullHttpRequest request = (FullHttpRequest) msg;
-      final int streamId = streamId(request);
-
-      // Hand off request to request handler
-      final CompletableFuture<FullHttpResponse> responseFuture = dispatch(request);
-
-      // Handle response
-      responseFuture
-
-          // Return 500 for request handler errors
-          .exceptionally((ex) -> {
-            final FullHttpResponse response = new DefaultFullHttpResponse(
-                HTTP_1_1, INTERNAL_SERVER_ERROR, EMPTY_BUFFER);
-            streamId(response, streamId);
-            return response;
-          })
-
-          // Send response
-          .thenAccept(response -> {
-            streamId(response, streamId);
-            ctx.write(response);
-            flusher.flush();
-          });
-
-    }
-
-    private CompletableFuture<FullHttpResponse> dispatch(final FullHttpRequest request) {
-      try {
-        return requestHandler.handleRequest(request);
-      } catch (Exception e) {
-        return failure(e);
-      }
-    }
-
-    private int streamId(FullHttpRequest request) {
-      return request.headers().getInt(STREAM_ID.text());
-    }
-
-    private void streamId(FullHttpResponse response, int streamId) {
-      response.headers().setInt(STREAM_ID.text(), streamId);
-    }
-
-    @Override
-    public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause) throws Exception {
-      log.error("caught exception, closing connection", cause);
-      ctx.close();
-    }
-  }
 
   private class Initializer extends ChannelInitializer<SocketChannel> {
 
@@ -213,33 +144,51 @@ public class Http2Server {
 
       final Http2ConnectionEncoder encoder = new DefaultHttp2ConnectionEncoder(connection, writer);
       final Http2ConnectionDecoder decoder = new DefaultHttp2ConnectionDecoder(connection, encoder, reader);
-      decoder.frameListener(new FrameListener());
+      decoder.frameListener(new FrameHandler(encoder, ch));
 
       final Http2Settings settings = new Http2Settings();
 
       final Http2ConnectionHandler connectionHandler = new Http2ConnectionHandler(decoder, encoder, settings) {};
 
-      ch.pipeline().addLast(sslCtx.newHandler(ch.alloc()), connectionHandler, new Handler(ch));
+      final ChannelHandler exceptionHandler = new ExceptionHandler();
+
+      ch.pipeline().addLast(sslCtx.newHandler(ch.alloc()), connectionHandler, exceptionHandler);
     }
   }
 
-  private class FrameListener implements Http2FrameListener {
+  private class FrameHandler implements Http2FrameListener {
+
+    private final IntObjectHashMap<Http2Request> requests = new IntObjectHashMap<>();
+    private Http2FrameWriter encoder;
+
+    private BatchFlusher flusher;
+
+    private FrameHandler(final Http2FrameWriter encoder, final Channel channel) {
+      this.encoder = encoder;
+      this.flusher = new BatchFlusher(channel);
+    }
 
     @Override
     public int onDataRead(final ChannelHandlerContext ctx, final int streamId, final ByteBuf data, final int padding,
                           final boolean endOfStream)
         throws Http2Exception {
-      final Http2Request
-      if (endOfStream) {
-        requestHandler.handleRequest()
-      }
+      log.debug("got data: streamId={}, data={}, padding={}, endOfStream={}", streamId, data, padding, endOfStream);
+      final Http2Request request = existingRequest(streamId);
+      final int n = data.readableBytes();
+      request.content(data);
+      maybeDispatch(ctx, streamId, endOfStream, request);
+      return n + padding;
     }
 
     @Override
     public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId, final Http2Headers headers,
                               final int padding,
                               final boolean endOfStream) throws Http2Exception {
-
+      log.debug("got headers: streamId={}, headers={}, padding={}, endOfStream={}",
+                streamId, headers, padding, endOfStream);
+      final Http2Request request = newOrExistingRequest(streamId);
+      request.headers(headers);
+      maybeDispatch(ctx, streamId, endOfStream, request);
     }
 
     @Override
@@ -247,67 +196,138 @@ public class Http2Server {
                               final int streamDependency,
                               final short weight, final boolean exclusive, final int padding, final boolean endOfStream)
         throws Http2Exception {
-
+      log.debug("got headers: streamId={}, headers={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
+                + "endOfStream={}", streamId, headers, streamDependency, weight, exclusive, padding, endOfStream);
+      final Http2Request request = newOrExistingRequest(streamId);
+      request.headers(headers);
+      maybeDispatch(ctx, streamId, endOfStream, request);
     }
 
     @Override
     public void onPriorityRead(final ChannelHandlerContext ctx, final int streamId, final int streamDependency,
                                final short weight,
                                final boolean exclusive) throws Http2Exception {
-
+      log.debug("got priority: streamId={}, streamDependency={}, weight={}, exclusive={}",
+                streamId, streamDependency, weight, exclusive);
     }
 
     @Override
     public void onRstStreamRead(final ChannelHandlerContext ctx, final int streamId, final long errorCode)
         throws Http2Exception {
-
+      log.debug("got rst stream: streamId={}, errorCode={}", streamId, errorCode);
     }
 
     @Override
     public void onSettingsAckRead(final ChannelHandlerContext ctx) throws Http2Exception {
-
+      log.debug("got settings ack");
     }
 
     @Override
     public void onSettingsRead(final ChannelHandlerContext ctx, final Http2Settings settings) throws Http2Exception {
-
+      log.debug("got settings: {}", settings);
     }
 
     @Override
     public void onPingRead(final ChannelHandlerContext ctx, final ByteBuf data) throws Http2Exception {
-
+      log.debug("got ping");
+      // TODO: ack
     }
 
     @Override
     public void onPingAckRead(final ChannelHandlerContext ctx, final ByteBuf data) throws Http2Exception {
-
+      log.debug("got ping ack");
     }
 
     @Override
     public void onPushPromiseRead(final ChannelHandlerContext ctx, final int streamId, final int promisedStreamId,
                                   final Http2Headers headers,
                                   final int padding) throws Http2Exception {
-
+      log.debug("got push promise");
     }
 
     @Override
     public void onGoAwayRead(final ChannelHandlerContext ctx, final int lastStreamId, final long errorCode,
                              final ByteBuf debugData)
         throws Http2Exception {
-
+      log.debug("got goaway, closing connection");
+      ctx.close();
     }
 
     @Override
     public void onWindowUpdateRead(final ChannelHandlerContext ctx, final int streamId, final int windowSizeIncrement)
         throws Http2Exception {
-
+      log.debug("got window update: streamId={}, windowSizeIncrement={}", streamId, windowSizeIncrement);
     }
 
     @Override
     public void onUnknownFrame(final ChannelHandlerContext ctx, final byte frameType, final int streamId,
                                final Http2Flags flags, final ByteBuf payload)
         throws Http2Exception {
+      log.debug("got unknown frame: {} {} {} {}", frameType, streamId, flags, payload);
+    }
 
+    private Http2Request existingRequest(final int streamId) throws Http2Exception {
+      final Http2Request request = requests.get(streamId);
+      if (request == null) {
+        throw Util.connectionError(PROTOCOL_ERROR, "Data Frame recieved for unknown stream id %d", streamId);
+      }
+      return request;
+    }
+
+    private Http2Request newOrExistingRequest(final int streamId) {
+      Http2Request request = requests.get(streamId);
+      if (request == null) {
+        request = new Http2Request(streamId);
+        requests.put(streamId, request);
+      }
+      return request;
+    }
+
+    private void maybeDispatch(final ChannelHandlerContext ctx, final int streamId, final boolean endOfStream,
+                               final Http2Request request) {
+      if (!endOfStream) {
+        return;
+      }
+
+      // Hand off request to request handler
+      final CompletableFuture<Http2Response> responseFuture = dispatch(request);
+
+      // Handle response
+      responseFuture.whenComplete((response, ex) -> {
+        // Return 500 for request handler errors
+        if (ex != null) {
+          response = new Http2Response(streamId, INTERNAL_SERVER_ERROR.code());
+        }
+        sendResponse(ctx, response);
+      });
+    }
+
+    private void sendResponse(final ChannelHandlerContext ctx, final Http2Response response) {
+      log.debug("sending response: {}", response);
+      final ChannelPromise promise = ctx.newPromise();
+      final boolean hasContent = response.hasContent();
+      encoder.writeHeaders(ctx, response.streamId(), response.headers(), 0, !hasContent, promise);
+      if (hasContent) {
+        encoder.writeData(ctx, response.streamId(), response.content(), 0, true, promise);
+      }
+      flusher.flush();
+    }
+
+    private CompletableFuture<Http2Response> dispatch(final Http2Request request) {
+      try {
+        return requestHandler.handleRequest(request);
+      } catch (Exception e) {
+        return failure(e);
+      }
+    }
+  }
+
+  private class ExceptionHandler extends ChannelInboundHandlerAdapter {
+
+    @Override
+    public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause) throws Exception {
+      log.error("caught exception, closing connection", cause);
+      ctx.close();
     }
   }
 }

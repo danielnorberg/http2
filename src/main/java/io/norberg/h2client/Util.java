@@ -6,6 +6,8 @@ import java.util.concurrent.CompletableFuture;
 import javax.net.ssl.SSLException;
 
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.handler.codec.http2.Http2Error;
+import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2SecurityUtil;
 import io.netty.handler.ssl.ApplicationProtocolConfig;
 import io.netty.handler.ssl.ApplicationProtocolNames;
@@ -82,5 +84,9 @@ class Util {
     final CompletableFuture<T> failure = new CompletableFuture<>();
     failure.completeExceptionally(e);
     return failure;
+  }
+
+  static Http2Exception connectionError(Http2Error error, String fmt, Object... args) {
+    return new Http2Exception(error, String.format(fmt, args));
   }
 }

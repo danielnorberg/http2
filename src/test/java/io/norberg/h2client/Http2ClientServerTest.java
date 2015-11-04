@@ -6,11 +6,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpResponse;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
-import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
 import static io.netty.util.CharsetUtil.UTF_8;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
@@ -22,8 +20,8 @@ public class Http2ClientServerTest {
   @Test
   public void testReqRep() throws Exception {
     final RequestHandler requestHandler = (request) ->
-        CompletableFuture.completedFuture(new DefaultFullHttpResponse(
-            HTTP_1_1, OK, Unpooled.copiedBuffer("hello world", UTF_8)));
+        CompletableFuture.completedFuture(request.response(
+            OK.code(), Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server
     final Http2Server server = new Http2Server(requestHandler);
@@ -43,8 +41,8 @@ public class Http2ClientServerTest {
   @Test
   public void testClientReconnects() throws Exception {
     final RequestHandler requestHandler = (request) ->
-        CompletableFuture.completedFuture(new DefaultFullHttpResponse(
-            HTTP_1_1, OK, Unpooled.copiedBuffer("hello world", UTF_8)));
+        CompletableFuture.completedFuture(request.response(
+            OK.code(), Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server
     final Http2Server server1 = new Http2Server(requestHandler);
