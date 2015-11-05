@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -28,27 +29,20 @@ import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.http2.DefaultHttp2Connection;
-import io.netty.handler.codec.http2.DefaultHttp2ConnectionDecoder;
-import io.netty.handler.codec.http2.DefaultHttp2ConnectionEncoder;
 import io.netty.handler.codec.http2.DefaultHttp2FrameReader;
-import io.netty.handler.codec.http2.DefaultHttp2FrameWriter;
 import io.netty.handler.codec.http2.Http2Connection;
-import io.netty.handler.codec.http2.Http2ConnectionDecoder;
-import io.netty.handler.codec.http2.Http2ConnectionEncoder;
-import io.netty.handler.codec.http2.Http2ConnectionHandler;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2Flags;
 import io.netty.handler.codec.http2.Http2FrameListener;
 import io.netty.handler.codec.http2.Http2FrameLogger;
 import io.netty.handler.codec.http2.Http2FrameReader;
-import io.netty.handler.codec.http2.Http2FrameWriter;
 import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.Http2InboundFrameLogger;
-import io.netty.handler.codec.http2.Http2OutboundFrameLogger;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
-import io.netty.util.AsciiString;
+import io.netty.util.ByteString;
 import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
@@ -61,7 +55,9 @@ import static io.netty.handler.codec.http2.Http2Flags.END_HEADERS;
 import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
 import static io.netty.handler.codec.http2.Http2FrameTypes.DATA;
 import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
+import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
 import static io.netty.handler.logging.LogLevel.TRACE;
+import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
 import static io.norberg.h2client.Util.completableFuture;
 import static io.norberg.h2client.Util.failure;
 
@@ -152,32 +148,23 @@ public class Http2Server {
       final Http2Connection connection = new DefaultHttp2Connection(true);
 
       final Http2FrameReader reader = new Http2InboundFrameLogger(new DefaultHttp2FrameReader(true), logger);
-      final Http2FrameWriter writer = new Http2OutboundFrameLogger(new DefaultHttp2FrameWriter(), logger);
-
-      final Http2ConnectionEncoder encoder = new DefaultHttp2ConnectionEncoder(connection, writer);
-      final Http2ConnectionDecoder decoder = new DefaultHttp2ConnectionDecoder(connection, encoder, reader);
-      decoder.frameListener(new FrameHandler(encoder, ch));
 
       final Http2Settings settings = new Http2Settings();
 
-      // TODO: remove connection handler
-      final Http2ConnectionHandler connectionHandler = new Http2ConnectionHandler(decoder, encoder, settings) {};
+      final ChannelHandler connectionHandler =
+          new ConnectionHandler(reader, settings, new FrameHandler(ch));
 
       final ChannelHandler exceptionHandler = new ExceptionHandler();
 
-      ch.pipeline().addLast(sslCtx.newHandler(ch.alloc()), connectionHandler, exceptionHandler);
+      ch.pipeline()
+          .addLast(sslCtx.newHandler(ch.alloc()), new PrefaceHandler(settings), connectionHandler,
+                   exceptionHandler);
     }
   }
 
   private class FrameHandler implements Http2FrameListener {
 
-    private static final int FRAME_LENGTH_OFFSET = 0;
-    private static final int FRAME_TYPE_OFFSET = FRAME_LENGTH_OFFSET + 3;
-    private static final int FRAME_FLAGS_OFFSET = FRAME_TYPE_OFFSET + 1;
-    private static final int FRAME_STREAM_ID_OFFSET = FRAME_FLAGS_OFFSET + 1;
-
     private final IntObjectHashMap<Http2Request> requests = new IntObjectHashMap<>();
-    private Http2FrameWriter encoder;
     private final Encoder headerEncoder = new Encoder(DEFAULT_HEADER_TABLE_SIZE);
     private final Channel channel;
 
@@ -197,8 +184,7 @@ public class Http2Server {
       }
     };
 
-    private FrameHandler(final Http2FrameWriter encoder, final Channel channel) {
-      this.encoder = encoder;
+    private FrameHandler(final Channel channel) {
       this.channel = channel;
       this.flusher = new BatchFlusher(channel);
     }
@@ -343,7 +329,7 @@ public class Http2Server {
       responseFuture.whenCompleteAsync((response, ex) -> {
         // Return 500 for request handler errors
         if (ex != null) {
-          response = new Http2Response(streamId, INTERNAL_SERVER_ERROR.code());
+          response = new Http2Response(streamId, INTERNAL_SERVER_ERROR);
         }
         sendResponse(ctx, response);
       }, executor);
@@ -404,25 +390,20 @@ public class Http2Server {
       buf.writeBytes(data);
     }
 
-    private void writeFrameHeader(final ByteBuf buf, final int offset, final int length, final int type,
-                                  final int flags, final int streamId) {
-      buf.setMedium(offset + FRAME_LENGTH_OFFSET, length);
-      buf.setByte(offset + FRAME_TYPE_OFFSET, type);
-      buf.setByte(offset + FRAME_FLAGS_OFFSET, flags);
-      buf.setInt(offset + FRAME_STREAM_ID_OFFSET, streamId);
-    }
-
     private int encodeHeaders(Http2Headers headers, ByteBuf buffer) throws IOException {
       final ByteBufOutputStream stream = new ByteBufOutputStream(buffer);
-      for (Map.Entry<CharSequence, CharSequence> header : headers) {
+      for (Map.Entry<ByteString, ByteString> header : headers) {
         headerEncoder.encodeHeader(stream, toBytes(header.getKey()), toBytes(header.getValue()), false);
       }
       return stream.writtenBytes();
     }
 
-    private byte[] toBytes(CharSequence chars) {
-      AsciiString aString = AsciiString.of(chars);
-      return aString.isEntireArrayUsed() ? aString.array() : aString.toByteArray();
+    private byte[] toBytes(ByteString s) {
+      if (s.isEntireArrayUsed()) {
+        return s.array();
+      } else {
+        return s.toByteArray();
+      }
     }
 
   }
@@ -433,6 +414,69 @@ public class Http2Server {
     public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause) throws Exception {
       log.error("caught exception, closing connection", cause);
       ctx.close();
+    }
+  }
+
+  private class ConnectionHandler extends ByteToMessageDecoder {
+
+    private final Http2FrameReader reader;
+    private final Http2Settings settings;
+    private final Http2FrameListener listener;
+
+    public ConnectionHandler(final Http2FrameReader reader, final Http2Settings settings,
+                             final Http2FrameListener listener) {
+      this.reader = reader;
+      this.settings = settings;
+      this.listener = listener;
+    }
+
+    @Override
+    protected void decode(final ChannelHandlerContext ctx, final ByteBuf in, final List<Object> out)
+        throws Exception {
+      reader.readFrame(ctx, in, listener);
+    }
+  }
+
+  private static class PrefaceHandler extends ByteToMessageDecoder {
+
+    private static final ByteString CLIENT_PREFACE =
+        ByteString.fromAscii("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
+
+    private int prefaceIndex;
+
+    private final Http2Settings settings;
+
+    private PrefaceHandler(final Http2Settings settings) {
+      this.settings = settings;
+    }
+
+    @Override
+    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
+      writeSettings(ctx);
+      ctx.flush();
+    }
+
+    private void writeSettings(final ChannelHandlerContext ctx) {
+      final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH);
+      writeFrameHeader(buf, 0, 0, SETTINGS, 0, 0);
+      buf.writerIndex(FRAME_HEADER_LENGTH);
+      ctx.write(buf);
+    }
+
+    @Override
+    protected void decode(final ChannelHandlerContext ctx, final ByteBuf in, final List<Object> out)
+        throws Exception {
+      final int prefaceRemaining = CLIENT_PREFACE.length() - prefaceIndex;
+      assert prefaceRemaining > 0;
+      final int n = Math.min(in.readableBytes(), prefaceRemaining);
+      for (int i = 0; i < n; i++, prefaceIndex++) {
+        if (in.readByte() != CLIENT_PREFACE.byteAt(prefaceIndex)) {
+          throw new Http2Exception(PROTOCOL_ERROR, "bad preface");
+        }
+      }
+      if (prefaceIndex == CLIENT_PREFACE.length()) {
+        ctx.pipeline().remove(this);
+      }
     }
   }
 }

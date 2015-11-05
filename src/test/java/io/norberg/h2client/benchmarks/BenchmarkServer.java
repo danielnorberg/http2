@@ -27,7 +27,7 @@ class BenchmarkServer {
   static void run() throws Exception {
 
     final RequestHandler requestHandler = (request) -> CompletableFuture.completedFuture(
-        request.response(OK.code()));
+        request.response(OK));
 
     final Http2Server server = new Http2Server(requestHandler, 4711);
 

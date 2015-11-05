@@ -21,7 +21,7 @@ public class Http2ClientServerTest {
   public void testReqRep() throws Exception {
     final RequestHandler requestHandler = (request) ->
         CompletableFuture.completedFuture(request.response(
-            OK.code(), Unpooled.copiedBuffer("hello world", UTF_8)));
+            OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server
     final Http2Server server = new Http2Server(requestHandler);
@@ -42,7 +42,7 @@ public class Http2ClientServerTest {
   public void testClientReconnects() throws Exception {
     final RequestHandler requestHandler = (request) ->
         CompletableFuture.completedFuture(request.response(
-            OK.code(), Unpooled.copiedBuffer("hello world", UTF_8)));
+            OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server
     final Http2Server server1 = new Http2Server(requestHandler);

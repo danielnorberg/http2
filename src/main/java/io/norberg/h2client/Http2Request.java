@@ -1,6 +1,7 @@
 package io.norberg.h2client;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http2.Http2Headers;
 
 public class Http2Request {
@@ -29,11 +30,11 @@ public class Http2Request {
     return streamId;
   }
 
-  public Http2Response response(final int status, final ByteBuf payload) {
+  public Http2Response response(final HttpResponseStatus status, final ByteBuf payload) {
     return new Http2Response(streamId, status, payload);
   }
 
-  public Http2Response response(final int status) {
+  public Http2Response response(final HttpResponseStatus status) {
     return new Http2Response(streamId, status);
   }
 

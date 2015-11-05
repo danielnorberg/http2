@@ -1,6 +1,7 @@
 package io.norberg.h2client;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http2.DefaultHttp2Headers;
 import io.netty.handler.codec.http2.Http2Headers;
 
@@ -11,14 +12,14 @@ public class Http2Response {
 
   private final Http2Headers headers = new DefaultHttp2Headers();
 
-  public Http2Response(final int streamId, final int status) {
+  public Http2Response(final int streamId, final HttpResponseStatus status) {
     this(streamId, status, null);
   }
 
-  public Http2Response(final int streamId, final int status, final ByteBuf content) {
+  public Http2Response(final int streamId, final HttpResponseStatus status, final ByteBuf content) {
     this.streamId = streamId;
     this.content = content;
-    headers.status(String.valueOf(status));
+    headers.status(status.codeAsText());
   }
 
   void streamId(final int streamId) {
