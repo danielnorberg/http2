@@ -1,17 +1,21 @@
 package io.norberg.h2client;
 
 import com.spotify.netty4.util.BatchFlusher;
+import com.twitter.hpack.Encoder;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufOutputStream;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
@@ -19,7 +23,6 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelPromise;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -45,11 +48,19 @@ import io.netty.handler.codec.http2.Http2InboundFrameLogger;
 import io.netty.handler.codec.http2.Http2OutboundFrameLogger;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
+import io.netty.util.AsciiString;
 import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
+import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
+import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_MAX_FRAME_SIZE;
+import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+import static io.netty.handler.codec.http2.Http2Flags.END_HEADERS;
+import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
+import static io.netty.handler.codec.http2.Http2FrameTypes.DATA;
+import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
 import static io.netty.handler.logging.LogLevel.TRACE;
 import static io.norberg.h2client.Util.completableFuture;
 import static io.norberg.h2client.Util.failure;
@@ -149,6 +160,7 @@ public class Http2Server {
 
       final Http2Settings settings = new Http2Settings();
 
+      // TODO: remove connection handler
       final Http2ConnectionHandler connectionHandler = new Http2ConnectionHandler(decoder, encoder, settings) {};
 
       final ChannelHandler exceptionHandler = new ExceptionHandler();
@@ -159,9 +171,18 @@ public class Http2Server {
 
   private class FrameHandler implements Http2FrameListener {
 
+    private static final int FRAME_LENGTH_OFFSET = 0;
+    private static final int FRAME_TYPE_OFFSET = FRAME_LENGTH_OFFSET + 3;
+    private static final int FRAME_FLAGS_OFFSET = FRAME_TYPE_OFFSET + 1;
+    private static final int FRAME_STREAM_ID_OFFSET = FRAME_FLAGS_OFFSET + 1;
+
     private final IntObjectHashMap<Http2Request> requests = new IntObjectHashMap<>();
     private Http2FrameWriter encoder;
+    private final Encoder headerEncoder = new Encoder(DEFAULT_HEADER_TABLE_SIZE);
     private final Channel channel;
+
+    private int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
+    private long maxConcurrentStreams;
 
     private BatchFlusher flusher;
 
@@ -242,6 +263,12 @@ public class Http2Server {
     @Override
     public void onSettingsRead(final ChannelHandlerContext ctx, final Http2Settings settings) throws Http2Exception {
       log.debug("got settings: {}", settings);
+      if (settings.maxFrameSize() != null) {
+        maxFrameSize = settings.maxFrameSize();
+      }
+      if (settings.maxConcurrentStreams() != null) {
+        maxConcurrentStreams = settings.maxConcurrentStreams();
+      }
     }
 
     @Override
@@ -324,12 +351,18 @@ public class Http2Server {
 
     private void sendResponse(final ChannelHandlerContext ctx, final Http2Response response) {
       log.debug("sending response: {}", response);
-      final ChannelPromise promise = ctx.newPromise();
       final boolean hasContent = response.hasContent();
-      encoder.writeHeaders(ctx, response.streamId(), response.headers(), 0, !hasContent, promise);
-      if (hasContent) {
-        encoder.writeData(ctx, response.streamId(), response.content(), 0, true, promise);
+      final ByteBuf buf = ctx.alloc().buffer();
+      try {
+        writeHeaders(buf, response.streamId(), response.headers(), !hasContent);
+      } catch (IOException e) {
+        ctx.fireExceptionCaught(e);
+        return;
       }
+      if (hasContent) {
+        writeData(buf, response.streamId(), response.content(), true);
+      }
+      ctx.write(buf);
       flusher.flush();
     }
 
@@ -340,6 +373,58 @@ public class Http2Server {
         return failure(e);
       }
     }
+
+    private void writeHeaders(final ByteBuf buf, int streamId, Http2Headers headers, boolean endStream)
+        throws IOException {
+      final int headerIndex = buf.writerIndex();
+
+      buf.ensureWritable(FRAME_HEADER_LENGTH);
+      buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
+      final int size = encodeHeaders(headers, buf);
+
+      if (size > maxFrameSize) {
+        // TODO: continuation frames
+        throw new AssertionError();
+      }
+
+      final int flags = END_HEADERS | (endStream ? END_STREAM : 0);
+      writeFrameHeader(buf, headerIndex, size, HEADERS, flags, streamId);
+
+      // TODO: padding + fields
+    }
+
+    public void writeData(ByteBuf buf, int streamId, ByteBuf data, boolean endStream) {
+      final int headerIndex = buf.writerIndex();
+      int payloadLength = data.readableBytes();
+      final int flags = endStream ? END_STREAM : 0;
+      buf.ensureWritable(FRAME_HEADER_LENGTH);
+      writeFrameHeader(buf, headerIndex, payloadLength, DATA, flags, streamId);
+      buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
+      // TODO: padding + fields
+      buf.writeBytes(data);
+    }
+
+    private void writeFrameHeader(final ByteBuf buf, final int offset, final int length, final int type,
+                                  final int flags, final int streamId) {
+      buf.setMedium(offset + FRAME_LENGTH_OFFSET, length);
+      buf.setByte(offset + FRAME_TYPE_OFFSET, type);
+      buf.setByte(offset + FRAME_FLAGS_OFFSET, flags);
+      buf.setInt(offset + FRAME_STREAM_ID_OFFSET, streamId);
+    }
+
+    private int encodeHeaders(Http2Headers headers, ByteBuf buffer) throws IOException {
+      final ByteBufOutputStream stream = new ByteBufOutputStream(buffer);
+      for (Map.Entry<CharSequence, CharSequence> header : headers) {
+        headerEncoder.encodeHeader(stream, toBytes(header.getKey()), toBytes(header.getValue()), false);
+      }
+      return stream.writtenBytes();
+    }
+
+    private byte[] toBytes(CharSequence chars) {
+      AsciiString aString = AsciiString.of(chars);
+      return aString.isEntireArrayUsed() ? aString.array() : aString.toByteArray();
+    }
+
   }
 
   private class ExceptionHandler extends ChannelInboundHandlerAdapter {
