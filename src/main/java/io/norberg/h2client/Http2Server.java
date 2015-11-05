@@ -19,7 +19,6 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufOutputStream;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
@@ -30,9 +29,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.ByteToMessageDecoder;
-import io.netty.handler.codec.http2.DefaultHttp2Connection;
 import io.netty.handler.codec.http2.DefaultHttp2FrameReader;
-import io.netty.handler.codec.http2.Http2Connection;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2Flags;
 import io.netty.handler.codec.http2.Http2FrameListener;
@@ -144,21 +141,13 @@ public class Http2Server {
     @Override
     protected void initChannel(SocketChannel ch) throws Exception {
       channels.add(ch);
-
-      final Http2Connection connection = new DefaultHttp2Connection(true);
-
       final Http2FrameReader reader = new Http2InboundFrameLogger(new DefaultHttp2FrameReader(true), logger);
-
       final Http2Settings settings = new Http2Settings();
-
-      final ChannelHandler connectionHandler =
-          new ConnectionHandler(reader, settings, new FrameHandler(ch));
-
-      final ChannelHandler exceptionHandler = new ExceptionHandler();
-
-      ch.pipeline()
-          .addLast(sslCtx.newHandler(ch.alloc()), new PrefaceHandler(settings), connectionHandler,
-                   exceptionHandler);
+      ch.pipeline().addLast(
+          sslCtx.newHandler(ch.alloc()),
+          new PrefaceHandler(settings),
+          new ConnectionHandler(reader, settings, new FrameHandler(ch)),
+          new ExceptionHandler());
     }
   }
 
