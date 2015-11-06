@@ -1,5 +1,7 @@
 package io.norberg.h2client.benchmarks;
 
+import com.spotify.logging.LoggingConfigurator;
+
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -18,6 +20,8 @@ class BenchmarkClient {
   }
 
   static void run() {
+    LoggingConfigurator.configureNoLogging();
+
     final Http2Client client = new Http2Client("127.0.0.1", 4711);
 
     final int concurrency = 100;

@@ -5,8 +5,12 @@
 package io.norberg.h2client;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.util.ByteString;
 
 class Http2WireFormat {
+
+  static final ByteString CLIENT_PREFACE =
+      ByteString.fromAscii("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
 
   private static final int FRAME_LENGTH_OFFSET = 0;
   private static final int FRAME_TYPE_OFFSET = FRAME_LENGTH_OFFSET + 3;

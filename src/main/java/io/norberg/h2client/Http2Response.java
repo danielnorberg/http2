@@ -9,8 +9,10 @@ public class Http2Response {
 
   private int streamId;
   private ByteBuf content;
+  private Http2Headers headers;
 
-  private final Http2Headers headers = new DefaultHttp2Headers();
+  public Http2Response() {
+  }
 
   public Http2Response(final int streamId, final HttpResponseStatus status) {
     this(streamId, status, null);
@@ -19,15 +21,16 @@ public class Http2Response {
   public Http2Response(final int streamId, final HttpResponseStatus status, final ByteBuf content) {
     this.streamId = streamId;
     this.content = content;
+    this.headers = new DefaultHttp2Headers();
     headers.status(status.codeAsText());
   }
 
-  void streamId(final int streamId) {
-
+  void headers(final Http2Headers headers) {
+    this.headers = headers;
   }
 
-  void status(final int status) {
-
+  void content(final ByteBuf content) {
+    this.content = content;
   }
 
   public int streamId() {
@@ -53,5 +56,11 @@ public class Http2Response {
            ", content=" + content +
            ", headers=" + headers +
            '}';
+  }
+
+  public void release() {
+    if (hasContent()) {
+      content.release();
+    }
   }
 }

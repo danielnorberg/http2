@@ -6,7 +6,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.http.FullHttpResponse;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.util.CharsetUtil.UTF_8;
@@ -32,8 +31,8 @@ public class Http2ClientServerTest {
     final Http2Client client = new Http2Client("127.0.0.1", port);
 
     // Make a request
-    final CompletableFuture<FullHttpResponse> future = client.get("/hello/world");
-    final FullHttpResponse response = future.get();
+    final CompletableFuture<Http2Response> future = client.get("/hello/world");
+    final Http2Response response = future.get();
     final String payload = response.content().toString(UTF_8);
     assertThat(payload, is("hello world"));
   }
@@ -60,7 +59,7 @@ public class Http2ClientServerTest {
     Thread.sleep(100);
 
     // Make another request, observe it fail
-    final CompletableFuture<FullHttpResponse> failure = client.get("/hello2");
+    final CompletableFuture<Http2Response> failure = client.get("/hello2");
     try {
       failure.get();
       fail();
