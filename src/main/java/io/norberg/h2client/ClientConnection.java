@@ -10,7 +10,6 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 import io.netty.bootstrap.Bootstrap;
@@ -30,14 +29,12 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.ByteToMessageDecoder;
-import io.netty.handler.codec.http2.DefaultHttp2FrameReader;
+import io.netty.handler.codec.http2.DefaultHttp2HeadersDecoder;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2Flags;
 import io.netty.handler.codec.http2.Http2FrameListener;
 import io.netty.handler.codec.http2.Http2FrameLogger;
-import io.netty.handler.codec.http2.Http2FrameReader;
 import io.netty.handler.codec.http2.Http2Headers;
-import io.netty.handler.codec.http2.Http2InboundFrameLogger;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.ByteString;
@@ -62,13 +59,11 @@ import static io.norberg.h2client.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
 import static io.norberg.h2client.Util.connectionError;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Objects.requireNonNull;
 
 class ClientConnection {
 
   private static final Logger log = LoggerFactory.getLogger(ClientConnection.class);
-
-  private static final long DEFAULT_MAX_CONCURRENT_STREAMS = 100;
-  private static final int DEFAULT_MAX_FRAME_SIZE = 1024 * 1024;
 
   private static final int DEFAULT_LOCAL_WINDOW_SIZE = 1024 * 1024 * 128;
 
@@ -82,8 +77,8 @@ class ClientConnection {
   private final BatchFlusher flusher;
   private final Listener listener;
 
-  private int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
-  private long maxConcurrentStreams = DEFAULT_MAX_CONCURRENT_STREAMS;
+  private int maxFrameSize;
+  private int maxConcurrentStreams;
   private int remoteInitialWindowSize = DEFAULT_WINDOW_SIZE;
   private int maxHeaderListSize = Integer.MAX_VALUE;
 
@@ -93,17 +88,19 @@ class ClientConnection {
 
   private volatile boolean connected;
 
-  ClientConnection(final InetSocketAddress address, final EventLoopGroup workerGroup, final SslContext sslCtx,
-                   final Listener listener) {
-    this.listener = listener;
+  ClientConnection(final Builder builder) {
+    this.listener = requireNonNull(builder.listener, "listener");
+
+    this.maxFrameSize = builder.maxFrameSize;
+    this.maxConcurrentStreams = builder.maxConcurrentStreams;
 
     // Connect
     final Bootstrap b = new Bootstrap()
-        .group(workerGroup)
+        .group(requireNonNull(builder.workerGroup, "workerGroup"))
         .channel(NioSocketChannel.class)
         .option(ChannelOption.SO_KEEPALIVE, true)
-        .remoteAddress(address)
-        .handler(new Initializer(sslCtx, Integer.MAX_VALUE))
+        .remoteAddress(requireNonNull(builder.address, "address"))
+        .handler(new Initializer(requireNonNull(builder.sslContext, "sslContext"), Integer.MAX_VALUE))
         .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000);
 
     final ChannelFuture future = b.connect();
@@ -118,6 +115,7 @@ class ClientConnection {
     this.channel = future.channel();
     this.flusher = new BatchFlusher(channel);
   }
+
 
   void send(final Http2Request request, final CompletableFuture<Http2Response> future) {
     assert connected;
@@ -162,14 +160,14 @@ class ClientConnection {
     private final int maxContentLength;
 
     public Initializer(SslContext sslCtx, int maxContentLength) {
-      this.sslCtx = Objects.requireNonNull(sslCtx, "sslCtx");
+      this.sslCtx = requireNonNull(sslCtx, "sslCtx");
       this.maxContentLength = maxContentLength;
     }
 
     @Override
     public void initChannel(SocketChannel ch) throws Exception {
-      final Http2FrameReader reader = new Http2InboundFrameLogger(new DefaultHttp2FrameReader(true), logger);
       final Http2Settings settings = new Http2Settings();
+      final Http2FrameReader reader = new Http2FrameReader(new DefaultHttp2HeadersDecoder(false));
       ch.pipeline().addLast(
           sslCtx.newHandler(ch.alloc()),
           new ConnectionHandler(ch, reader),
@@ -218,6 +216,8 @@ class ClientConnection {
       final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH);
       final Http2Settings settings = new Http2Settings();
       settings.initialWindowSize(initialLocalWindow);
+      settings.maxConcurrentStreams(maxConcurrentStreams);
+      settings.maxFrameSize(maxFrameSize);
       final int length = SETTING_ENTRY_LENGTH * settings.size();
       writeFrameHeader(buf, 0, length, SETTINGS, 0, 0);
       buf.writerIndex(FRAME_HEADER_LENGTH);
@@ -239,11 +239,7 @@ class ClientConnection {
     @Override
     protected void decode(final ChannelHandlerContext ctx, final ByteBuf in, final List<Object> out)
         throws Exception {
-      try {
-        reader.readFrame(ctx, in, this);
-      } catch (Http2Exception e) {
-        e.printStackTrace();
-      }
+      reader.readFrames(ctx, in, this);
     }
 
     @Override
@@ -344,7 +340,7 @@ class ClientConnection {
         maxFrameSize = settings.maxFrameSize();
       }
       if (settings.maxConcurrentStreams() != null) {
-        maxConcurrentStreams = settings.maxConcurrentStreams();
+        maxConcurrentStreams = settings.maxConcurrentStreams().intValue();
       }
       if (settings.initialWindowSize() != null) {
         // TODO: apply delta etc
@@ -539,6 +535,55 @@ class ClientConnection {
       } else {
         return s.toByteArray();
       }
+    }
+  }
+
+  public static Builder builder() {
+    return new Builder();
+  }
+
+  public static final class Builder {
+
+    private InetSocketAddress address;
+    private Listener listener;
+    private SslContext sslContext;
+    private EventLoopGroup workerGroup;
+
+    private int maxConcurrentStreams;
+    private int maxFrameSize;
+
+    public Builder address(final InetSocketAddress address) {
+      this.address = address;
+      return this;
+    }
+
+    public Builder listener(final Listener listener) {
+      this.listener = listener;
+      return this;
+    }
+
+    public Builder workerGroup(final EventLoopGroup workerGroup) {
+      this.workerGroup = workerGroup;
+      return this;
+    }
+
+    public Builder sslContext(final SslContext sslContext) {
+      this.sslContext = sslContext;
+      return this;
+    }
+
+    public Builder maxConcurrentStreams(final int maxConcurrentStreams) {
+      this.maxConcurrentStreams = maxConcurrentStreams;
+      return this;
+    }
+
+    public Builder maxFrameSize(final int maxFrameSize) {
+      this.maxFrameSize = maxFrameSize;
+      return this;
+    }
+
+    public ClientConnection build() {
+      return new ClientConnection(this);
     }
   }
 

@@ -4,7 +4,7 @@ import com.spotify.logging.LoggingConfigurator;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.util.concurrent.DefaultThreadFactory;
@@ -24,19 +24,20 @@ class BenchmarkClient {
   static void run() throws Exception {
     LoggingConfigurator.configureNoLogging();
 
-    final AtomicLong maxConcurrentStreams = new AtomicLong(100);
+    final AtomicInteger maxConcurrentStreams = new AtomicInteger(1000);
 
     final Http2Client.Listener listener = new Http2Client.ListenerAdapter() {
       @Override
       public void peerSettingsChanged(final Http2Client client, final Http2Settings settings) {
         if (settings.maxConcurrentStreams() != null) {
-          maxConcurrentStreams.set(settings.maxConcurrentStreams());
+          maxConcurrentStreams.set(settings.maxConcurrentStreams().intValue());
         }
       }
     };
 
     final Http2Client client = Http2Client.builder()
         .listener(listener)
+        .maxConcurrentStreams(maxConcurrentStreams.intValue())
         .address("127.0.0.1", 4711)
         .build();
 
