@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -49,6 +50,7 @@ import static io.netty.handler.codec.http2.Http2CodecUtil.INT_FIELD_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+import static io.netty.handler.codec.http2.Http2Flags.ACK;
 import static io.netty.handler.codec.http2.Http2Flags.END_HEADERS;
 import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
 import static io.netty.handler.codec.http2.Http2FrameTypes.DATA;
@@ -59,6 +61,7 @@ import static io.netty.handler.logging.LogLevel.TRACE;
 import static io.norberg.h2client.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
 import static io.norberg.h2client.Util.connectionError;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 class ClientConnection {
 
@@ -72,13 +75,17 @@ class ClientConnection {
   private final CompletableFuture<ClientConnection> connectFuture = new CompletableFuture<>();
   private final CompletableFuture<ClientConnection> disconnectFuture = new CompletableFuture<>();
 
+  private final Encoder headerEncoder = new Encoder(DEFAULT_HEADER_TABLE_SIZE);
   private final IntObjectHashMap<Stream> streams = new IntObjectHashMap<>();
 
   private final Channel channel;
   private final BatchFlusher flusher;
+  private final Listener listener;
 
   private int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
   private long maxConcurrentStreams = DEFAULT_MAX_CONCURRENT_STREAMS;
+  private int remoteInitialWindowSize = DEFAULT_WINDOW_SIZE;
+  private int maxHeaderListSize = Integer.MAX_VALUE;
 
   private int initialLocalWindow = DEFAULT_LOCAL_WINDOW_SIZE;
   private int localWindowUpdateThreshold = initialLocalWindow / 2;
@@ -86,14 +93,16 @@ class ClientConnection {
 
   private volatile boolean connected;
 
-  ClientConnection(final String host, final int port, final EventLoopGroup workerGroup, final SslContext sslCtx) {
+  ClientConnection(final InetSocketAddress address, final EventLoopGroup workerGroup, final SslContext sslCtx,
+                   final Listener listener) {
+    this.listener = listener;
 
     // Connect
     final Bootstrap b = new Bootstrap()
         .group(workerGroup)
         .channel(NioSocketChannel.class)
         .option(ChannelOption.SO_KEEPALIVE, true)
-        .remoteAddress(host, port)
+        .remoteAddress(address)
         .handler(new Initializer(sslCtx, Integer.MAX_VALUE))
         .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000);
 
@@ -337,6 +346,27 @@ class ClientConnection {
       if (settings.maxConcurrentStreams() != null) {
         maxConcurrentStreams = settings.maxConcurrentStreams();
       }
+      if (settings.initialWindowSize() != null) {
+        // TODO: apply delta etc
+        remoteInitialWindowSize = settings.initialWindowSize();
+      }
+      if (settings.maxHeaderListSize() != null) {
+        maxHeaderListSize = settings.maxHeaderListSize();
+      }
+      // TODO: SETTINGS_HEADER_TABLE_SIZE
+      // TODO: SETTINGS_ENABLE_PUSH
+
+      listener.peerSettingsChanged(ClientConnection.this, settings);
+
+      sendSettingsAck(ctx);
+    }
+
+    private void sendSettingsAck(final ChannelHandlerContext ctx) {
+      final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH);
+      writeFrameHeader(buf, 0, 0, SETTINGS, ACK, 0);
+      buf.writerIndex(FRAME_HEADER_LENGTH);
+      ctx.write(buf);
+      flusher.flush();
     }
 
     @Override
@@ -361,7 +391,8 @@ class ClientConnection {
     public void onGoAwayRead(final ChannelHandlerContext ctx, final int lastStreamId, final long errorCode,
                              final ByteBuf debugData)
         throws Http2Exception {
-      log.debug("got goaway, closing connection");
+      log.error("got goaway, closing connection: lastStreamId={}, errorCode={}, debugData={}",
+                lastStreamId, errorCode, debugData.toString(UTF_8));
       ctx.close();
     }
 
@@ -422,8 +453,6 @@ class ClientConnection {
   }
 
   private class WriteHandler extends ChannelOutboundHandlerAdapter {
-
-    private final Encoder headerEncoder = new Encoder(DEFAULT_HEADER_TABLE_SIZE);
 
     private int streamId = 1;
 
@@ -511,5 +540,13 @@ class ClientConnection {
         return s.toByteArray();
       }
     }
+  }
+
+  interface Listener {
+
+    /**
+     * Called when remote peer settings changed.
+     */
+    void peerSettingsChanged(ClientConnection connection, Http2Settings settings);
   }
 }

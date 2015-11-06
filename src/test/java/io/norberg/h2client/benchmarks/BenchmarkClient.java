@@ -1,12 +1,12 @@
 package io.norberg.h2client.benchmarks;
 
-import com.google.common.util.concurrent.Uninterruptibles;
-
 import com.spotify.logging.LoggingConfigurator;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 
+import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.norberg.h2client.Http2Client;
 
@@ -17,29 +17,43 @@ class BenchmarkClient {
   private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(
       1, new DefaultThreadFactory("client", true));
 
-  public static void main(final String... args) {
+  public static void main(final String... args) throws Exception {
     run();
   }
 
-  static void run() {
+  static void run() throws Exception {
     LoggingConfigurator.configureNoLogging();
 
-    final Http2Client client = new Http2Client("127.0.0.1", 4711);
+    final AtomicLong maxConcurrentStreams = new AtomicLong(100);
 
-    final int concurrency = 100;
+    final Http2Client.Listener listener = new Http2Client.ListenerAdapter() {
+      @Override
+      public void peerSettingsChanged(final Http2Client client, final Http2Settings settings) {
+        if (settings.maxConcurrentStreams() != null) {
+          maxConcurrentStreams.set(settings.maxConcurrentStreams());
+        }
+      }
+    };
+
+    final Http2Client client = Http2Client.builder()
+        .listener(listener)
+        .address("127.0.0.1", 4711)
+        .build();
 
     final ProgressMeter meter = new ProgressMeter();
     final ProgressMeter.Metric requests = meter.group("throughput").metric("requests", "requests");
     final ProgressMeter.Metric errors = meter.group("throughput").metric("errors", "errors");
     final ProgressMeter.Metric data = meter.group("throughput").metric("data", "bytes");
 
-    for (int i = 0; i < concurrency; i++) {
-      get(client, requests, errors, data);
-    }
-
+    // TODO: lower concurrency in response to settings change as well
+    int concurrentStreams = 0;
     while (true) {
-      Uninterruptibles.sleepUninterruptibly(1, SECONDS);
-      System.out.println(client);
+      if (concurrentStreams < maxConcurrentStreams.get()) {
+        concurrentStreams++;
+        get(client, requests, errors, data);
+      } else {
+        Thread.sleep(1000);
+      }
     }
   }
 

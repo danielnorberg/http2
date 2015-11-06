@@ -28,7 +28,7 @@ public class Http2ClientServerTest {
     final int port = server.port();
 
     // Start client
-    final Http2Client client = new Http2Client("127.0.0.1", port);
+    final Http2Client client = Http2Client.of("127.0.0.1", port);
 
     // Make a request
     final CompletableFuture<Http2Response> future = client.get("/hello/world");
@@ -49,7 +49,7 @@ public class Http2ClientServerTest {
     final int port = server1.port();
 
     // Make a successful request
-    final Http2Client client = new Http2Client("127.0.0.1", port);
+    final Http2Client client = Http2Client.of("127.0.0.1", port);
     client.get("/hello1").get();
 
     // Stop server
