@@ -424,12 +424,12 @@ class ClientConnection {
     public RequestPromise(final Channel channel, final CompletableFuture<Http2Response> responseFuture) {
       super(channel);
       this.responseFuture = responseFuture;
-      // TODO: override completion methods to avoid listener garbage
-      addListener(f -> {
-        if (!isSuccess()) {
-          responseFuture.completeExceptionally(cause());
-        }
-      });
+    }
+
+    @Override
+    public ChannelPromise setFailure(final Throwable cause) {
+      responseFuture.completeExceptionally(cause);
+      return super.setFailure(cause);
     }
   }
 
