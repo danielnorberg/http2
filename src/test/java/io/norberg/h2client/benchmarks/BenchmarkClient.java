@@ -1,5 +1,7 @@
 package io.norberg.h2client.benchmarks;
 
+import com.google.common.util.concurrent.Uninterruptibles;
+
 import com.spotify.logging.LoggingConfigurator;
 
 import java.util.concurrent.Executors;
@@ -34,6 +36,11 @@ class BenchmarkClient {
     for (int i = 0; i < concurrency; i++) {
       get(client, requests, errors, data);
     }
+
+    while (true) {
+      Uninterruptibles.sleepUninterruptibly(1, SECONDS);
+      System.out.println(client);
+    }
   }
 
   private static void get(final Http2Client client, final ProgressMeter.Metric requests,
@@ -48,7 +55,9 @@ class BenchmarkClient {
         return;
       }
       requests.inc(latency);
-      data.add(response.content().readableBytes(), latency);
+      if (response.hasContent()) {
+        data.add(response.content().readableBytes(), latency);
+      }
       response.release();
       get(client, requests, errors, data);
     });
