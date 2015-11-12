@@ -40,7 +40,7 @@ public class HpackTest {
 
     final AsciiString method = GET.asciiName();
     final AsciiString scheme = SCHEME_HTTPS;
-    final AsciiString authority = AsciiString.of("www.test.com");
+    final AsciiString authority = AsciiString.of("www.example.com");
     final AsciiString path = AsciiString.of("/index.html");
 
     final ByteBuf buf = Unpooled.buffer();
@@ -142,9 +142,23 @@ public class HpackTest {
     writeInteger(buf, 0x40, 6, i);
   }
 
+  private void writeString(final ByteBuf buf, final AsciiString s) {
+    final int encodedLength = Huffman.encodedLength(s);
+    if (encodedLength < s.length()) {
+      writeHuffmanString(buf, s, encodedLength);
+    } else {
+      writeRawString(buf, s);
+    }
+  }
+
   private void writeRawString(final ByteBuf buf, final AsciiString s) {
     writeInteger(buf, 0, 7, s.length());
     buf.writeBytes(s.array(), s.arrayOffset(), s.length());
+  }
+
+  private void writeHuffmanString(final ByteBuf buf, final AsciiString s, final int encodedLength) {
+      writeInteger(buf, 0x80, 7, encodedLength);
+      Huffman.encode(buf, s);
   }
 
   private void writeMethod(final ByteBuf buf, final AsciiString method) {
@@ -154,7 +168,7 @@ public class HpackTest {
       writeIndexedHeaderField(buf, 3);
     } else {
       writeLiteralHeaderFieldIncrementalIndexingIndexedName(buf, 2);
-      writeRawString(buf, method);
+      writeString(buf, method);
     }
   }
 
@@ -165,13 +179,13 @@ public class HpackTest {
       writeIndexedHeaderField(buf, 7);
     } else {
       writeLiteralHeaderFieldIncrementalIndexingIndexedName(buf, 2);
-      writeRawString(buf, scheme);
+      writeString(buf, scheme);
     }
   }
 
   private void writeAuthority(final ByteBuf buf, final AsciiString s) {
     writeLiteralHeaderFieldIncrementalIndexingIndexedName(buf, 1);
-    writeRawString(buf, s);
+    writeString(buf, s);
   }
 
   private void writePath(final ByteBuf buf, final AsciiString path) {
@@ -181,7 +195,7 @@ public class HpackTest {
       writeIndexedHeaderField(buf, 5);
     } else {
       writeLiteralHeaderFieldIncrementalIndexingIndexedName(buf, 4);
-      writeRawString(buf, path);
+      writeString(buf, path);
     }
   }
 }
