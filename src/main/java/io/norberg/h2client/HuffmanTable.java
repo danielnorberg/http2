@@ -528,7 +528,7 @@ class HuffmanTable {
   };
 
 
-  static final int[] LENGTHS = {
+  static final byte[] LENGTHS = {
       13, // 0
       23, // 1
       28, // 2
@@ -788,5 +788,34 @@ class HuffmanTable {
       30 // 256
   };
 
+  /*
+   * First byte == 11111111 -> Decode Table 2
+   * First byte == 11111110 -> Decode Table 3
+   */
 
+  /**
+   * (length << 8) | char
+   */
+  static final short[] DECODE1 = new short[256];
+
+  static {
+    DECODE1[0xFF] = -1;
+    DECODE1[0xFE] = -1;
+    for (int i = 0; i < 256; i++) {
+      final int length = LENGTHS[i];
+      if (length > 8) {
+        continue;
+      }
+      final int r = 8 - length;
+      final int n = 1 << r;
+      final int c = CODES[i];
+      final short bits = (short) ((length << 8) | i);
+      final int prefix = c << r;
+      for (int p = 0; p < n; p++) {
+        final int ix = prefix | p;
+        assert DECODE1[ix] == 0;
+        DECODE1[ix] = bits;
+      }
+    }
+  }
 }
