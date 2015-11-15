@@ -264,8 +264,8 @@ EOS (256)  |11111111|11111111|11111111|111111      3fffffff  [30]
 
 */
 
-class HuffmanTable {
 
+class HuffmanTable {
 
   static final int[] CODES = {
       0x1ff8, // 0
@@ -796,26 +796,66 @@ class HuffmanTable {
   /**
    * (length << 8) | char
    */
-  static final short[] DECODE1 = new short[256];
+  static final short[] DECODE = decodeTable(CODES, LENGTHS);
 
-  static {
-    DECODE1[0xFF] = -1;
-    DECODE1[0xFE] = -1;
-    for (int i = 0; i < 256; i++) {
-      final int length = LENGTHS[i];
-      if (length > 8) {
-        continue;
-      }
-      final int r = 8 - length;
-      final int n = 1 << r;
-      final int c = CODES[i];
-      final short bits = (short) ((length << 8) | i);
-      final int prefix = c << r;
-      for (int p = 0; p < n; p++) {
-        final int ix = prefix | p;
-        assert DECODE1[ix] == 0;
-        DECODE1[ix] = bits;
-      }
+  static final short TERMINAL = (short) 0x8000;
+
+  private static short[] decodeTable(final int[] codes, final byte[] lengths) {
+    short[] table = new short[256];
+    for (short value = 0; value < 256; value++) {
+      final int length = lengths[value];
+      final int code = codes[value];
+      table = addCode(table, 0, value, code, length);
     }
+    return table;
+  }
+
+  private static short[] addCode(short[] table, final int index, final short value, final int code, final int length) {
+    if (length <= 8) {
+      return addTerminal(table, index, value, code, length);
+    }
+    // Get first 8 bits of code
+    final int nextLength = length - 8;
+    final int bits = code >>> nextLength;
+    final int offset = 256 * index;
+    final int nextIndex;
+    if (table[offset + bits] == 0) {
+      nextIndex = table.length / 256;
+      table = ensureCapacity(table, table.length + 256, 256);
+      table[offset + bits] = (short) nextIndex;
+    } else {
+      nextIndex = table[offset + bits];
+    }
+    final int mask = bits << nextLength;
+    final int nextCode = code ^ mask;
+    return addCode(table, nextIndex, value, nextCode, nextLength);
+  }
+
+  private static short[] ensureCapacity(final short[] array, final int minLength, final int delta) {
+    if (array.length >= minLength) {
+      return array;
+    }
+    final short[] newArray = new short[array.length + delta];
+    System.arraycopy(array, 0, newArray, 0, array.length);
+    return newArray;
+  }
+
+  private static short[] addTerminal(final short[] table, final int index, final int value, final int code,
+                                     final int length) {
+    final int r = 8 - length;
+    final int n = 1 << r;
+    final short bits = (short) ((length << 8) | value | TERMINAL);
+    final int prefix = code << r;
+    final int offset = 256 * index;
+    for (int p = 0; p < n; p++) {
+      final int i = prefix | p;
+      assert table[offset + i] == 0;
+      table[offset + i] = bits;
+    }
+    return table;
+  }
+
+  static short node(final int table, final int i) {
+    return DECODE[table * 256 + i];
   }
 }

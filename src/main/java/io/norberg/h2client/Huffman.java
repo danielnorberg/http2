@@ -3,8 +3,9 @@ package io.norberg.h2client;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ByteString;
 
-import static io.norberg.h2client.HuffmanTable.DECODE1;
+import static io.norberg.h2client.HuffmanTable.CODES;
 import static io.norberg.h2client.HuffmanTable.LENGTHS;
+import static io.norberg.h2client.HuffmanTable.TERMINAL;
 
 class Huffman {
 
@@ -14,14 +15,18 @@ class Huffman {
     encode(buf, s.array(), s.arrayOffset(), s.length());
   }
 
+  static void encode(final ByteBuf buf, final byte[] bytes) {
+    encode(buf, bytes, 0, bytes.length);
+  }
+
   static void encode(final ByteBuf buf, final byte[] bytes, final int offset, final int length) {
     long bits = 0;
     int n = 0;
 
     for (int i = 0; i < length; i++) {
       final int b = bytes[offset + i] & 0xFF;
-      final int c = HuffmanTable.CODES[b];
-      final int l = HuffmanTable.LENGTHS[b];
+      final int c = CODES[b];
+      final int l = LENGTHS[b];
 
       bits <<= l;
       bits |= c;
@@ -29,7 +34,7 @@ class Huffman {
 
       while (n >= 8) {
         n -= 8;
-        buf.writeByte((int) (bits >> n));
+        buf.writeByte((int) (bits >>> n));
       }
     }
 
@@ -60,95 +65,77 @@ class Huffman {
     int bits = 0;
     int n = 0;
 
-    int r;
-    int b;
+    int table = 0;
 
     while (true) {
 
-      // Fill buffer
+      // Read the next byte from input if necessary
       if (n < 8) {
         if (!in.isReadable()) {
           break;
         }
-        bits <<= 8;
-        bits |= in.readUnsignedByte();
+        bits = (bits << 8) | in.readUnsignedByte();
         n += 8;
       }
 
       // Get first 8 bits in buffer
-      r = n - 8;
-      b = (bits >> r);
+      final int r = n - 8;
+      final int b = (bits >>> r) & 0xFF;
 
-      if (b == 0xFF) {
-        throw new UnsupportedOperationException("next level");
-      } else if (b == 0xFE) {
+      // Look up node
+      final int node = HuffmanTable.node(table, b);
 
-        // Remove first 8 bits from buffer
-        bits &= (0xFFFFFFFF >> (32 - r));
-        n -= 8;
+      final boolean terminal = (node & TERMINAL) != 0;
+      if (terminal) {
+        // Extract value and number of used bits
+        final int value = node & 0xFF;
+        final int length = (node ^ TERMINAL) >>> 8;
 
-        // Fill buffer
-        if (n < 2) {
-          if (!in.isReadable()) {
-            throw new IllegalArgumentException();
-          }
-          bits <<= 8;
-          bits |= in.readUnsignedByte();
-          n += 8;
-        }
-
-        // Get two first bits in buffer
-        r = n - 2;
-        b = (bits >> r);
-
-        // Remove first two bits from buffer
-        bits &= (0xFFFFFFFF >>> (32 - r));
-        n -= 2;
-
-        final int value;
-        if (b == 0b00) {
-          value = 33;
-        } else if (b == 0b01) {
-          value = 34;
-        } else if (b == 0b10) {
-          value = 40;
-        } else { // 0b11
-          value = 41;
-        }
-
-        out.writeByte(value);
-
-      } else {
-        final int d = DECODE1[b];
-        if (d == -1) {
-          throw new IllegalArgumentException();
-        }
-        final int length = d >> 8;
-        final int value = d & 0xFF;
-
-        // Remove used bits from buffer
-        r = n - length;
-        bits &= (0xFFFFFFFF >>> (32 - r));
+        // Consume used bits
         n -= length;
 
+        // Write decoded value to output
         out.writeByte(value);
+
+        // Start decoding the next sequence
+        table = 0;
+
+        continue;
       }
 
+      // Consume used bits
+      n -= 8;
+
+      // Move on to the next lookup in the sequence
+      table = node;
     }
 
     // Consume trailing bits
-    if (n > 0) {
-      r = 8 - n;
-      bits <<= r;
-      bits |= (0xFF >> (8 - r));
-      if (bits != 0xFF) {
-        final int d = DECODE1[bits];
-        if (d == -1) {
-          throw new IllegalArgumentException();
-        }
-        final int value = d & 0xFF;
-        out.writeByte(value);
+    while (n > 0) {
+      final int r = 8 - n;
+      final int fill = 0xFF >> (8 - r);
+      final int b = (bits << r) & 0xFF | fill;
+      if (table == 0 && b == 0xFF) {
+        break;
       }
+      final int node = HuffmanTable.node(table, b);
+      final boolean terminal = (node & TERMINAL) != 0;
+      // There's no more bytes to read so this must be a terminal node
+      if (!terminal) {
+        throw new IllegalArgumentException();
+      }
+      // Extract value and number of used bits
+      final int value = node & 0xFF;
+      final int length = (node ^ TERMINAL) >>> 8;
+
+      // Consume used bits
+      n -= length;
+
+      // Write decoded value to output
+      out.writeByte(value);
+
+      // Start decoding the next sequence
+      table = 0;
     }
   }
 }

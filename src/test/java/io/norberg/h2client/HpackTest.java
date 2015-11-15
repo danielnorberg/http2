@@ -81,7 +81,7 @@ public class HpackTest {
   public void testHuffmanDecode() throws Exception {
     final String expected = "https://www.example.com";
 
-    final byte[] encoded = bytes(
+    final byte[] encoded = TestUtil.bytes(
         0x9d, 0x29, 0xad, 0x17, 0x18, 0x63, 0xc7, 0x8f, 0x0b, 0x97, 0xc8, 0xe9, 0xae, 0x82, 0xae, 0x43, 0xd3);
 
     final ByteBuf in = Unpooled.wrappedBuffer(encoded);
@@ -91,14 +91,6 @@ public class HpackTest {
 
     final String decoded = out.toString(US_ASCII);
     assertThat(decoded, is(expected));
-  }
-
-  private byte[] bytes(final int... values) {
-    final byte[] bytes = new byte[values.length];
-    for (int i = 0; i < values.length; i++) {
-      bytes[i] = (byte) values[i];
-    }
-    return bytes;
   }
 
   /**
