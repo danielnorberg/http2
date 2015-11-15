@@ -12,7 +12,11 @@ class Huffman {
   static final int EOS = 0xFF;
 
   static void encode(final ByteBuf buf, final ByteString s) {
-    encode(buf, s.array(), s.arrayOffset(), s.length());
+    encode(buf, s, 0, s.length());
+  }
+
+  static void encode(final ByteBuf buf, final ByteString s, final int offset, final int length) {
+    encode(buf, s.array(), s.arrayOffset() + offset, length);
   }
 
   static void encode(final ByteBuf buf, final byte[] bytes) {
@@ -46,8 +50,47 @@ class Huffman {
     }
   }
 
+  static void encode(final ByteBuf out, final ByteBuf in) {
+    if (in.hasArray()) {
+      encode(out, in.array(), in.arrayOffset(), in.readableBytes());
+    } else {
+      encode(out, in, in.readableBytes());
+    }
+  }
+
+  static void encode(final ByteBuf out, final ByteBuf in, final int length) {
+    long bits = 0;
+    int n = 0;
+
+    for (int i = 0; i < length; i++) {
+      final int b = in.readUnsignedByte();
+      final int c = CODES[b];
+      final int l = LENGTHS[b];
+
+      bits <<= l;
+      bits |= c;
+      n += l;
+
+      while (n >= 8) {
+        n -= 8;
+        out.writeByte((int) (bits >>> n));
+      }
+    }
+
+    assert n < 8;
+    if (n > 0) {
+      bits <<= (8 - n);
+      bits |= (EOS >>> n);
+      out.writeByte((int) bits);
+    }
+  }
+
   static int encodedLength(final ByteString s) {
-    return encodedLength(s.array(), s.arrayOffset(), s.length());
+    return encodedLength(s, 0, s.length());
+  }
+
+  static int encodedLength(final ByteString s, final int offset, final int length) {
+    return encodedLength(s.array(), offset + s.arrayOffset(), length);
   }
 
   static int encodedLength(final byte[] bytes, final int offset, final int length) {
