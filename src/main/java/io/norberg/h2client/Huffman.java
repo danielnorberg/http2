@@ -105,8 +105,13 @@ class Huffman {
   }
 
   static void decode(final ByteBuf in, final ByteBuf out) {
+    decode(in, out, in.readableBytes());
+  }
+
+  static void decode(final ByteBuf in, final ByteBuf out, final int length) {
     int bits = 0;
     int n = 0;
+    int i = 0;
 
     int table = 0;
 
@@ -114,11 +119,12 @@ class Huffman {
 
       // Read the next byte from input if necessary
       if (n < 8) {
-        if (!in.isReadable()) {
+        if (i == length) {
           break;
         }
         bits = (bits << 8) | in.readUnsignedByte();
         n += 8;
+        i++;
       }
 
       // Get first 8 bits in buffer
@@ -132,10 +138,10 @@ class Huffman {
       if (terminal) {
         // Extract value and number of used bits
         final int value = node & 0xFF;
-        final int length = (node ^ TERMINAL) >>> 8;
+        final int used = (node ^ TERMINAL) >>> 8;
 
         // Consume used bits
-        n -= length;
+        n -= used;
 
         // Write decoded value to output
         out.writeByte(value);
@@ -169,10 +175,10 @@ class Huffman {
       }
       // Extract value and number of used bits
       final int value = node & 0xFF;
-      final int length = (node ^ TERMINAL) >>> 8;
+      final int used = (node ^ TERMINAL) >>> 8;
 
       // Consume used bits
-      n -= length;
+      n -= used;
 
       // Write decoded value to output
       out.writeByte(value);
