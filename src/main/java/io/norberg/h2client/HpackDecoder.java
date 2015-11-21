@@ -11,12 +11,13 @@ class HpackDecoder {
   private static final int LITERAL_HEADER_FIELD_INCREMENTAL_INDEXING = 0x40;
   private static final int HUFFMAN_ENCODED = 0x80;
 
-  interface Listener {
+  private final HpackDynamicTable dynamicTable;
 
-    void header(final Http2Header header);
+  public HpackDecoder(final int maxTableSize) {
+    this.dynamicTable = new HpackDynamicTable(maxTableSize);
   }
 
-  public void decode(final ByteBuf in, final Listener listener) {
+  public void decode(final ByteBuf in, final Listener listener) throws HpackDecodingException {
     while (true) {
       if (!in.isReadable()) {
         break;
@@ -51,10 +52,10 @@ class HpackDecoder {
   private void readLiteralHeaderFieldWithoutIndexingIndexedName(final int b, final ByteBuf in,
                                                                 final Listener listener) {
     final int index = readInteger(b, in, 7);
-    if (index >= HpackTable.STATIC_TABLE.length) {
+    if (index >= StaticHpackTable.length()) {
       throw new IllegalArgumentException("no dynamic table yet");
     }
-    final Http2Header template = HpackTable.STATIC_TABLE[index];
+    final Http2Header template = StaticHpackTable.header(index);
     final AsciiString name = template.name();
     final ByteString value = readByteString(in);
     final Http2Header header = Http2Header.of(name, value);
@@ -73,19 +74,53 @@ class HpackDecoder {
     final AsciiString name = readAsciiString(in);
     final ByteString value = readByteString(in);
     final Http2Header header = Http2Header.of(name, value);
+    dynamicTable.addFirst(header);
     listener.header(header);
   }
 
-  private void readLiteralHeaderFieldIndexingIndexedName(final int b, final ByteBuf in, final Listener listener) {
+  private void readLiteralHeaderFieldIndexingIndexedName(final int b, final ByteBuf in, final Listener listener)
+      throws HpackDecodingException {
     final int index = readInteger(b, in, 7);
-    if (index >= HpackTable.STATIC_TABLE.length) {
-      throw new IllegalArgumentException("no dynamic table yet");
-    }
-    final Http2Header template = HpackTable.STATIC_TABLE[index];
+    final Http2Header template = header(index);
     final AsciiString name = template.name();
     final ByteString value = readByteString(in);
     final Http2Header header = Http2Header.of(name, value);
+    dynamicTable.addFirst(header);
     listener.header(header);
+  }
+
+  private void readIndexedHeaderField(final int b, final ByteBuf in, final Listener listener)
+      throws HpackDecodingException {
+    final int index = readInteger(b, in, 7);
+    final Http2Header header = header(index);
+    listener.header(header);
+  }
+
+  private Http2Header header(final int index) throws HpackDecodingException {
+    final Http2Header header;
+    if (index <= 0) {
+      throw new HpackDecodingException();
+    }
+    if (isStatic(index)) {
+      header = StaticHpackTable.header(index);
+    } else {
+      header = dynamicHeader(index);
+    }
+    return header;
+  }
+
+  private boolean isStatic(final int index) {
+    return index <= StaticHpackTable.length();
+  }
+
+  private Http2Header dynamicHeader(final int index) throws HpackDecodingException {
+    final Http2Header header;
+    final int dynamicIndex = index - StaticHpackTable.length() - 1;
+    if (dynamicIndex >= dynamicTable.size()) {
+      throw new HpackDecodingException();
+    }
+    header = dynamicTable.header(dynamicIndex);
+    return header;
   }
 
   private AsciiString readAsciiString(final ByteBuf in) {
@@ -134,15 +169,6 @@ class HpackDecoder {
     return s;
   }
 
-  private void readIndexedHeaderField(final int b, final ByteBuf in, final Listener listener) {
-    final int index = readInteger(b, in, 7);
-    if (index >= HpackTable.STATIC_TABLE.length) {
-      throw new IllegalArgumentException("no dynamic table yet");
-    }
-    final Http2Header header = HpackTable.STATIC_TABLE[index];
-    listener.header(header);
-  }
-
   private int readInteger(int i, final ByteBuf buf, final int n) {
     final int maskBits = 8 - n;
     final int nMask = (0xFF >> maskBits);
@@ -160,4 +186,10 @@ class HpackDecoder {
     } while ((b & 0x80) == 0x80);
     return i;
   }
+
+  interface Listener {
+
+    void header(final Http2Header header);
+  }
+
 }

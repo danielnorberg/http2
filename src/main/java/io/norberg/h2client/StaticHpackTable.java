@@ -2,11 +2,9 @@ package io.norberg.h2client;
 
 import io.netty.util.AsciiString;
 
-class HpackTable {
+class StaticHpackTable {
 
-  static final Http2Header[] STATIC_TABLE = {
-      null, // 0
-
+  private static final Http2Header[] TABLE = {
       h(":authority                 ", "              "), // 1
       h(":method                    ", "GET           "), // 2
       h(":method                    ", "POST          "), // 3
@@ -72,5 +70,13 @@ class HpackTable {
 
   private static Http2Header h(final String name, final String value) {
     return Http2Header.of(AsciiString.of(name.trim()), AsciiString.of(value.trim()));
+  }
+
+  static Http2Header header(final int index) {
+    return TABLE[index - 1];
+  }
+
+  static int length() {
+    return TABLE.length;
   }
 }
