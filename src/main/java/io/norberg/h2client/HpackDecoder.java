@@ -80,7 +80,7 @@ class HpackDecoder {
 
   private void readLiteralHeaderFieldIndexingIndexedName(final int b, final ByteBuf in, final Listener listener)
       throws HpackDecodingException {
-    final int index = readInteger(b, in, 7);
+    final int index = readInteger(b, in, 6);
     final Http2Header template = header(index);
     final AsciiString name = template.name();
     final ByteString value = readByteString(in);

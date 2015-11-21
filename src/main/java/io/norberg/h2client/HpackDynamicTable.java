@@ -28,17 +28,21 @@ class HpackDynamicTable {
     if (newSize > maxSize) {
       if (headerSize > maxSize) {
         clear();
+        assert entries() == 0;
         return;
       }
       while (newSize > maxSize) {
         removeLast();
       }
     }
-    ensureCapacity();
     assert entries() < table.length;
     head = (head - 1) & (table.length - 1);
     table[head] = header;
+    if (head == tail) {
+      doubleCapacity();
+    }
     size += headerSize;
+    assert entries() > 0;
   }
 
   Http2Header removeLast() {
@@ -73,19 +77,14 @@ class HpackDynamicTable {
     return ix;
   }
 
-  private void ensureCapacity() {
-    if (entries() == table.length) {
-      final Http2Header[] newTable = newTable(table.length * 2);
-      if (head > tail) {
-        System.arraycopy(table, head, newTable, 0, table.length - head);
-        System.arraycopy(table, 0, newTable, table.length - head, tail);
-      } else {
-        System.arraycopy(table, 0, newTable, table.length - head, tail);
-      }
-      table = newTable;
-      tail = entries();
-      head = 0;
-    }
+  private void doubleCapacity() {
+    assert head == tail;
+    final Http2Header[] newTable = newTable(table.length * 2);
+    System.arraycopy(table, head, newTable, 0, table.length - head);
+    System.arraycopy(table, 0, newTable, table.length - head, tail);
+    head = 0;
+    tail = table.length;
+    table = newTable;
   }
 
   private void clear() {

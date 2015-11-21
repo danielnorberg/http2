@@ -29,7 +29,6 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.ByteToMessageDecoder;
-import io.netty.handler.codec.http2.DefaultHttp2HeadersDecoder;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2Flags;
 import io.netty.handler.codec.http2.Http2FrameListener;
@@ -140,7 +139,7 @@ public class Http2Server {
     protected void initChannel(SocketChannel ch) throws Exception {
       channels.add(ch);
       final Http2Settings settings = new Http2Settings();
-      final Http2FrameReader reader = new Http2FrameReader(new DefaultHttp2HeadersDecoder(false));
+      final Http2FrameReader reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE));
       ch.pipeline().addLast(
           sslCtx.newHandler(ch.alloc()),
           new PrefaceHandler(settings),

@@ -10,7 +10,6 @@ import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2FrameListener;
 import io.netty.handler.codec.http2.Http2FrameTypes;
 import io.netty.handler.codec.http2.Http2Headers;
-import io.netty.handler.codec.http2.Http2HeadersDecoder;
 import io.netty.handler.codec.http2.Http2Settings;
 
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
@@ -26,15 +25,16 @@ import static java.util.Objects.requireNonNull;
 
 class Http2FrameReader {
 
-  private final Http2HeadersDecoder headersDecoder;
+  private final HpackDecoder hpackDecoder;
 
   private int length = -1;
   private short type;
   private short flags;
   private int streamId;
+  private final HeadersAssembler headersAssembler = new HeadersAssembler();
 
-  Http2FrameReader(final Http2HeadersDecoder headersDecoder) {
-    this.headersDecoder = requireNonNull(headersDecoder, "headersDecoder");
+  Http2FrameReader(final HpackDecoder hpackDecoder) {
+    this.hpackDecoder = requireNonNull(hpackDecoder, "hpackDecoder");
   }
 
   void readFrames(final ChannelHandlerContext ctx, final ByteBuf in, final Http2FrameListener listener)
@@ -155,7 +155,7 @@ class Http2FrameReader {
     final int blockLength = length - fieldsLength - padding;
     final int writerMark = in.writerIndex();
     in.writerIndex(in.readerIndex() + blockLength);
-    final Http2Headers headers = headersDecoder.decodeHeaders(in);
+    final Http2Headers headers = decodeHeaders(in);
     in.writerIndex(writerMark);
     final boolean endOfStream = readFlag(END_STREAM);
     listener.onHeadersRead(ctx, streamId, headers, streamDependency, weight, exclusive, padding, endOfStream);
@@ -168,7 +168,7 @@ class Http2FrameReader {
     final int blockLength = length - (readFlag(PADDED) ? 1 : 0) - padding;
     final int writerMark = in.writerIndex();
     in.writerIndex(in.readerIndex() + blockLength);
-    final Http2Headers headers = headersDecoder.decodeHeaders(in);
+    final Http2Headers headers = decodeHeaders(in);
     in.writerIndex(writerMark);
     final boolean endOfStream = readFlag(END_STREAM);
     listener.onHeadersRead(ctx, streamId, headers, padding, endOfStream);
@@ -233,4 +233,11 @@ class Http2FrameReader {
                                      final Http2FrameListener listener) throws Http2Exception {
     throw new UnsupportedOperationException("TODO");
   }
+
+  private Http2Headers decodeHeaders(final ByteBuf in) throws HpackDecodingException {
+    headersAssembler.reset();
+    hpackDecoder.decode(in, headersAssembler);
+    return headersAssembler.headers();
+  }
+
 }
