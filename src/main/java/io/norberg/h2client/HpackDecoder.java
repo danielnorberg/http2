@@ -14,11 +14,7 @@ class HpackDecoder {
   }
 
   public void decode(final ByteBuf in, final Listener listener) throws HpackDecodingException {
-    while (true) {
-      if (!in.isReadable()) {
-        break;
-      }
-
+    while (in.isReadable()) {
       final int b = in.readUnsignedByte();
       final Http2Header header;
       if ((b & 0b1000_0000) != 0) {
