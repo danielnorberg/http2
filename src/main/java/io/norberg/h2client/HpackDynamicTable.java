@@ -4,7 +4,7 @@ import static java.lang.Integer.bitCount;
 
 class HpackDynamicTable {
 
-  private int maxSize;
+  private int capacity;
   private int size;
 
   private int head;
@@ -12,8 +12,8 @@ class HpackDynamicTable {
 
   private Http2Header[] table;
 
-  HpackDynamicTable(final int maxSize) {
-    this.maxSize = maxSize;
+  HpackDynamicTable(final int capacity) {
+    this.capacity = capacity;
     this.table = newTable(16);
   }
 
@@ -25,13 +25,13 @@ class HpackDynamicTable {
   void addFirst(final Http2Header header) {
     final int headerSize = size(header);
     int newSize = size + headerSize;
-    if (newSize > maxSize) {
-      if (headerSize > maxSize) {
+    if (newSize > capacity) {
+      if (headerSize > capacity) {
         clear();
         assert entries() == 0;
         return;
       }
-      while (newSize > maxSize) {
+      while (newSize > capacity) {
         removeLast();
       }
     }
@@ -95,5 +95,16 @@ class HpackDynamicTable {
       table[i] = null;
     }
     head = tail = 0;
+  }
+
+  void capacity(final int capacity) {
+    this.capacity = capacity;
+    if (size > capacity) {
+      removeLast();
+    }
+  }
+
+  int capacity() {
+    return capacity;
   }
 }

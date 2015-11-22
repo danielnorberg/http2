@@ -7,10 +7,6 @@ import io.netty.util.ByteString;
 
 class HpackDecoder {
 
-  private static final int INDEXED_HEADER_FIELD = 0x80;
-  private static final int LITERAL_HEADER_FIELD_INCREMENTAL_INDEXING = 0x40;
-  private static final int HUFFMAN_ENCODED = 0x80;
-
   private final HpackDynamicTable dynamicTable;
 
   public HpackDecoder(final int maxTableSize) {
@@ -24,76 +20,62 @@ class HpackDecoder {
       }
 
       final int b = in.readUnsignedByte();
-      if ((b & INDEXED_HEADER_FIELD) != 0) {
+      final Http2Header header;
+      if ((b & 0b1000_0000) != 0) {
         // 6.1 Indexed Header Field Representation
-        readIndexedHeaderField(b, in, listener);
-      } else if ((b & LITERAL_HEADER_FIELD_INCREMENTAL_INDEXING) != 0) {
+        final int index = readInteger(b, in, 7);
+        header = header(index);
+      } else if ((b & 0b0100_0000) != 0) {
         // 6.2.1 Literal Header Field with Incremental Indexing
-        if (b != LITERAL_HEADER_FIELD_INCREMENTAL_INDEXING) {
+        if (b != 0b0100_0000) {
           // Literal Header Field with Incremental Indexing — Indexed Name
-          readLiteralHeaderFieldIndexingIndexedName(b, in, listener);
+          header = readLiteralHeaderFieldIndexedName(b, in, 6, false);
         } else {
           // Literal Header Field with Incremental Indexing — New Name
-          readLiteralHeaderFieldIndexingNewName(b, in, listener);
+          header = readLiteralHeaderFieldNewName(in, false);
+        }
+        dynamicTable.addFirst(header);
+      } else if ((b & 0b0010_0000) != 0) {
+        final int maxSize = readInteger(b, in, 5);
+        dynamicTable.capacity(maxSize);
+        continue;
+      } else if ((b & 0b0001_0000) != 0) {
+        // 6.2.3 Literal Header Field Never Indexed
+        if (b != 0b0001_0000) {
+          // Literal Header Field Never Indexed — Indexed Name
+          header = readLiteralHeaderFieldIndexedName(b, in, 4, true);
+        } else {
+          // Literal Header Field Never Indexed — New Name
+          header = readLiteralHeaderFieldNewName(in, true);
         }
       } else {
         // 6.2.2 Literal Header Field without Indexing
         if (b != 0) {
           // Literal Header Field without Indexing — Indexed Name
-          readLiteralHeaderFieldWithoutIndexingIndexedName(b, in, listener);
+          header = readLiteralHeaderFieldIndexedName(b, in, 7, false);
         } else {
           // Literal Header Field without Indexing — New Name
-          readLiteralHeaderFieldWithoutIndexingNewName(b, in, listener);
+          header = readLiteralHeaderFieldNewName(in, false);
         }
       }
+      listener.header(header);
     }
   }
 
-  private void readLiteralHeaderFieldWithoutIndexingIndexedName(final int b, final ByteBuf in,
-                                                                final Listener listener) {
-    final int index = readInteger(b, in, 7);
-    if (index >= StaticHpackTable.length()) {
-      throw new IllegalArgumentException("no dynamic table yet");
-    }
-    final Http2Header template = StaticHpackTable.header(index);
-    final AsciiString name = template.name();
-    final ByteString value = readByteString(in);
-    final Http2Header header = Http2Header.of(name, value);
-    listener.header(header);
-  }
-
-  private void readLiteralHeaderFieldWithoutIndexingNewName(final int b, final ByteBuf in,
-                                                            final Listener listener) {
-    final AsciiString name = readAsciiString(in);
-    final ByteString value = readByteString(in);
-    final Http2Header header = Http2Header.of(name, value);
-    listener.header(header);
-  }
-
-  private void readLiteralHeaderFieldIndexingNewName(final int b, final ByteBuf in, final Listener listener) {
-    final AsciiString name = readAsciiString(in);
-    final ByteString value = readByteString(in);
-    final Http2Header header = Http2Header.of(name, value);
-    dynamicTable.addFirst(header);
-    listener.header(header);
-  }
-
-  private void readLiteralHeaderFieldIndexingIndexedName(final int b, final ByteBuf in, final Listener listener)
+  private Http2Header readLiteralHeaderFieldIndexedName(final int b, final ByteBuf in, final int n,
+                                                        final boolean sensitive)
       throws HpackDecodingException {
-    final int index = readInteger(b, in, 6);
+    final int index = readInteger(b, in, n);
     final Http2Header template = header(index);
     final AsciiString name = template.name();
     final ByteString value = readByteString(in);
-    final Http2Header header = Http2Header.of(name, value);
-    dynamicTable.addFirst(header);
-    listener.header(header);
+    return Http2Header.of(name, value, sensitive);
   }
 
-  private void readIndexedHeaderField(final int b, final ByteBuf in, final Listener listener)
-      throws HpackDecodingException {
-    final int index = readInteger(b, in, 7);
-    final Http2Header header = header(index);
-    listener.header(header);
+  private Http2Header readLiteralHeaderFieldNewName(final ByteBuf in, final boolean sensitive) {
+    final AsciiString name = readAsciiString(in);
+    final ByteString value = readByteString(in);
+    return Http2Header.of(name, value, sensitive);
   }
 
   private Http2Header header(final int index) throws HpackDecodingException {
@@ -126,7 +108,7 @@ class HpackDecoder {
   private AsciiString readAsciiString(final ByteBuf in) {
     final int b = in.readUnsignedByte();
     final int length = readInteger(b, in, 7);
-    if ((b & HUFFMAN_ENCODED) != 0) {
+    if ((b & 0b1000_0000) != 0) {
       return readHuffmanAsciiString(in, length);
     } else {
       return readAsciiString(in, length);
@@ -136,7 +118,7 @@ class HpackDecoder {
   private ByteString readByteString(final ByteBuf in) {
     final int b = in.readUnsignedByte();
     final int length = readInteger(b, in, 7);
-    if ((b & HUFFMAN_ENCODED) != 0) {
+    if ((b & 0b1000_0000) != 0) {
       return readHuffmanByteString(in, length);
     } else {
       return readByteString(in, length);
@@ -187,9 +169,13 @@ class HpackDecoder {
     return i;
   }
 
+  public int dynamicTableSize() {
+    return dynamicTable.capacity();
+  }
+
   interface Listener {
 
-    void header(final Http2Header header);
+    void header(Http2Header header);
   }
 
 }

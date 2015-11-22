@@ -67,4 +67,19 @@ public class HpackDecoderTest {
     decoder.decode(block2, listener);
     verify(listener).header(Http2Header.of(FOO, BAR, false));
   }
+
+  @Test
+  public void testTableSizeChange() throws Exception {
+    final Encoder encoder = new Encoder(Integer.MAX_VALUE);
+    final ByteBuf block = Unpooled.buffer();
+    final OutputStream os = new ByteBufOutputStream(block);
+
+    // Change header table size
+    encoder.setMaxHeaderTableSize(os, 4711);
+
+    final HpackDecoder decoder = new HpackDecoder(Integer.MAX_VALUE);
+    decoder.decode(block, listener);
+
+    assertThat(decoder.dynamicTableSize(), is(4711));
+  }
 }
