@@ -36,7 +36,7 @@ import io.netty.handler.codec.http2.Http2FrameLogger;
 import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
-import io.netty.util.ByteString;
+import io.netty.util.AsciiString;
 import io.netty.util.collection.IntObjectHashMap;
 
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
@@ -522,17 +522,18 @@ class ClientConnection {
 
     private int encodeHeaders(Http2Headers headers, ByteBuf buffer) throws IOException {
       final ByteBufOutputStream stream = new ByteBufOutputStream(buffer);
-      for (Map.Entry<ByteString, ByteString> header : headers) {
+      for (Map.Entry<CharSequence, CharSequence> header : headers) {
         headerEncoder.encodeHeader(stream, toBytes(header.getKey()), toBytes(header.getValue()), false);
       }
       return stream.writtenBytes();
     }
 
-    private byte[] toBytes(ByteString s) {
-      if (s.isEntireArrayUsed()) {
-        return s.array();
+    private byte[] toBytes(CharSequence s) {
+      final AsciiString as = AsciiString.of(s);
+      if (as.isEntireArrayUsed()) {
+        return as.array();
       } else {
-        return s.toByteArray();
+        return as.toByteArray();
       }
     }
   }

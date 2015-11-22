@@ -3,7 +3,6 @@ package io.norberg.h2client;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.util.AsciiString;
-import io.netty.util.ByteString;
 
 class HpackDecoder {
 
@@ -64,13 +63,13 @@ class HpackDecoder {
     final int index = readInteger(b, in, n);
     final Http2Header template = header(index);
     final AsciiString name = template.name();
-    final ByteString value = readByteString(in);
+    final AsciiString value = readByteString(in);
     return Http2Header.of(name, value, sensitive);
   }
 
   private Http2Header readLiteralHeaderFieldNewName(final ByteBuf in, final boolean sensitive) {
     final AsciiString name = readAsciiString(in);
-    final ByteString value = readByteString(in);
+    final AsciiString value = readByteString(in);
     return Http2Header.of(name, value, sensitive);
   }
 
@@ -111,7 +110,7 @@ class HpackDecoder {
     }
   }
 
-  private ByteString readByteString(final ByteBuf in) {
+  private AsciiString readByteString(final ByteBuf in) {
     final int b = in.readUnsignedByte();
     final int length = readInteger(b, in, 7);
     if ((b & 0b1000_0000) != 0) {
@@ -127,10 +126,10 @@ class HpackDecoder {
     return new AsciiString(bytes, false);
   }
 
-  private ByteString readByteString(final ByteBuf in, final int length) {
+  private AsciiString readByteString(final ByteBuf in, final int length) {
     final byte[] bytes = new byte[length];
     in.readBytes(bytes);
-    return new ByteString(bytes, false);
+    return new AsciiString(bytes, false);
   }
 
   private AsciiString readHuffmanAsciiString(final ByteBuf in, final int length) {
@@ -140,10 +139,10 @@ class HpackDecoder {
     return s;
   }
 
-  private ByteString readHuffmanByteString(final ByteBuf in, final int length) {
+  private AsciiString readHuffmanByteString(final ByteBuf in, final int length) {
     final ByteBuf buf = Unpooled.buffer(length * 2);
     Huffman.decode(in, buf, length);
-    final ByteString s = new ByteString(buf.array(), buf.arrayOffset(), buf.readableBytes(), false);
+    final AsciiString s = new AsciiString(buf.array(), buf.arrayOffset(), buf.readableBytes(), false);
     return s;
   }
 

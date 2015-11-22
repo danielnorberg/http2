@@ -1,7 +1,7 @@
 package io.norberg.h2client;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.util.ByteString;
+import io.netty.util.AsciiString;
 
 import static io.norberg.h2client.HuffmanTable.CODES;
 import static io.norberg.h2client.HuffmanTable.LENGTHS;
@@ -11,11 +11,11 @@ class Huffman {
 
   static final int EOS = 0xFF;
 
-  static void encode(final ByteBuf buf, final ByteString s) {
+  static void encode(final ByteBuf buf, final AsciiString s) {
     encode(buf, s, 0, s.length());
   }
 
-  static void encode(final ByteBuf buf, final ByteString s, final int offset, final int length) {
+  static void encode(final ByteBuf buf, final AsciiString s, final int offset, final int length) {
     encode(buf, s.array(), s.arrayOffset() + offset, length);
   }
 
@@ -85,11 +85,11 @@ class Huffman {
     }
   }
 
-  static int encodedLength(final ByteString s) {
+  static int encodedLength(final AsciiString s) {
     return encodedLength(s, 0, s.length());
   }
 
-  static int encodedLength(final ByteString s, final int offset, final int length) {
+  static int encodedLength(final AsciiString s, final int offset, final int length) {
     return encodedLength(s.array(), offset + s.arrayOffset(), length);
   }
 

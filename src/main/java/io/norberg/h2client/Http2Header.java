@@ -1,15 +1,14 @@
 package io.norberg.h2client;
 
 import io.netty.util.AsciiString;
-import io.netty.util.ByteString;
 
 public class Http2Header {
 
   private final AsciiString name;
-  private final ByteString value;
+  private final AsciiString value;
   private final boolean sensitive;
 
-  public Http2Header(final AsciiString name, final ByteString value, final boolean sensitive) {
+  public Http2Header(final AsciiString name, final AsciiString value, final boolean sensitive) {
     this.name = name;
     this.value = value;
     this.sensitive = sensitive;
@@ -19,7 +18,7 @@ public class Http2Header {
     return name;
   }
 
-  public ByteString value() {
+  public AsciiString value() {
     return value;
   }
 
@@ -27,11 +26,11 @@ public class Http2Header {
     return sensitive;
   }
 
-  static Http2Header of(final AsciiString name, final ByteString value) {
+  static Http2Header of(final AsciiString name, final AsciiString value) {
     return of(name, value, false);
   }
 
-  static Http2Header of(final AsciiString name, final ByteString value, final boolean sensitive) {
+  static Http2Header of(final AsciiString name, final AsciiString value, final boolean sensitive) {
     return new Http2Header(name, value, sensitive);
   }
 

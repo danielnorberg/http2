@@ -5,7 +5,7 @@ import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http2.DefaultHttp2Headers;
 import io.netty.handler.codec.http2.Http2Headers;
-import io.netty.util.ByteString;
+import io.netty.util.AsciiString;
 
 public class Http2Request {
 
@@ -20,13 +20,13 @@ public class Http2Request {
   public Http2Request(final HttpMethod method, final String path) {
     this.headers = new DefaultHttp2Headers();
     this.headers.method(method.asciiName());
-    this.headers.path(ByteString.fromAscii(path));
+    this.headers.path(AsciiString.of(path));
   }
 
   public Http2Request(final HttpMethod method, final String path, final ByteBuf content) {
     this.headers = new DefaultHttp2Headers();
     this.headers.method(method.asciiName());
-    this.headers.path(ByteString.fromAscii(path));
+    this.headers.path(AsciiString.of(path));
     this.content = content;
   }
 
