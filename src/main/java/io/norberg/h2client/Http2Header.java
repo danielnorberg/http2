@@ -26,12 +26,12 @@ public class Http2Header {
     return sensitive;
   }
 
-  static Http2Header of(final AsciiString name, final AsciiString value) {
+  static Http2Header of(final CharSequence name, final CharSequence value) {
     return of(name, value, false);
   }
 
-  static Http2Header of(final AsciiString name, final AsciiString value, final boolean sensitive) {
-    return new Http2Header(name, value, sensitive);
+  static Http2Header of(final CharSequence name, final CharSequence value, final boolean sensitive) {
+    return new Http2Header(AsciiString.of(name), AsciiString.of(value), sensitive);
   }
 
   @Override

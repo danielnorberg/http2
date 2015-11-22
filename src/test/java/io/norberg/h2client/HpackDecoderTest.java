@@ -3,7 +3,6 @@ package io.norberg.h2client;
 import com.twitter.hpack.Encoder;
 
 import org.hamcrest.Matchers;
-import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -27,14 +26,26 @@ public class HpackDecoderTest {
   public static final AsciiString FOO = AsciiString.of("foo");
   public static final AsciiString BAR = AsciiString.of("bar");
 
-  @Mock HpackDecoder.Listener listener;
+  public static final AsciiString METHOD = AsciiString.of(":method");
+  public static final AsciiString GET = AsciiString.of("GET");
 
-  @Before
-  public void setUp() throws Exception {
-  }
+  @Mock HpackDecoder.Listener listener;
 
   @Test
   public void testDecodeStatic() throws Exception {
+    final Encoder encoder = new Encoder(0);
+    final ByteBuf block = Unpooled.buffer();
+    final OutputStream os = new ByteBufOutputStream(block);
+    encoder.encodeHeader(os, METHOD.array(), GET.array(), false);
+
+    final HpackDecoder decoder = new HpackDecoder(0);
+    decoder.decode(block, listener);
+
+    verify(listener).header(Http2Header.of(METHOD, GET, false));
+  }
+
+  @Test
+  public void testDecodeUnindexed() throws Exception {
     final Encoder encoder = new Encoder(0);
     final ByteBuf block = Unpooled.buffer();
     final OutputStream os = new ByteBufOutputStream(block);
@@ -44,10 +55,13 @@ public class HpackDecoderTest {
     decoder.decode(block, listener);
 
     verify(listener).header(Http2Header.of(FOO, BAR, false));
+
+    // Verify that the header did not get indexed
+    assertThat(decoder.dynamicTableLength(), is(0));
   }
 
   @Test
-  public void testDecodeDynamic() throws Exception {
+  public void testIndexing() throws Exception {
     final Encoder encoder = new Encoder(Integer.MAX_VALUE);
     final HpackDecoder decoder = new HpackDecoder(Integer.MAX_VALUE);
 

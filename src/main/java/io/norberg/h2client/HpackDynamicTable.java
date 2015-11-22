@@ -28,25 +28,25 @@ class HpackDynamicTable {
     if (newSize > capacity) {
       if (headerSize > capacity) {
         clear();
-        assert entries() == 0;
+        assert length() == 0;
         return;
       }
       while (newSize > capacity) {
         removeLast();
       }
     }
-    assert entries() < table.length;
+    assert length() < table.length;
     table[head] = header;
     head = (head + 1) & (table.length - 1);
     if (head == tail) {
       doubleCapacity();
     }
     size += headerSize;
-    assert entries() > 0;
+    assert length() > 0;
   }
 
   Http2Header removeLast() {
-    assert entries() > 0;
+    assert length() > 0;
     final Http2Header header = table[tail];
     tail = (tail + 1) & (table.length - 1);
     table[tail] = null;
@@ -58,7 +58,7 @@ class HpackDynamicTable {
     return table[ix(index)];
   }
 
-  int entries() {
+  int length() {
     return (head - tail) & (table.length - 1);
   }
 
@@ -72,7 +72,7 @@ class HpackDynamicTable {
 
   private int ix(final int index) {
     assert index >= 0;
-    assert index < entries();
+    assert index < length();
     final int ix = (head - index - 1) & (table.length - 1);
     return ix;
   }

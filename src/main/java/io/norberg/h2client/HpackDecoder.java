@@ -67,7 +67,8 @@ class HpackDecoder {
     return Http2Header.of(name, value, sensitive);
   }
 
-  private Http2Header readLiteralHeaderFieldNewName(final ByteBuf in, final boolean sensitive) {
+  private Http2Header readLiteralHeaderFieldNewName(final ByteBuf in, final boolean sensitive)
+      throws HpackDecodingException {
     final AsciiString name = readAsciiString(in);
     final AsciiString value = readByteString(in);
     return Http2Header.of(name, value, sensitive);
@@ -100,7 +101,7 @@ class HpackDecoder {
     return header;
   }
 
-  private AsciiString readAsciiString(final ByteBuf in) {
+  private AsciiString readAsciiString(final ByteBuf in) throws HpackDecodingException {
     final int b = in.readUnsignedByte();
     final int length = readInteger(b, in, 7);
     if ((b & 0b1000_0000) != 0) {
@@ -110,7 +111,7 @@ class HpackDecoder {
     }
   }
 
-  private AsciiString readByteString(final ByteBuf in) {
+  private AsciiString readByteString(final ByteBuf in) throws HpackDecodingException {
     final int b = in.readUnsignedByte();
     final int length = readInteger(b, in, 7);
     if ((b & 0b1000_0000) != 0) {
@@ -120,33 +121,37 @@ class HpackDecoder {
     }
   }
 
-  private AsciiString readAsciiString(final ByteBuf in, final int length) {
+  private AsciiString readAsciiString(final ByteBuf in, final int length) throws HpackDecodingException {
     final byte[] bytes = new byte[length];
+    checkReadable(in, length);
     in.readBytes(bytes);
     return new AsciiString(bytes, false);
   }
 
-  private AsciiString readByteString(final ByteBuf in, final int length) {
+  private AsciiString readByteString(final ByteBuf in, final int length) throws HpackDecodingException {
     final byte[] bytes = new byte[length];
+    checkReadable(in, length);
     in.readBytes(bytes);
     return new AsciiString(bytes, false);
   }
 
-  private AsciiString readHuffmanAsciiString(final ByteBuf in, final int length) {
+  private AsciiString readHuffmanAsciiString(final ByteBuf in, final int length) throws HpackDecodingException {
     final ByteBuf buf = Unpooled.buffer(length * 2);
+    checkReadable(in, length);
     Huffman.decode(in, buf, length);
     final AsciiString s = new AsciiString(buf.array(), buf.arrayOffset(), buf.readableBytes(), false);
     return s;
   }
 
-  private AsciiString readHuffmanByteString(final ByteBuf in, final int length) {
+  private AsciiString readHuffmanByteString(final ByteBuf in, final int length) throws HpackDecodingException {
     final ByteBuf buf = Unpooled.buffer(length * 2);
+    checkReadable(in, length);
     Huffman.decode(in, buf, length);
     final AsciiString s = new AsciiString(buf.array(), buf.arrayOffset(), buf.readableBytes(), false);
     return s;
   }
 
-  private int readInteger(int i, final ByteBuf buf, final int n) {
+  private int readInteger(int i, final ByteBuf buf, final int n) throws HpackDecodingException {
     final int maskBits = 8 - n;
     final int nMask = (0xFF >> maskBits);
     i &= nMask;
@@ -157,6 +162,7 @@ class HpackDecoder {
     int m = 0;
     int b;
     do {
+      requireReadable(buf);
       b = buf.readUnsignedByte();
       i += (b & 0x7F) << m;
       m = m + 7;
@@ -164,8 +170,24 @@ class HpackDecoder {
     return i;
   }
 
+  private void requireReadable(final ByteBuf buf) throws HpackDecodingException {
+    if (!buf.isReadable()) {
+      throw new HpackDecodingException();
+    }
+  }
+
+  private void checkReadable(final ByteBuf buf, final int length) throws HpackDecodingException {
+    if (buf.readableBytes() < length) {
+      throw new HpackDecodingException();
+    }
+  }
+
   public int dynamicTableSize() {
     return dynamicTable.capacity();
+  }
+
+  public int dynamicTableLength() {
+    return dynamicTable.length();
   }
 
   interface Listener {
