@@ -6,10 +6,13 @@ import io.netty.util.AsciiString;
 
 class HpackDecoder {
 
-  private final HpackDynamicTable dynamicTable;
+  private final HpackDynamicTable dynamicTable = new HpackDynamicTable();
+
+  private int tableSize;
+  private int maxTableSize;
 
   public HpackDecoder(final int maxTableSize) {
-    this.dynamicTable = new HpackDynamicTable(maxTableSize);
+    this.maxTableSize = maxTableSize;
   }
 
   public void decode(final ByteBuf in, final Listener listener) throws HpackDecodingException {
@@ -29,10 +32,10 @@ class HpackDecoder {
           // Literal Header Field with Incremental Indexing — New Name
           header = readLiteralHeaderFieldNewName(in, false);
         }
-        dynamicTable.addFirst(header);
+        addHeader(header);
       } else if ((b & 0b0010_0000) != 0) {
         final int maxSize = readInteger(b, in, 5);
-        dynamicTable.capacity(maxSize);
+        setMaxTableSize(maxSize);
         continue;
       } else if ((b & 0b0001_0000) != 0) {
         // 6.2.3 Literal Header Field Never Indexed
@@ -55,6 +58,32 @@ class HpackDecoder {
       }
       listener.header(header);
     }
+  }
+
+  private void setMaxTableSize(final int maxSize) {
+    while (tableSize > maxSize) {
+      final Http2Header removed = dynamicTable.removeLast();
+      tableSize -= removed.size();
+    }
+    maxTableSize = maxSize;
+  }
+
+  private void addHeader(final Http2Header header) {
+    final int headerSize = header.size();
+    int newTableSize = tableSize + headerSize;
+    if (newTableSize > maxTableSize) {
+      if (headerSize > maxTableSize) {
+        tableSize = 0;
+        dynamicTable.clear();
+        return;
+      }
+      while (newTableSize > maxTableSize) {
+        final Http2Header removed = dynamicTable.removeLast();
+        newTableSize -= removed.size();
+      }
+    }
+    tableSize = newTableSize;
+    dynamicTable.addFirst(header);
   }
 
   private Http2Header readLiteralHeaderFieldIndexedName(final int b, final ByteBuf in, final int n,
@@ -80,7 +109,7 @@ class HpackDecoder {
       throw new HpackDecodingException();
     }
     if (isStatic(index)) {
-      header = StaticHpackTable.header(index);
+      header = HpackStaticTable.header(index);
     } else {
       header = dynamicHeader(index);
     }
@@ -88,13 +117,13 @@ class HpackDecoder {
   }
 
   private boolean isStatic(final int index) {
-    return index <= StaticHpackTable.length();
+    return index <= HpackStaticTable.length();
   }
 
   private Http2Header dynamicHeader(final int index) throws HpackDecodingException {
     final Http2Header header;
-    final int dynamicIndex = index - StaticHpackTable.length() - 1;
-    if (dynamicIndex >= dynamicTable.size()) {
+    final int dynamicIndex = index - HpackStaticTable.length() - 1;
+    if (dynamicIndex >= tableSize) {
       throw new HpackDecodingException();
     }
     header = dynamicTable.header(dynamicIndex);
@@ -182,11 +211,15 @@ class HpackDecoder {
     }
   }
 
-  public int dynamicTableSize() {
-    return dynamicTable.capacity();
+  public int maxTableSize() {
+    return maxTableSize;
   }
 
-  public int dynamicTableLength() {
+  public int tableSize() {
+    return tableSize;
+  }
+
+  public int tableLength() {
     return dynamicTable.length();
   }
 

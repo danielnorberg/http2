@@ -4,18 +4,10 @@ import static java.lang.Integer.bitCount;
 
 class HpackDynamicTable {
 
-  private int capacity;
-  private int size;
-
   private int head;
   private int tail;
 
-  private Http2Header[] table;
-
-  HpackDynamicTable(final int capacity) {
-    this.capacity = capacity;
-    this.table = newTable(16);
-  }
+  private Http2Header[] table = newTable(16);
 
   private Http2Header[] newTable(final int length) {
     assert bitCount(length) == 1;
@@ -23,25 +15,12 @@ class HpackDynamicTable {
   }
 
   void addFirst(final Http2Header header) {
-    final int headerSize = size(header);
-    int newSize = size + headerSize;
-    if (newSize > capacity) {
-      if (headerSize > capacity) {
-        clear();
-        assert length() == 0;
-        return;
-      }
-      while (newSize > capacity) {
-        removeLast();
-      }
-    }
     assert length() < table.length;
     table[head] = header;
     head = (head + 1) & (table.length - 1);
     if (head == tail) {
       doubleCapacity();
     }
-    size += headerSize;
     assert length() > 0;
   }
 
@@ -50,7 +29,6 @@ class HpackDynamicTable {
     final Http2Header header = table[tail];
     tail = (tail + 1) & (table.length - 1);
     table[tail] = null;
-    size -= size(header);
     return header;
   }
 
@@ -60,14 +38,6 @@ class HpackDynamicTable {
 
   int length() {
     return (head - tail) & (table.length - 1);
-  }
-
-  int size() {
-    return size;
-  }
-
-  private static int size(final Http2Header header) {
-    return header.name().length() + header.value().length() + 32;
   }
 
   private int ix(final int index) {
@@ -87,7 +57,7 @@ class HpackDynamicTable {
     table = newTable;
   }
 
-  private void clear() {
+  void clear() {
     for (int i = head; i < tail; i++) {
       if (i >= table.length) {
         i -= table.length;
@@ -95,16 +65,5 @@ class HpackDynamicTable {
       table[i] = null;
     }
     head = tail = 0;
-  }
-
-  void capacity(final int capacity) {
-    this.capacity = capacity;
-    if (size > capacity) {
-      removeLast();
-    }
-  }
-
-  int capacity() {
-    return capacity;
   }
 }

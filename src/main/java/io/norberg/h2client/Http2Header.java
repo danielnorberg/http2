@@ -2,11 +2,13 @@ package io.norberg.h2client;
 
 import io.netty.util.AsciiString;
 
-public class Http2Header {
+public final class Http2Header {
 
   private final AsciiString name;
   private final AsciiString value;
   private final boolean sensitive;
+
+  private int hash;
 
   public Http2Header(final AsciiString name, final AsciiString value, final boolean sensitive) {
     this.name = name;
@@ -26,12 +28,27 @@ public class Http2Header {
     return sensitive;
   }
 
+  int size() {
+    return name.length() + value.length() + 32;
+  }
+
   static Http2Header of(final CharSequence name, final CharSequence value) {
     return of(name, value, false);
   }
 
   static Http2Header of(final CharSequence name, final CharSequence value, final boolean sensitive) {
     return new Http2Header(AsciiString.of(name), AsciiString.of(value), sensitive);
+  }
+
+  boolean equals(final AsciiString name, final AsciiString value) {
+    if (!this.name.equals(name)) {
+      return false;
+    }
+    return this.value.equals(value);
+  }
+
+  static int hashCode(final AsciiString name, final AsciiString value) {
+    return 31 * name.hashCode() + value.hashCode();
   }
 
   @Override
@@ -45,22 +62,15 @@ public class Http2Header {
 
     final Http2Header that = (Http2Header) o;
 
-    if (sensitive != that.sensitive) {
-      return false;
-    }
-    if (name != null ? !name.equals(that.name) : that.name != null) {
-      return false;
-    }
-    return !(value != null ? !value.equals(that.value) : that.value != null);
-
+    return equals(that.name, that.value);
   }
 
   @Override
   public int hashCode() {
-    int result = name != null ? name.hashCode() : 0;
-    result = 31 * result + (value != null ? value.hashCode() : 0);
-    result = 31 * result + (sensitive ? 1 : 0);
-    return result;
+    if (hash == 0) {
+      hash = hashCode(name, value);
+    }
+    return hash;
   }
 
   @Override

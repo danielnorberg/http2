@@ -15,6 +15,8 @@ import io.netty.buffer.ByteBufOutputStream;
 import io.netty.buffer.Unpooled;
 import io.netty.util.AsciiString;
 
+import static io.netty.handler.codec.http.HttpMethod.GET;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.mockito.Mockito.reset;
@@ -26,9 +28,6 @@ public class HpackDecoderTest {
   public static final AsciiString FOO = AsciiString.of("foo");
   public static final AsciiString BAR = AsciiString.of("bar");
 
-  public static final AsciiString METHOD = AsciiString.of(":method");
-  public static final AsciiString GET = AsciiString.of("GET");
-
   @Mock HpackDecoder.Listener listener;
 
   @Test
@@ -36,12 +35,12 @@ public class HpackDecoderTest {
     final Encoder encoder = new Encoder(0);
     final ByteBuf block = Unpooled.buffer();
     final OutputStream os = new ByteBufOutputStream(block);
-    encoder.encodeHeader(os, METHOD.array(), GET.array(), false);
+    encoder.encodeHeader(os, METHOD.value().array(), GET.asciiName().array(), false);
 
     final HpackDecoder decoder = new HpackDecoder(0);
     decoder.decode(block, listener);
 
-    verify(listener).header(Http2Header.of(METHOD, GET, false));
+    verify(listener).header(Http2Header.of(METHOD.value(), GET.asciiName(), false));
   }
 
   @Test
@@ -57,7 +56,7 @@ public class HpackDecoderTest {
     verify(listener).header(Http2Header.of(FOO, BAR, false));
 
     // Verify that the header did not get indexed
-    assertThat(decoder.dynamicTableLength(), is(0));
+    assertThat(decoder.tableLength(), is(0));
   }
 
   @Test
@@ -94,6 +93,6 @@ public class HpackDecoderTest {
     final HpackDecoder decoder = new HpackDecoder(Integer.MAX_VALUE);
     decoder.decode(block, listener);
 
-    assertThat(decoder.dynamicTableSize(), is(4711));
+    assertThat(decoder.maxTableSize(), is(4711));
   }
 }
