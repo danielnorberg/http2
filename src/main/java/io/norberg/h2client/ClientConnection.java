@@ -1,12 +1,10 @@
 package io.norberg.h2client;
 
 import com.spotify.netty4.util.BatchFlusher;
-import com.twitter.hpack.Encoder;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
@@ -14,7 +12,6 @@ import java.util.concurrent.CompletableFuture;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufOutputStream;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -69,7 +66,7 @@ class ClientConnection {
   private final CompletableFuture<ClientConnection> connectFuture = new CompletableFuture<>();
   private final CompletableFuture<ClientConnection> disconnectFuture = new CompletableFuture<>();
 
-  private final Encoder headerEncoder = new Encoder(DEFAULT_HEADER_TABLE_SIZE);
+  private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
   private final IntObjectHashMap<Stream> streams = new IntObjectHashMap<>();
 
   private final Channel channel;
@@ -477,12 +474,7 @@ class ClientConnection {
       log.debug("sending request: {}", request);
       final boolean hasContent = request.hasContent();
       final ByteBuf buf = ctx.alloc().buffer();
-      try {
-        writeHeaders(buf, request.streamId(), request.headers(), !hasContent);
-      } catch (IOException e) {
-        ctx.fireExceptionCaught(e);
-        return;
-      }
+      writeHeaders(buf, request.streamId(), request.headers(), !hasContent);
       if (hasContent) {
         writeData(buf, request.streamId(), request.content(), true);
       }
@@ -491,7 +483,7 @@ class ClientConnection {
     }
 
     private void writeHeaders(final ByteBuf buf, int streamId, Http2Headers headers, boolean endStream)
-        throws IOException {
+        throws HpackEncodingException {
       final int headerIndex = buf.writerIndex();
 
       buf.ensureWritable(FRAME_HEADER_LENGTH);
@@ -520,12 +512,13 @@ class ClientConnection {
       buf.writeBytes(data);
     }
 
-    private int encodeHeaders(Http2Headers headers, ByteBuf buffer) throws IOException {
-      final ByteBufOutputStream stream = new ByteBufOutputStream(buffer);
+    private int encodeHeaders(Http2Headers headers, ByteBuf buffer) throws HpackEncodingException {
+      final int mark = buffer.readableBytes();
       for (Map.Entry<CharSequence, CharSequence> header : headers) {
-        headerEncoder.encodeHeader(stream, toBytes(header.getKey()), toBytes(header.getValue()), false);
+        headerEncoder.encodeHeader(buffer, AsciiString.of(header.getKey()), AsciiString.of(header.getValue()), false);
       }
-      return stream.writtenBytes();
+      final int size = buffer.readableBytes() - mark;
+      return size;
     }
 
     private byte[] toBytes(CharSequence s) {

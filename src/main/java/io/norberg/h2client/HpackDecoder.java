@@ -11,11 +11,11 @@ class HpackDecoder {
   private int tableSize;
   private int maxTableSize;
 
-  public HpackDecoder(final int maxTableSize) {
+  HpackDecoder(final int maxTableSize) {
     this.maxTableSize = maxTableSize;
   }
 
-  public void decode(final ByteBuf in, final Listener listener) throws HpackDecodingException {
+  void decode(final ByteBuf in, final Listener listener) throws HpackDecodingException {
     while (in.isReadable()) {
       final int b = in.readUnsignedByte();
       final Http2Header header;
