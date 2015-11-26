@@ -19,6 +19,7 @@ public class Http2ClientTest {
     final long end1 = System.nanoTime();
     final long latency1 = end1 - start1;
     System.out.println("INDEX RESPONSE HEADERS:");
+    System.out.println(":status: " + indexResponse.status());
     indexResponse.headers().forEach(System.out::println);
     System.out.println();
     indexResponse.release();
@@ -29,6 +30,7 @@ public class Http2ClientTest {
     final long end2 = System.nanoTime();
     final long latency2 = end2 - start2;
     System.out.println("QUERY1 RESPONSE HEADERS:");
+    System.out.println(":status: " + indexResponse.status());
     indexResponse.headers().forEach(System.out::println);
     System.out.println();
     query1Response.release();
@@ -39,6 +41,7 @@ public class Http2ClientTest {
     final long end3 = System.nanoTime();
     final long latency3 = end3 - start3;
     System.out.println("QUERY2 RESPONSE HEADERS:");
+    System.out.println(":status: " + indexResponse.status());
     indexResponse.headers().forEach(System.out::println);
     System.out.println();
     query2Response.release();

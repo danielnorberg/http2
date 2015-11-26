@@ -1,12 +1,10 @@
 package io.norberg.h2client;
 
 import com.spotify.netty4.util.BatchFlusher;
-import com.twitter.hpack.Encoder;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
@@ -16,7 +14,6 @@ import java.util.concurrent.Executor;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufOutputStream;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
@@ -29,9 +26,9 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2Flags;
-import io.netty.handler.codec.http2.Http2FrameListener;
 import io.netty.handler.codec.http2.Http2FrameLogger;
 import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.Http2Settings;
@@ -50,6 +47,10 @@ import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
 import static io.netty.handler.codec.http2.Http2FrameTypes.DATA;
 import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
 import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.logging.LogLevel.TRACE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
 import static io.norberg.h2client.Util.completableFuture;
@@ -139,11 +140,10 @@ public class Http2Server {
     protected void initChannel(SocketChannel ch) throws Exception {
       channels.add(ch);
       final Http2Settings settings = new Http2Settings();
-      final Http2FrameReader reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE));
       ch.pipeline().addLast(
           sslCtx.newHandler(ch.alloc()),
           new PrefaceHandler(settings),
-          new ConnectionHandler(reader, settings, new FrameHandler(ch)),
+          new ConnectionHandler(ch, settings, new FrameHandler(ch)),
           new ExceptionHandler());
     }
   }
@@ -151,13 +151,14 @@ public class Http2Server {
   private class FrameHandler implements Http2FrameListener {
 
     private final IntObjectHashMap<Http2Request> requests = new IntObjectHashMap<>();
-    private final Encoder headerEncoder = new Encoder(DEFAULT_HEADER_TABLE_SIZE);
+    private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
     private final Channel channel;
 
     private int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
     private long maxConcurrentStreams;
 
     private BatchFlusher flusher;
+    private Http2Request request;
 
     private Executor executor = new Executor() {
       @Override
@@ -195,11 +196,10 @@ public class Http2Server {
     @Override
     public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId, final Http2Headers headers,
                               final int padding, final boolean endOfStream) throws Http2Exception {
-      log.debug("got headers: streamId={}, headers={}, padding={}, endOfStream={}",
-                streamId, headers, padding, endOfStream);
-      final Http2Request request = newOrExistingRequest(streamId);
-      request.headers(headers);
-      maybeDispatch(ctx, streamId, endOfStream, request);
+      assert headers == null;
+      log.debug("got headers: streamId={}, padding={}, endOfStream={}",
+                streamId, padding, endOfStream);
+      request = newOrExistingRequest(streamId);
     }
 
     @Override
@@ -207,11 +207,128 @@ public class Http2Server {
                               final int streamDependency, final short weight, final boolean exclusive,
                               final int padding, final boolean endOfStream)
         throws Http2Exception {
-      log.debug("got headers: streamId={}, headers={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
-                + "endOfStream={}", streamId, headers, streamDependency, weight, exclusive, padding, endOfStream);
-      final Http2Request request = newOrExistingRequest(streamId);
-      request.headers(headers);
+      assert headers == null;
+      log.debug("got headers: streamId={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
+                + "endOfStream={}", streamId, streamDependency, weight, exclusive, padding, endOfStream);
+      request = newOrExistingRequest(streamId);
+    }
+
+    @Override
+    public void onHeaderRead(final Http2Header header) throws Http2Exception {
+      assert request != null;
+      final AsciiString name = header.name();
+      final AsciiString value = header.value();
+      if (name.byteAt(0) == ':') {
+        readPseudoHeader(name, value);
+      } else {
+        request.header(name, value);
+      }
+    }
+
+    private void readPseudoHeader(final AsciiString name, final AsciiString value) throws Http2Exception {
+      assert request != null;
+      if (name.byteAt(0) == ':') {
+        if (name.length() < 5) {
+          throw new IllegalArgumentException();
+        }
+        final byte b1 = name.byteAt(1);
+        switch (b1) {
+          case 'm': {
+            if (!name.equals(METHOD.value())) {
+              throw new Http2Exception(PROTOCOL_ERROR);
+            }
+            request.method(method(value));
+            return;
+          }
+          case 's': {
+            if (!name.equals(SCHEME.value())) {
+              throw new Http2Exception(PROTOCOL_ERROR);
+            }
+            request.scheme(value);
+            return;
+          }
+          case 'a': {
+            if (!name.equals(AUTHORITY.value())) {
+              throw new Http2Exception(PROTOCOL_ERROR);
+            }
+            request.authority(value);
+            return;
+          }
+          case 'p': {
+            if (!name.equals(PATH.value())) {
+              throw new Http2Exception(PROTOCOL_ERROR);
+            }
+            request.path(value);
+            return;
+          }
+          default:
+            throw new Http2Exception(PROTOCOL_ERROR);
+        }
+      }
+    }
+
+    private HttpMethod method(final AsciiString value) {
+      final byte b = value.byteAt(0);
+      switch (b) {
+        case 'O': { // OPTIONS
+          if (!value.equals(HttpMethod.OPTIONS.asciiName())) {
+            return HttpMethod.valueOf(value.toString());
+          }
+          return HttpMethod.OPTIONS;
+        }
+        case 'G': { // GET
+          if (!value.equals(HttpMethod.GET.asciiName())) {
+            return HttpMethod.valueOf(value.toString());
+          }
+          return HttpMethod.GET;
+        }
+        case 'H': { // HEAD
+          if (!value.equals(HttpMethod.HEAD.asciiName())) {
+            return HttpMethod.valueOf(value.toString());
+          }
+          return HttpMethod.HEAD;
+        }
+        case 'P': { // POST
+          if (value.equals(HttpMethod.POST.asciiName())) {
+            return HttpMethod.POST;
+          }
+          if (value.equals(HttpMethod.PUT.asciiName())) {
+            return HttpMethod.PUT;
+          }
+          if (!value.equals(HttpMethod.PATCH.asciiName())) {
+            return HttpMethod.PATCH;
+          }
+          return HttpMethod.valueOf(value.toString());
+        }
+        case 'D': { // DELETE
+          if (!value.equals(HttpMethod.DELETE.asciiName())) {
+            return HttpMethod.valueOf(value.toString());
+          }
+          return HttpMethod.DELETE;
+        }
+        case 'T': { // TRACE
+          if (!value.equals(HttpMethod.TRACE.asciiName())) {
+            return HttpMethod.valueOf(value.toString());
+          }
+          return HttpMethod.TRACE;
+        }
+        case 'C': { // CONNECT
+          if (!value.equals(HttpMethod.CONNECT.asciiName())) {
+            return HttpMethod.valueOf(value.toString());
+          }
+          return HttpMethod.CONNECT;
+        }
+        default:
+          return HttpMethod.valueOf(value.toString());
+      }
+    }
+
+    @Override
+    public void onHeadersEnd(final ChannelHandlerContext ctx, final int streamId, final boolean endOfStream)
+        throws Http2Exception {
+      assert request != null;
       maybeDispatch(ctx, streamId, endOfStream, request);
+      request = null;
     }
 
     @Override
@@ -326,8 +443,8 @@ public class Http2Server {
       final boolean hasContent = response.hasContent();
       final ByteBuf buf = ctx.alloc().buffer();
       try {
-        writeHeaders(buf, response.streamId(), response.headers(), !hasContent);
-      } catch (IOException e) {
+        writeHeaders(buf, response.streamId(), response, !hasContent);
+      } catch (HpackEncodingException e) {
         ctx.fireExceptionCaught(e);
         return;
       }
@@ -346,13 +463,13 @@ public class Http2Server {
       }
     }
 
-    private void writeHeaders(final ByteBuf buf, int streamId, Http2Headers headers, boolean endStream)
-        throws IOException {
+    private void writeHeaders(final ByteBuf buf, int streamId, Http2Response response, boolean endStream)
+        throws HpackEncodingException {
       final int headerIndex = buf.writerIndex();
 
       buf.ensureWritable(FRAME_HEADER_LENGTH);
       buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
-      final int size = encodeHeaders(headers, buf);
+      final int size = encodeHeaders(response, buf);
 
       if (size > maxFrameSize) {
         // TODO: continuation frames
@@ -376,12 +493,18 @@ public class Http2Server {
       buf.writeBytes(data);
     }
 
-    private int encodeHeaders(Http2Headers headers, ByteBuf buffer) throws IOException {
-      final ByteBufOutputStream stream = new ByteBufOutputStream(buffer);
-      for (Map.Entry<CharSequence, CharSequence> header : headers) {
-        headerEncoder.encodeHeader(stream, toBytes(header.getKey()), toBytes(header.getValue()), false);
+    private int encodeHeaders(Http2Response response, ByteBuf buffer) throws HpackEncodingException {
+      final int mark = buffer.readableBytes();
+      headerEncoder.encodeResponse(buffer, response.status().codeAsText());
+      if (response.hasHeaders()) {
+        for (Map.Entry<CharSequence, CharSequence> header : response.headers()) {
+          final AsciiString name = AsciiString.of(header.getKey());
+          final AsciiString value = AsciiString.of(header.getValue());
+          headerEncoder.encodeHeader(buffer, name, value, false);
+        }
       }
-      return stream.writtenBytes();
+      final int size = buffer.readableBytes() - mark;
+      return size;
     }
 
     private byte[] toBytes(CharSequence s) {
@@ -409,9 +532,9 @@ public class Http2Server {
     private final Http2Settings settings;
     private final Http2FrameListener listener;
 
-    public ConnectionHandler(final Http2FrameReader reader, final Http2Settings settings,
+    public ConnectionHandler(final Channel channel, final Http2Settings settings,
                              final Http2FrameListener listener) {
-      this.reader = reader;
+      this.reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE), new FrameHandler(channel));
       this.settings = settings;
       this.listener = listener;
     }
@@ -419,7 +542,7 @@ public class Http2Server {
     @Override
     protected void decode(final ChannelHandlerContext ctx, final ByteBuf in, final List<Object> out)
         throws Exception {
-      reader.readFrames(ctx, in, listener);
+      reader.readFrames(ctx, in);
     }
   }
 

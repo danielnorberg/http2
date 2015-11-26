@@ -2,6 +2,7 @@ package io.norberg.h2client;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.util.AsciiString;
 
 class HpackDecoder {
@@ -15,7 +16,7 @@ class HpackDecoder {
     this.maxTableSize = maxTableSize;
   }
 
-  void decode(final ByteBuf in, final Listener listener) throws HpackDecodingException {
+  void decode(final ByteBuf in, final Listener listener) throws Http2Exception {
     while (in.isReadable()) {
       final int b = in.readUnsignedByte();
       final Http2Header header;
@@ -225,7 +226,7 @@ class HpackDecoder {
 
   interface Listener {
 
-    void header(Http2Header header);
+    void header(Http2Header header) throws Http2Exception;
   }
 
 }

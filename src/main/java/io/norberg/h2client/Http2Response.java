@@ -4,9 +4,11 @@ import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http2.DefaultHttp2Headers;
 import io.netty.handler.codec.http2.Http2Headers;
+import io.netty.util.AsciiString;
 
 public class Http2Response {
 
+  private HttpResponseStatus status;
   private int streamId;
   private ByteBuf content;
   private Http2Headers headers;
@@ -21,8 +23,15 @@ public class Http2Response {
   public Http2Response(final int streamId, final HttpResponseStatus status, final ByteBuf content) {
     this.streamId = streamId;
     this.content = content;
-    this.headers = new DefaultHttp2Headers();
-    headers.status(status.codeAsText());
+    this.status = status;
+  }
+
+  public void status(final HttpResponseStatus status) {
+    this.status = status;
+  }
+
+  public HttpResponseStatus status() {
+    return status;
   }
 
   void headers(final Http2Headers headers) {
@@ -35,6 +44,10 @@ public class Http2Response {
 
   public int streamId() {
     return streamId;
+  }
+
+  public boolean hasHeaders() {
+    return headers != null;
   }
 
   public Http2Headers headers() {
@@ -62,5 +75,13 @@ public class Http2Response {
     if (hasContent()) {
       content.release();
     }
+  }
+
+  public void header(final AsciiString name, final AsciiString value) {
+    // TODO: cheaper header list data structure
+    if (headers == null) {
+      headers = new DefaultHttp2Headers(false);
+    }
+    headers.add(name, value);
   }
 }

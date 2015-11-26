@@ -7,6 +7,7 @@ import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORI
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
 import static io.norberg.h2client.HpackStaticTable.INDEXED_NAME;
 import static io.norberg.h2client.HpackStaticTable.isIndexedField;
 import static io.norberg.h2client.HpackStaticTable.isIndexedName;
@@ -40,6 +41,11 @@ class HpackEncoder {
     writeIndexedHeaderField(out, schemeIndex, scheme, false);
     writeIndexedHeaderField(out, authorityIndex, authority, false);
     writeIndexedHeaderField(out, pathIndex, path, false);
+  }
+
+  void encodeResponse(final ByteBuf out, final AsciiString status) {
+    final int statusIndex = statusIndex(status);
+    writeIndexedHeaderField(out, statusIndex, status, false);
   }
 
   void encodeHeader(final ByteBuf out, final AsciiString name, final AsciiString value, final boolean sensitive)
@@ -103,6 +109,18 @@ class HpackEncoder {
       return staticIndex;
     }
     final int dynamicIndex = dynamicTableIndex.index(PATH.value(), path);
+    if (dynamicIndex != 0) {
+      return dynamicIndex + HpackStaticTable.length();
+    }
+    return staticIndex;
+  }
+
+  private int statusIndex(final AsciiString status) {
+    final int staticIndex = HpackStaticTable.statusIndex(status);
+    if (isIndexedField(staticIndex)) {
+      return staticIndex;
+    }
+    final int dynamicIndex = dynamicTableIndex.index(STATUS.value(), status);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }

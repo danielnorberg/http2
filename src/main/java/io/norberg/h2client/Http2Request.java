@@ -9,6 +9,10 @@ import io.netty.util.AsciiString;
 
 public class Http2Request {
 
+  private HttpMethod method;
+  private AsciiString scheme;
+  private AsciiString authority;
+  private AsciiString path;
   private int streamId;
   private Http2Headers headers;
   private ByteBuf content;
@@ -17,17 +21,46 @@ public class Http2Request {
     this.streamId = streamId;
   }
 
-  public Http2Request(final HttpMethod method, final String path) {
-    this.headers = new DefaultHttp2Headers();
-    this.headers.method(method.asciiName());
-    this.headers.path(AsciiString.of(path));
+  public Http2Request(final HttpMethod method, final CharSequence path) {
+    this(method, path, null);
   }
 
-  public Http2Request(final HttpMethod method, final String path, final ByteBuf content) {
-    this.headers = new DefaultHttp2Headers();
-    this.headers.method(method.asciiName());
-    this.headers.path(AsciiString.of(path));
+  public Http2Request(final HttpMethod method, final CharSequence path, final ByteBuf content) {
+    this.method = method;
+    this.path = AsciiString.of(path);
     this.content = content;
+  }
+
+  public HttpMethod method() {
+    return method;
+  }
+
+  public void method(final HttpMethod method) {
+    this.method = method;
+  }
+
+  public AsciiString scheme() {
+    return scheme;
+  }
+
+  public void scheme(final AsciiString scheme) {
+    this.scheme = scheme;
+  }
+
+  public AsciiString authority() {
+    return authority;
+  }
+
+  public void authority(final AsciiString authority) {
+    this.authority = authority;
+  }
+
+  public AsciiString path() {
+    return path;
+  }
+
+  public void path(final AsciiString path) {
+    this.path = path;
   }
 
   public int streamId() {
@@ -36,6 +69,10 @@ public class Http2Request {
 
   void streamId(final int streamId) {
     this.streamId = streamId;
+  }
+
+  public boolean hasHeaders() {
+    return headers != null;
   }
 
   public Http2Headers headers() {
@@ -73,5 +110,13 @@ public class Http2Request {
            ", headers=" + headers +
            ", content=" + content +
            '}';
+  }
+
+  public void header(final AsciiString name, final AsciiString value) {
+    // TODO: cheaper header list data structure
+    if (headers == null) {
+      headers = new DefaultHttp2Headers(false);
+    }
+    headers.add(name, value);
   }
 }

@@ -24,7 +24,7 @@ class BenchmarkClient {
   static void run() throws Exception {
     LoggingConfigurator.configureNoLogging();
 
-    final AtomicInteger maxConcurrentStreams = new AtomicInteger(1000);
+    final AtomicInteger maxConcurrentStreams = new AtomicInteger(2000);
 
     final Http2Client.Listener listener = new Http2Client.ListenerAdapter() {
       @Override

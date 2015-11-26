@@ -133,8 +133,8 @@ public class Http2Client implements ClientConnection.Listener {
 
   private void send(final ClientConnection connection, final Http2Request request,
                     final CompletableFuture<Http2Response> future) {
-    request.headers().authority(authority);
-    request.headers().scheme(HTTPS.name());
+    request.authority(authority);
+    request.scheme(HTTPS.name());
     connection.send(request, future);
   }
 

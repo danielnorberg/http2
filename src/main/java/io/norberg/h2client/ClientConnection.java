@@ -26,9 +26,9 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2Flags;
-import io.netty.handler.codec.http2.Http2FrameListener;
 import io.netty.handler.codec.http2.Http2FrameLogger;
 import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.Http2Settings;
@@ -163,10 +163,9 @@ class ClientConnection {
     @Override
     public void initChannel(SocketChannel ch) throws Exception {
       final Http2Settings settings = new Http2Settings();
-      final Http2FrameReader reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE));
       ch.pipeline().addLast(
           sslCtx.newHandler(ch.alloc()),
-          new ConnectionHandler(ch, reader),
+          new ConnectionHandler(ch),
           new WriteHandler(),
           new ExceptionHandler());
     }
@@ -187,8 +186,11 @@ class ClientConnection {
 
     private BatchFlusher flusher;
 
-    private ConnectionHandler(final Channel channel, final Http2FrameReader reader) {
-      this.reader = reader;
+    // Current stream
+    private Stream stream;
+
+    private ConnectionHandler(final Channel channel) {
+      this.reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE), this);
       this.flusher = new BatchFlusher(channel);
     }
 
@@ -235,7 +237,7 @@ class ClientConnection {
     @Override
     protected void decode(final ChannelHandlerContext ctx, final ByteBuf in, final List<Object> out)
         throws Exception {
-      reader.readFrames(ctx, in, this);
+      reader.readFrames(ctx, in);
     }
 
     @Override
@@ -292,11 +294,10 @@ class ClientConnection {
     @Override
     public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId, final Http2Headers headers,
                               final int padding, final boolean endOfStream) throws Http2Exception {
-      log.debug("got headers: streamId={}, headers={}, padding={}, endOfStream={}",
-                streamId, headers, padding, endOfStream);
-      final Stream stream = stream(streamId);
-      stream.response.headers(headers);
-      maybeDispatch(ctx, endOfStream, stream);
+      assert headers == null;
+      log.debug("got headers: streamId={}, padding={}, endOfStream={}",
+                streamId, padding, endOfStream);
+      this.stream = stream(streamId);
     }
 
     @Override
@@ -304,11 +305,37 @@ class ClientConnection {
                               final int streamDependency, final short weight, final boolean exclusive,
                               final int padding, final boolean endOfStream)
         throws Http2Exception {
-      log.debug("got headers: streamId={}, headers={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
-                + "endOfStream={}", streamId, headers, streamDependency, weight, exclusive, padding, endOfStream);
-      final Stream stream = stream(streamId);
-      stream.response.headers(headers);
+      assert headers == null;
+      log.debug("got headers: streamId={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
+                + "endOfStream={}", streamId, streamDependency, weight, exclusive, padding, endOfStream);
+      this.stream = stream(streamId);
+    }
+
+    @Override
+    public void onHeaderRead(final Http2Header header) throws Http2Exception {
+      assert stream != null;
+      final AsciiString name = header.name();
+      final AsciiString value = header.value();
+      if (name.byteAt(0) == ':') {
+        readPseudoHeader(name, value);
+      } else {
+        stream.response.header(name, value);
+      }
+    }
+
+    private void readPseudoHeader(final AsciiString name, final AsciiString value) throws Http2Exception {
+      assert stream != null;
+      if (!name.equals(Http2Headers.PseudoHeaderName.STATUS.value())) {
+        throw new Http2Exception(PROTOCOL_ERROR);
+      }
+      stream.response.status(HttpResponseStatus.valueOf(value.parseInt()));
+    }
+
+    @Override
+    public void onHeadersEnd(final ChannelHandlerContext ctx, final int streamId, final boolean endOfStream) throws Http2Exception {
+      assert stream != null;
       maybeDispatch(ctx, endOfStream, stream);
+      stream = null;
     }
 
     @Override
@@ -474,7 +501,7 @@ class ClientConnection {
       log.debug("sending request: {}", request);
       final boolean hasContent = request.hasContent();
       final ByteBuf buf = ctx.alloc().buffer();
-      writeHeaders(buf, request.streamId(), request.headers(), !hasContent);
+      writeHeaders(buf, request.streamId(), request, !hasContent);
       if (hasContent) {
         writeData(buf, request.streamId(), request.content(), true);
       }
@@ -482,13 +509,13 @@ class ClientConnection {
       flusher.flush();
     }
 
-    private void writeHeaders(final ByteBuf buf, int streamId, Http2Headers headers, boolean endStream)
+    private void writeHeaders(final ByteBuf buf, int streamId, Http2Request request, boolean endStream)
         throws HpackEncodingException {
       final int headerIndex = buf.writerIndex();
 
       buf.ensureWritable(FRAME_HEADER_LENGTH);
       buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
-      final int size = encodeHeaders(headers, buf);
+      final int size = encodeHeaders(request, buf);
 
       if (size > maxFrameSize) {
         // TODO: continuation frames
@@ -512,10 +539,19 @@ class ClientConnection {
       buf.writeBytes(data);
     }
 
-    private int encodeHeaders(Http2Headers headers, ByteBuf buffer) throws HpackEncodingException {
+    private int encodeHeaders(Http2Request request, ByteBuf buffer) throws HpackEncodingException {
       final int mark = buffer.readableBytes();
-      for (Map.Entry<CharSequence, CharSequence> header : headers) {
-        headerEncoder.encodeHeader(buffer, AsciiString.of(header.getKey()), AsciiString.of(header.getValue()), false);
+      headerEncoder.encodeRequest(buffer,
+                                  request.method().asciiName(),
+                                  request.scheme(),
+                                  request.authority(),
+                                  request.path());
+      if (request.hasHeaders()) {
+        for (Map.Entry<CharSequence, CharSequence> header : request.headers()) {
+          final AsciiString name = AsciiString.of(header.getKey());
+          final AsciiString value = AsciiString.of(header.getValue());
+          headerEncoder.encodeHeader(buffer, name, value, false);
+        }
       }
       final int size = buffer.readableBytes() - mark;
       return size;

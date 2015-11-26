@@ -7,9 +7,7 @@ package io.norberg.h2client;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http2.Http2Exception;
-import io.netty.handler.codec.http2.Http2FrameListener;
 import io.netty.handler.codec.http2.Http2FrameTypes;
-import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.Http2Settings;
 
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
@@ -23,21 +21,24 @@ import static io.netty.handler.codec.http2.Http2Flags.PADDED;
 import static io.netty.handler.codec.http2.Http2Flags.PRIORITY;
 import static java.util.Objects.requireNonNull;
 
-class Http2FrameReader {
+
+
+class Http2FrameReader implements HpackDecoder.Listener {
 
   private final HpackDecoder hpackDecoder;
+  private final Http2FrameListener listener;
 
   private int length = -1;
   private short type;
   private short flags;
   private int streamId;
-  private final HeadersAssembler headersAssembler = new HeadersAssembler();
 
-  Http2FrameReader(final HpackDecoder hpackDecoder) {
+  Http2FrameReader(final HpackDecoder hpackDecoder, final Http2FrameListener listener) {
     this.hpackDecoder = requireNonNull(hpackDecoder, "hpackDecoder");
+    this.listener = requireNonNull(listener, "listener");
   }
 
-  void readFrames(final ChannelHandlerContext ctx, final ByteBuf in, final Http2FrameListener listener)
+  void readFrames(final ChannelHandlerContext ctx, final ByteBuf in)
       throws Http2Exception {
 
     while (true) {
@@ -66,28 +67,28 @@ class Http2FrameReader {
       final int mark = in.readerIndex();
       switch (type) {
         case Http2FrameTypes.DATA:
-          readDataFrame(ctx, in, listener);
+          readDataFrame(ctx, in);
           break;
         case Http2FrameTypes.HEADERS:
-          readHeadersFrame(ctx, in, listener);
+          readHeadersFrame(ctx, in);
           break;
         case Http2FrameTypes.PRIORITY:
-          readPriorityFrame(ctx, in, listener);
+          readPriorityFrame(ctx, in);
           break;
         case Http2FrameTypes.RST_STREAM:
-          readRstStreamFrame(ctx, in, listener);
+          readRstStreamFrame(ctx, in);
           break;
         case Http2FrameTypes.SETTINGS:
-          readSettingsFrame(ctx, in, listener);
+          readSettingsFrame(ctx, in);
           break;
         case Http2FrameTypes.PUSH_PROMISE:
-          readPushPromiseFrame(ctx, in, listener);
+          readPushPromiseFrame(ctx, in);
           break;
         case Http2FrameTypes.PING:
-          readPingFrame(ctx, in, listener);
+          readPingFrame(ctx, in);
           break;
         case Http2FrameTypes.GO_AWAY:
-          readGoAwayFrame(ctx, in, listener);
+          readGoAwayFrame(ctx, in);
           break;
         case Http2FrameTypes.WINDOW_UPDATE:
           readWindowUpdateFrame(ctx, in, listener);
@@ -118,7 +119,7 @@ class Http2FrameReader {
     return readFlag(PADDED) ? in.readUnsignedByte() : 0;
   }
 
-  private void readDataFrame(final ChannelHandlerContext ctx, final ByteBuf in, final Http2FrameListener listener)
+  private void readDataFrame(final ChannelHandlerContext ctx, final ByteBuf in)
       throws Http2Exception {
     final short padding = readPadding(in);
     final int dataLength = length - padding;
@@ -129,21 +130,20 @@ class Http2FrameReader {
     in.writerIndex(writerMark);
   }
 
-  private void readHeadersFrame(final ChannelHandlerContext ctx, final ByteBuf in, final Http2FrameListener listener)
+  private void readHeadersFrame(final ChannelHandlerContext ctx, final ByteBuf in)
       throws Http2Exception {
     if (!readFlag(END_HEADERS)) {
       throw new UnsupportedOperationException("TODO");
     }
     final boolean hasPriority = readFlag(PRIORITY);
     if (hasPriority) {
-      readHeadersFrameWithPriority(ctx, in, listener);
+      readHeadersFrameWithPriority(ctx, in);
     } else {
-      readHeadersFrameWithoutPriority(ctx, in, listener);
+      readHeadersFrameWithoutPriority(ctx, in);
     }
   }
 
-  private void readHeadersFrameWithPriority(final ChannelHandlerContext ctx, final ByteBuf in,
-                                            final Http2FrameListener listener) throws Http2Exception {
+  private void readHeadersFrameWithPriority(final ChannelHandlerContext ctx, final ByteBuf in) throws Http2Exception {
     final short padding = readPadding(in);
     final long word = in.readUnsignedInt();
     final boolean exclusive = (word & 0x8000000L) != 0;
@@ -155,35 +155,35 @@ class Http2FrameReader {
     final int blockLength = length - fieldsLength - padding;
     final int writerMark = in.writerIndex();
     in.writerIndex(in.readerIndex() + blockLength);
-    final Http2Headers headers = decodeHeaders(in);
-    in.writerIndex(writerMark);
     final boolean endOfStream = readFlag(END_STREAM);
-    listener.onHeadersRead(ctx, streamId, headers, streamDependency, weight, exclusive, padding, endOfStream);
+    listener.onHeadersRead(ctx, streamId, null, streamDependency, weight, exclusive, padding, endOfStream);
+    hpackDecoder.decode(in, this);
+    listener.onHeadersEnd(ctx, streamId, endOfStream);
+    in.writerIndex(writerMark);
 
   }
 
-  private void readHeadersFrameWithoutPriority(final ChannelHandlerContext ctx, final ByteBuf in,
-                                               final Http2FrameListener listener) throws Http2Exception {
+  private void readHeadersFrameWithoutPriority(final ChannelHandlerContext ctx, final ByteBuf in) throws Http2Exception {
     final short padding = readPadding(in);
     final int blockLength = length - (readFlag(PADDED) ? 1 : 0) - padding;
     final int writerMark = in.writerIndex();
     in.writerIndex(in.readerIndex() + blockLength);
-    final Http2Headers headers = decodeHeaders(in);
-    in.writerIndex(writerMark);
     final boolean endOfStream = readFlag(END_STREAM);
-    listener.onHeadersRead(ctx, streamId, headers, padding, endOfStream);
+    listener.onHeadersRead(ctx, streamId, null, padding, endOfStream);
+    hpackDecoder.decode(in, this);
+    listener.onHeadersEnd(ctx, streamId, endOfStream);
+    in.writerIndex(writerMark);
   }
 
-  private void readPriorityFrame(final ChannelHandlerContext ctx, final ByteBuf in, final Http2FrameListener listener) {
+  private void readPriorityFrame(final ChannelHandlerContext ctx, final ByteBuf in) {
     // TODO
   }
 
-  private void readRstStreamFrame(final ChannelHandlerContext ctx, final ByteBuf in,
-                                  final Http2FrameListener listener) {
+  private void readRstStreamFrame(final ChannelHandlerContext ctx, final ByteBuf in) {
     // TODO
   }
 
-  private void readSettingsFrame(final ChannelHandlerContext ctx, final ByteBuf in, final Http2FrameListener listener)
+  private void readSettingsFrame(final ChannelHandlerContext ctx, final ByteBuf in)
       throws Http2Exception {
     if (readFlag(ACK)) {
       listener.onSettingsAckRead(ctx);
@@ -199,12 +199,11 @@ class Http2FrameReader {
     listener.onSettingsRead(ctx, settings);
   }
 
-  private void readPushPromiseFrame(final ChannelHandlerContext ctx, final ByteBuf in,
-                                    final Http2FrameListener listener) throws Http2Exception {
+  private void readPushPromiseFrame(final ChannelHandlerContext ctx, final ByteBuf in) throws Http2Exception {
     // TODO
   }
 
-  private void readPingFrame(final ChannelHandlerContext ctx, final ByteBuf in, final Http2FrameListener listener)
+  private void readPingFrame(final ChannelHandlerContext ctx, final ByteBuf in)
       throws Http2Exception {
     final int writerMark = in.writerIndex();
     in.writerIndex(in.readerIndex() + PING_FRAME_PAYLOAD_LENGTH);
@@ -212,7 +211,7 @@ class Http2FrameReader {
     in.writerIndex(writerMark);
   }
 
-  private void readGoAwayFrame(final ChannelHandlerContext ctx, final ByteBuf in, final Http2FrameListener listener)
+  private void readGoAwayFrame(final ChannelHandlerContext ctx, final ByteBuf in)
       throws Http2Exception {
     final int lastStreamId = readInt31(in);
     final long errorCode = in.readUnsignedInt();
@@ -234,10 +233,8 @@ class Http2FrameReader {
     throw new UnsupportedOperationException("TODO");
   }
 
-  private Http2Headers decodeHeaders(final ByteBuf in) throws HpackDecodingException {
-    headersAssembler.reset();
-    hpackDecoder.decode(in, headersAssembler);
-    return headersAssembler.headers();
+  @Override
+  public void header(final Http2Header header) throws Http2Exception {
+    listener.onHeaderRead(header);
   }
-
 }
