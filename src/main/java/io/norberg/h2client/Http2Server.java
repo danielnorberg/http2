@@ -20,6 +20,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoop;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -153,6 +154,7 @@ public class Http2Server {
     private final IntObjectHashMap<Http2Request> requests = new IntObjectHashMap<>();
     private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
     private final Channel channel;
+    private final EventLoop eventLoop;
 
     private int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
     private long maxConcurrentStreams;
@@ -163,16 +165,17 @@ public class Http2Server {
     private Executor executor = new Executor() {
       @Override
       public void execute(final Runnable command) {
-        if (channel.eventLoop().inEventLoop()) {
+        if (eventLoop.inEventLoop()) {
           command.run();
         } else {
-          channel.eventLoop().execute(command);
+          eventLoop.execute(command);
         }
       }
     };
 
     private FrameHandler(final Channel channel) {
       this.channel = channel;
+      this.eventLoop = channel.eventLoop();
       this.flusher = new BatchFlusher(channel);
     }
 
