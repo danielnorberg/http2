@@ -244,7 +244,9 @@ class ClientConnection {
     public int onDataRead(final ChannelHandlerContext ctx, final int streamId, final ByteBuf data, final int padding,
                           final boolean endOfStream)
         throws Http2Exception {
-      log.debug("got data: streamId={}, data={}, padding={}, endOfStream={}", streamId, data, padding, endOfStream);
+      if (log.isDebugEnabled()) {
+        log.debug("got data: streamId={}, data={}, padding={}, endOfStream={}", streamId, data, padding, endOfStream);
+      }
       final Stream stream = stream(streamId);
       final int length = data.readableBytes();
       stream.localWindow -= length;
@@ -295,8 +297,10 @@ class ClientConnection {
     public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId, final Http2Headers headers,
                               final int padding, final boolean endOfStream) throws Http2Exception {
       assert headers == null;
-      log.debug("got headers: streamId={}, padding={}, endOfStream={}",
-                streamId, padding, endOfStream);
+      if (log.isDebugEnabled()) {
+        log.debug("got headers: streamId={}, padding={}, endOfStream={}",
+                  streamId, padding, endOfStream);
+      }
       this.stream = stream(streamId);
     }
 
@@ -306,8 +310,10 @@ class ClientConnection {
                               final int padding, final boolean endOfStream)
         throws Http2Exception {
       assert headers == null;
-      log.debug("got headers: streamId={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
-                + "endOfStream={}", streamId, streamDependency, weight, exclusive, padding, endOfStream);
+      if (log.isDebugEnabled()) {
+        log.debug("got headers: streamId={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
+                  + "endOfStream={}", streamId, streamDependency, weight, exclusive, padding, endOfStream);
+      }
       this.stream = stream(streamId);
     }
 
@@ -341,24 +347,32 @@ class ClientConnection {
     @Override
     public void onPriorityRead(final ChannelHandlerContext ctx, final int streamId, final int streamDependency,
                                final short weight, final boolean exclusive) throws Http2Exception {
-      log.debug("got priority: streamId={}, streamDependency={}, weight={}, exclusive={}",
-                streamId, streamDependency, weight, exclusive);
+      if (log.isDebugEnabled()) {
+        log.debug("got priority: streamId={}, streamDependency={}, weight={}, exclusive={}",
+                  streamId, streamDependency, weight, exclusive);
+      }
     }
 
     @Override
     public void onRstStreamRead(final ChannelHandlerContext ctx, final int streamId, final long errorCode)
         throws Http2Exception {
-      log.debug("got rst stream: streamId={}, errorCode={}", streamId, errorCode);
+      if (log.isDebugEnabled()) {
+        log.debug("got rst stream: streamId={}, errorCode={}", streamId, errorCode);
+      }
     }
 
     @Override
     public void onSettingsAckRead(final ChannelHandlerContext ctx) throws Http2Exception {
-      log.debug("got settings ack");
+      if (log.isDebugEnabled()) {
+        log.debug("got settings ack");
+      }
     }
 
     @Override
     public void onSettingsRead(final ChannelHandlerContext ctx, final Http2Settings settings) throws Http2Exception {
-      log.debug("got settings: {}", settings);
+      if (log.isDebugEnabled()) {
+        log.debug("got settings: {}", settings);
+      }
       if (settings.maxFrameSize() != null) {
         maxFrameSize = settings.maxFrameSize();
       }
@@ -390,20 +404,26 @@ class ClientConnection {
 
     @Override
     public void onPingRead(final ChannelHandlerContext ctx, final ByteBuf data) throws Http2Exception {
-      log.debug("got ping");
+      if (log.isDebugEnabled()) {
+        log.debug("got ping");
+      }
       // TODO: ack
     }
 
     @Override
     public void onPingAckRead(final ChannelHandlerContext ctx, final ByteBuf data) throws Http2Exception {
-      log.debug("got ping ack");
+      if (log.isDebugEnabled()) {
+        log.debug("got ping ack");
+      }
     }
 
     @Override
     public void onPushPromiseRead(final ChannelHandlerContext ctx, final int streamId, final int promisedStreamId,
                                   final Http2Headers headers,
                                   final int padding) throws Http2Exception {
-      log.debug("got push promise");
+      if (log.isDebugEnabled()) {
+        log.debug("got push promise");
+      }
     }
 
     @Override
@@ -418,14 +438,18 @@ class ClientConnection {
     @Override
     public void onWindowUpdateRead(final ChannelHandlerContext ctx, final int streamId, final int windowSizeIncrement)
         throws Http2Exception {
-      log.debug("got window update: streamId={}, windowSizeIncrement={}", streamId, windowSizeIncrement);
+      if (log.isDebugEnabled()) {
+        log.debug("got window update: streamId={}, windowSizeIncrement={}", streamId, windowSizeIncrement);
+      }
     }
 
     @Override
     public void onUnknownFrame(final ChannelHandlerContext ctx, final byte frameType, final int streamId,
                                final Http2Flags flags, final ByteBuf payload)
         throws Http2Exception {
-      log.debug("got unknown frame: {} {} {} {}", frameType, streamId, flags, payload);
+      if (log.isDebugEnabled()) {
+        log.debug("got unknown frame: {} {} {} {}", frameType, streamId, flags, payload);
+      }
     }
 
     private void maybeDispatch(final ChannelHandlerContext ctx, final boolean endOfStream,
@@ -514,7 +538,7 @@ class ClientConnection {
       if (hasContent) {
         writeData(buf, streamId, request.content(), true);
       }
-      ctx.write(buf);
+      ctx.write(buf, requestPromise);
       flusher.flush();
     }
 
