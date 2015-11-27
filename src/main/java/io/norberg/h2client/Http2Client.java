@@ -86,16 +86,16 @@ public class Http2Client implements ClientConnection.Listener {
     return closeFuture;
   }
 
-  public CompletableFuture<Http2Response> get(final String uri) {
+  public CompletableFuture<Http2Response> get(final CharSequence uri) {
     final Http2Request request = new Http2Request(GET, uri);
     return send(request);
   }
 
-  public CompletableFuture<Http2Response> post(final String uri, final ByteBuffer data) {
+  public CompletableFuture<Http2Response> post(final CharSequence uri, final ByteBuffer data) {
     return post(uri, Unpooled.wrappedBuffer(data));
   }
 
-  public CompletableFuture<Http2Response> post(final String uri, final ByteBuf data) {
+  public CompletableFuture<Http2Response> post(final CharSequence uri, final ByteBuf data) {
     final Http2Request request = new Http2Request(POST, uri, data);
     return send(request);
   }

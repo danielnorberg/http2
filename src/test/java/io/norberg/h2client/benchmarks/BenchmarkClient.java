@@ -7,6 +7,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.netty.handler.codec.http2.Http2Settings;
+import io.netty.util.AsciiString;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.norberg.h2client.Http2Client;
 
@@ -16,6 +17,8 @@ class BenchmarkClient {
 
   private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(
       1, new DefaultThreadFactory("client", true));
+
+  private static final AsciiString PATH = AsciiString.of("/hello");
 
   public static void main(final String... args) throws Exception {
     run();
@@ -61,7 +64,7 @@ class BenchmarkClient {
   private static void get(final Http2Client client, final ProgressMeter.Metric requests,
                           final ProgressMeter.Metric errors, final ProgressMeter.Metric data) {
     final long start = System.nanoTime();
-    client.get("/hello").whenComplete((response, ex) -> {
+    client.get(PATH).whenComplete((response, ex) -> {
       final long end = System.nanoTime();
       final long latency = end - start;
       if (ex != null) {
