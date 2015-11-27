@@ -29,7 +29,7 @@ public class Http2ClientServerTest {
 
     final RequestHandler requestHandler = (context, request) ->
         context.respond(request.response(
-            OK, Unpooled.copiedBuffer("hello world", UTF_8)));
+            OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8)));
 
     // Start server
     final Http2Server server = new Http2Server(requestHandler);
@@ -39,13 +39,21 @@ public class Http2ClientServerTest {
     // Start client
     final Http2Client client = Http2Client.of("127.0.0.1", port);
 
-    Thread.sleep(1000);
+    // Make a request (queued and sent when the connection is up)
+    {
+      final CompletableFuture<Http2Response> future = client.get("/world/1");
+      final Http2Response response = future.get();
+      final String payload = response.content().toString(UTF_8);
+      assertThat(payload, is("hello: /world/1"));
+    }
 
-    // Make a request
-    final CompletableFuture<Http2Response> future = client.get("/hello/world");
-    final Http2Response response = future.get();
-    final String payload = response.content().toString(UTF_8);
-    assertThat(payload, is("hello world"));
+    // Make another request (sent directly)
+    {
+      final CompletableFuture<Http2Response> future = client.get("/world/2");
+      final Http2Response response = future.get();
+      final String payload = response.content().toString(UTF_8);
+      assertThat(payload, is("hello: /world/2"));
+    }
   }
 
   @Test

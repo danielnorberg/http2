@@ -539,7 +539,7 @@ class ClientConnection {
         writeData(buf, streamId, request.content(), true);
       }
       ctx.write(buf, requestPromise);
-      flusher.flush();
+      // No need to flush here, the batch flusher takes care of that.
     }
 
     private void writeHeaders(final ByteBuf buf, int streamId, Http2Request request, boolean endStream)
