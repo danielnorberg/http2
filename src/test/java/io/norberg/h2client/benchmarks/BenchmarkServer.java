@@ -8,10 +8,12 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.util.ResourceLeakDetector;
 import io.norberg.h2client.Http2Server;
 import io.norberg.h2client.RequestHandler;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 class BenchmarkServer {
@@ -24,6 +26,7 @@ class BenchmarkServer {
 
   public static void main(final String... args) throws Exception {
     LoggingConfigurator.configureNoLogging();
+    ResourceLeakDetector.setLevel(DISABLED);
     run();
     while (true) {
       Thread.sleep(1000);

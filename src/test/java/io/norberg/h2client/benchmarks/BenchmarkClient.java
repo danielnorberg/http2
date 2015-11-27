@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.util.AsciiString;
+import io.netty.util.ResourceLeakDetector;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.norberg.h2client.Http2Client;
 import io.norberg.h2client.Http2Request;
@@ -15,6 +16,7 @@ import io.norberg.h2client.Http2Response;
 import io.norberg.h2client.Http2ResponseHandler;
 
 import static io.netty.handler.codec.http.HttpMethod.GET;
+import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 class BenchmarkClient {
@@ -25,6 +27,7 @@ class BenchmarkClient {
   private static final AsciiString PATH = AsciiString.of("/hello");
 
   public static void main(final String... args) throws Exception {
+    ResourceLeakDetector.setLevel(DISABLED);
     run();
   }
 
