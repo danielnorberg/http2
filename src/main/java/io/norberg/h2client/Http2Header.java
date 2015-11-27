@@ -29,6 +29,10 @@ public final class Http2Header {
   }
 
   int size() {
+    return size(name, value());
+  }
+
+  static int size(final AsciiString name, final AsciiString value) {
     return name.length() + value.length() + 32;
   }
 

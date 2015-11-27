@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -50,6 +51,10 @@ import static io.netty.handler.codec.http2.Http2FrameTypes.DATA;
 import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
 import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
 import static io.netty.handler.codec.http2.Http2FrameTypes.WINDOW_UPDATE;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.logging.LogLevel.TRACE;
 import static io.norberg.h2client.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
@@ -338,7 +343,8 @@ class ClientConnection {
     }
 
     @Override
-    public void onHeadersEnd(final ChannelHandlerContext ctx, final int streamId, final boolean endOfStream) throws Http2Exception {
+    public void onHeadersEnd(final ChannelHandlerContext ctx, final int streamId, final boolean endOfStream)
+        throws Http2Exception {
       assert stream != null;
       maybeDispatch(ctx, endOfStream, stream);
       stream = null;
@@ -507,6 +513,9 @@ class ClientConnection {
 
   private class WriteHandler extends ChannelOutboundHandlerAdapter {
 
+    private final List<Http2Request> requests = new ArrayList<>();
+    private final List<RequestPromise> promises = new ArrayList<>();
+
     private int streamId = 1;
 
     private int nextStreamId() {
@@ -517,29 +526,70 @@ class ClientConnection {
     @Override
     public void write(final ChannelHandlerContext ctx, final Object msg, final ChannelPromise promise)
         throws Exception {
-      final Http2Request request = (Http2Request) msg;
-      final RequestPromise requestPromise = (RequestPromise) promise;
+      requests.add((Http2Request) msg);
+      promises.add((RequestPromise) promise);
+    }
 
-      // Already at max concurrent streams? Fail fast.
-      if (streams.size() >= maxConcurrentStreams) {
-        fail(requestPromise.responseHandler, new MaxConcurrentStreamsLimitReachedException());
-        return;
+    @Override
+    public void flush(final ChannelHandlerContext ctx) throws Exception {
+      final int n = requests.size();
+
+      final ByteBuf buf = ctx.alloc().buffer(estimateSize(requests));
+
+      for (int i = 0; i < n; i++) {
+        final Http2Request request = requests.get(i);
+        final RequestPromise promise = promises.get(i);
+
+        // Already at max concurrent streams? Fail fast.
+        if (streams.size() >= maxConcurrentStreams) {
+          fail(promise.responseHandler, new MaxConcurrentStreamsLimitReachedException());
+          continue;
+        }
+
+        // Generate ID and store response future in stream map to correlate with responses
+        final int streamId = nextStreamId();
+        final Stream stream = new Stream(streamId, promise.responseHandler, initialLocalWindow);
+        streams.put(streamId, stream);
+
+        final boolean hasContent = request.hasContent();
+        writeHeaders(buf, streamId, request, !hasContent);
+        if (hasContent) {
+          writeData(buf, streamId, request.content(), true);
+        }
       }
 
-      // Generate ID and store response future in stream map to correlate with responses
-      final int streamId = nextStreamId();
-      final Stream stream = new Stream(streamId, requestPromise.responseHandler, initialLocalWindow);
-      streams.put(streamId, stream);
+      final AggregatePromise aggregatePromise = new AggregatePromise(ctx.channel(), promises);
 
-      log.debug("sending request: {}", request);
-      final boolean hasContent = request.hasContent();
-      final ByteBuf buf = ctx.alloc().buffer();
-      writeHeaders(buf, streamId, request, !hasContent);
-      if (hasContent) {
-        writeData(buf, streamId, request.content(), true);
+      requests.clear();
+      promises.clear();
+
+      ctx.writeAndFlush(buf, aggregatePromise);
+    }
+
+    private int estimateSize(final List<Http2Request> requests) {
+      int size = 0;
+      for (int i = 0; i < requests.size(); i++) {
+        final Http2Request request = requests.get(i);
+        size += estimateSize(request);
       }
-      ctx.write(buf, requestPromise);
-      // No need to flush here, the batch flusher takes care of that.
+      return size;
+    }
+
+    private static final int FRAME_HEADER_SIZE = 9;
+
+    private int estimateSize(final Http2Request request) {
+      final int headersFrameSize =
+          FRAME_HEADER_SIZE +
+          Http2Header.size(METHOD.value(), request.method().asciiName()) +
+          Http2Header.size(AUTHORITY.value(), request.authority()) +
+          Http2Header.size(SCHEME.value(), request.scheme()) +
+          Http2Header.size(PATH.value(), request.path()) +
+          (request.hasHeaders() ? estimateSize(request) : 0);
+      final int dataFrameSize =
+          FRAME_HEADER_SIZE +
+          (request.hasContent() ? request.content().readableBytes() : 0);
+      return headersFrameSize + dataFrameSize;
+
     }
 
     private void writeHeaders(final ByteBuf buf, int streamId, Http2Request request, boolean endStream)
