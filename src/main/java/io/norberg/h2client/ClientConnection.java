@@ -589,7 +589,6 @@ class ClientConnection {
           FRAME_HEADER_SIZE +
           (request.hasContent() ? request.content().readableBytes() : 0);
       return headersFrameSize + dataFrameSize;
-
     }
 
     private void writeHeaders(final ByteBuf buf, int streamId, Http2Request request, boolean endStream)

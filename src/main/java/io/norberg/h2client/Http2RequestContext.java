@@ -1,23 +1,20 @@
 package io.norberg.h2client;
 
-import io.netty.channel.ChannelHandlerContext;
-
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 
+// TODO: make this an interface
 public class Http2RequestContext {
 
-  private final Http2Server.FrameHandler handler;
-  private final ChannelHandlerContext ctx;
+  private final ResponseChannel channel;
   private final int streamId;
 
-  Http2RequestContext(final Http2Server.FrameHandler handler, final ChannelHandlerContext ctx, final int streamId) {
-    this.handler = handler;
-    this.ctx = ctx;
+  Http2RequestContext(final ResponseChannel channel, final int streamId) {
+    this.channel = channel;
     this.streamId = streamId;
   }
 
   public void respond(final Http2Response response) {
-    handler.sendResponse(ctx, response, streamId);
+    channel.sendResponse(response, streamId);
   }
 
   public void fail() {
