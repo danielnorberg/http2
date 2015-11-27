@@ -246,7 +246,7 @@ public class Http2Server {
             if (!name.equals(METHOD.value())) {
               throw new Http2Exception(PROTOCOL_ERROR);
             }
-            request.method(method(value));
+            request.method(HttpMethod.valueOf(value.toString()));
             return;
           }
           case 's': {
@@ -273,62 +273,6 @@ public class Http2Server {
           default:
             throw new Http2Exception(PROTOCOL_ERROR);
         }
-      }
-    }
-
-    private HttpMethod method(final AsciiString value) {
-      final byte b = value.byteAt(0);
-      switch (b) {
-        case 'O': { // OPTIONS
-          if (!value.equals(HttpMethod.OPTIONS.asciiName())) {
-            return HttpMethod.valueOf(value.toString());
-          }
-          return HttpMethod.OPTIONS;
-        }
-        case 'G': { // GET
-          if (!value.equals(HttpMethod.GET.asciiName())) {
-            return HttpMethod.valueOf(value.toString());
-          }
-          return HttpMethod.GET;
-        }
-        case 'H': { // HEAD
-          if (!value.equals(HttpMethod.HEAD.asciiName())) {
-            return HttpMethod.valueOf(value.toString());
-          }
-          return HttpMethod.HEAD;
-        }
-        case 'P': { // POST
-          if (value.equals(HttpMethod.POST.asciiName())) {
-            return HttpMethod.POST;
-          }
-          if (value.equals(HttpMethod.PUT.asciiName())) {
-            return HttpMethod.PUT;
-          }
-          if (!value.equals(HttpMethod.PATCH.asciiName())) {
-            return HttpMethod.PATCH;
-          }
-          return HttpMethod.valueOf(value.toString());
-        }
-        case 'D': { // DELETE
-          if (!value.equals(HttpMethod.DELETE.asciiName())) {
-            return HttpMethod.valueOf(value.toString());
-          }
-          return HttpMethod.DELETE;
-        }
-        case 'T': { // TRACE
-          if (!value.equals(HttpMethod.TRACE.asciiName())) {
-            return HttpMethod.valueOf(value.toString());
-          }
-          return HttpMethod.TRACE;
-        }
-        case 'C': { // CONNECT
-          if (!value.equals(HttpMethod.CONNECT.asciiName())) {
-            return HttpMethod.valueOf(value.toString());
-          }
-          return HttpMethod.CONNECT;
-        }
-        default:
-          return HttpMethod.valueOf(value.toString());
       }
     }
 
