@@ -48,8 +48,10 @@ public class Http2Client implements ClientConnection.Listener {
 
   private volatile int maxConcurrentStreams;
   private volatile int maxFrameSize;
+  private volatile ClientConnection pendingConnection;
   private volatile ClientConnection connection;
   private volatile boolean closed;
+
 
   private Http2Client(final Builder builder) {
     InetSocketAddress address = Objects.requireNonNull(builder.address, "address");
@@ -109,10 +111,11 @@ public class Http2Client implements ClientConnection.Listener {
     }
     this.outstanding.increment();
 
+    // TODO: do not assign this.connection until we're connected
     final ClientConnection connection = this.connection;
 
-    // Are we connected? Then send immediately.
-    if (connection.isConnected()) {
+    // Connected? Send immediately.
+    if (connection != null) {
       send(connection, request, responseHandler);
       return;
     }
@@ -152,7 +155,7 @@ public class Http2Client implements ClientConnection.Listener {
       return;
     }
 
-    final ClientConnection connection = ClientConnection.builder()
+    ClientConnection pendingConnection = ClientConnection.builder()
         .address(address)
         .workerGroup(workerGroup)
         .sslContext(sslContext)
@@ -161,7 +164,7 @@ public class Http2Client implements ClientConnection.Listener {
         .maxFrameSize(maxFrameSize)
         .build();
 
-    connection.connectFuture().whenComplete((c, ex) -> {
+    pendingConnection.connectFuture().whenComplete((c, ex) -> {
       if (ex != null) {
         // Fail outstanding requests
         while (true) {
@@ -180,7 +183,7 @@ public class Http2Client implements ClientConnection.Listener {
       }
 
       // Reconnect on disconnect
-      connection.disconnectFuture().whenComplete((dc, dex) -> {
+      c.disconnectFuture().whenComplete((dc, dex) -> {
 
         // Notify listener that the connection was closed
         listener.connectionClosed(Http2Client.this);
@@ -189,6 +192,9 @@ public class Http2Client implements ClientConnection.Listener {
         connect();
       });
 
+      // Publish new connection
+      connection = c;
+
       // Notify listener that the connection was established
       listener.connectionEstablished(Http2Client.this);
 
@@ -196,12 +202,15 @@ public class Http2Client implements ClientConnection.Listener {
       pump();
     });
 
-    this.connection = connection;
+    this.pendingConnection = pendingConnection;
   }
 
   private void pump() {
     final ClientConnection connection = this.connection;
-    while (connection.isConnected()) {
+    if (connection == null) {
+      return;
+    }
+    while (!connection.isDisconnected()) {
       final QueuedRequest queuedRequest = queue.poll();
       if (queuedRequest == null) {
         break;

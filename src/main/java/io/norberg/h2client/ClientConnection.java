@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -87,8 +88,6 @@ class ClientConnection {
   private int localWindowUpdateThreshold = initialLocalWindow / 2;
   private int localWindow = initialLocalWindow;
 
-  private volatile boolean connected;
-
   ClientConnection(final Builder builder) {
     this.listener = requireNonNull(builder.listener, "listener");
 
@@ -119,7 +118,6 @@ class ClientConnection {
 
 
   void send(final Http2Request request, final Http2ResponseHandler responseHandler) {
-    assert connected;
     final ChannelPromise promise = new RequestPromise(channel, responseHandler);
     channel.write(request, promise);
     flusher.flush();
@@ -133,8 +131,8 @@ class ClientConnection {
     return disconnectFuture;
   }
 
-  boolean isConnected() {
-    return connected && channel.isActive();
+  boolean isDisconnected() {
+    return !channel.isActive();
   }
 
   ChannelFuture close() {
@@ -211,7 +209,6 @@ class ClientConnection {
       ctx.write(buf);
 
       flusher.flush();
-      connected = true;
       connectFuture.complete(ClientConnection.this);
     }
 
@@ -491,8 +488,24 @@ class ClientConnection {
 
     @Override
     public ChannelPromise setFailure(final Throwable cause) {
+      super.setFailure(cause);
       fail(responseHandler, cause);
-      return super.setFailure(cause);
+      return this;
+    }
+
+    @Override
+    public boolean tryFailure(final Throwable cause) {
+      final boolean set = super.tryFailure(cause);
+      if (set) {
+        final Throwable e;
+        if (cause instanceof ClosedChannelException) {
+          e = new ConnectionClosedException(cause);
+        } else {
+          e = cause;
+        }
+        fail(responseHandler, e);
+      }
+      return set;
     }
   }
 
