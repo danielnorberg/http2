@@ -504,16 +504,15 @@ class ClientConnection {
 
       // Generate ID and store response future in stream map to correlate with responses
       final int streamId = nextStreamId();
-      request.streamId(streamId);
       final Stream stream = new Stream(streamId, requestPromise.responseHandler, initialLocalWindow);
       streams.put(streamId, stream);
 
       log.debug("sending request: {}", request);
       final boolean hasContent = request.hasContent();
       final ByteBuf buf = ctx.alloc().buffer();
-      writeHeaders(buf, request.streamId(), request, !hasContent);
+      writeHeaders(buf, streamId, request, !hasContent);
       if (hasContent) {
-        writeData(buf, request.streamId(), request.content(), true);
+        writeData(buf, streamId, request.content(), true);
       }
       ctx.write(buf);
       flusher.flush();

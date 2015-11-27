@@ -9,19 +9,17 @@ import io.netty.util.AsciiString;
 public class Http2Response {
 
   private HttpResponseStatus status;
-  private int streamId;
   private ByteBuf content;
   private Http2Headers headers;
 
   public Http2Response() {
   }
 
-  public Http2Response(final int streamId, final HttpResponseStatus status) {
-    this(streamId, status, null);
+  public Http2Response(final HttpResponseStatus status) {
+    this(status, null);
   }
 
-  public Http2Response(final int streamId, final HttpResponseStatus status, final ByteBuf content) {
-    this.streamId = streamId;
+  public Http2Response(final HttpResponseStatus status, final ByteBuf content) {
     this.content = content;
     this.status = status;
   }
@@ -40,10 +38,6 @@ public class Http2Response {
 
   void content(final ByteBuf content) {
     this.content = content;
-  }
-
-  public int streamId() {
-    return streamId;
   }
 
   public boolean hasHeaders() {
@@ -65,7 +59,6 @@ public class Http2Response {
   @Override
   public String toString() {
     return "Http2Response{" +
-           "streamId=" + streamId +
            ", content=" + content +
            ", headers=" + headers +
            '}';

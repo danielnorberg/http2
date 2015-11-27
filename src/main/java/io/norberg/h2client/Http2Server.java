@@ -413,7 +413,7 @@ public class Http2Server {
     private Http2Request newOrExistingRequest(final int streamId) {
       Http2Request request = requests.get(streamId);
       if (request == null) {
-        request = new Http2Request(streamId);
+        request = new Http2Request();
         requests.put(streamId, request);
       }
       return request;
@@ -435,24 +435,24 @@ public class Http2Server {
       responseFuture.whenCompleteAsync((response, ex) -> {
         // Return 500 for request handler errors
         if (ex != null) {
-          response = new Http2Response(streamId, INTERNAL_SERVER_ERROR);
+          response = new Http2Response(INTERNAL_SERVER_ERROR);
         }
-        sendResponse(ctx, response);
+        sendResponse(ctx, response, streamId);
       }, executor);
     }
 
-    private void sendResponse(final ChannelHandlerContext ctx, final Http2Response response) {
+    private void sendResponse(final ChannelHandlerContext ctx, final Http2Response response, final int streamId) {
       log.debug("sending response: {}", response);
       final boolean hasContent = response.hasContent();
       final ByteBuf buf = ctx.alloc().buffer();
       try {
-        writeHeaders(buf, response.streamId(), response, !hasContent);
+        writeHeaders(buf, streamId, response, !hasContent);
       } catch (HpackEncodingException e) {
         ctx.fireExceptionCaught(e);
         return;
       }
       if (hasContent) {
-        writeData(buf, response.streamId(), response.content(), true);
+        writeData(buf, streamId, response.content(), true);
       }
       ctx.write(buf);
       flusher.flush();

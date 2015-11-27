@@ -13,12 +13,10 @@ public class Http2Request {
   private AsciiString scheme;
   private AsciiString authority;
   private AsciiString path;
-  private int streamId;
   private Http2Headers headers;
   private ByteBuf content;
 
-  Http2Request(final int streamId) {
-    this.streamId = streamId;
+  Http2Request() {
   }
 
   public Http2Request(final HttpMethod method, final CharSequence path) {
@@ -63,14 +61,6 @@ public class Http2Request {
     this.path = path;
   }
 
-  public int streamId() {
-    return streamId;
-  }
-
-  void streamId(final int streamId) {
-    this.streamId = streamId;
-  }
-
   public boolean hasHeaders() {
     return headers != null;
   }
@@ -96,17 +86,16 @@ public class Http2Request {
   }
 
   public Http2Response response(final HttpResponseStatus status, final ByteBuf payload) {
-    return new Http2Response(streamId, status, payload);
+    return new Http2Response(status, payload);
   }
 
   public Http2Response response(final HttpResponseStatus status) {
-    return new Http2Response(streamId, status);
+    return new Http2Response(status);
   }
 
   @Override
   public String toString() {
     return "Http2Request{" +
-           "streamId=" + streamId +
            ", headers=" + headers +
            ", content=" + content +
            '}';
