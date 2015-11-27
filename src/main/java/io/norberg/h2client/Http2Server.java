@@ -236,43 +236,41 @@ public class Http2Server {
 
     private void readPseudoHeader(final AsciiString name, final AsciiString value) throws Http2Exception {
       assert request != null;
-      if (name.byteAt(0) == ':') {
-        if (name.length() < 5) {
-          throw new IllegalArgumentException();
-        }
-        final byte b1 = name.byteAt(1);
-        switch (b1) {
-          case 'm': {
-            if (!name.equals(METHOD.value())) {
-              throw new Http2Exception(PROTOCOL_ERROR);
-            }
-            request.method(HttpMethod.valueOf(value.toString()));
-            return;
-          }
-          case 's': {
-            if (!name.equals(SCHEME.value())) {
-              throw new Http2Exception(PROTOCOL_ERROR);
-            }
-            request.scheme(value);
-            return;
-          }
-          case 'a': {
-            if (!name.equals(AUTHORITY.value())) {
-              throw new Http2Exception(PROTOCOL_ERROR);
-            }
-            request.authority(value);
-            return;
-          }
-          case 'p': {
-            if (!name.equals(PATH.value())) {
-              throw new Http2Exception(PROTOCOL_ERROR);
-            }
-            request.path(value);
-            return;
-          }
-          default:
+      if (name.length() < 5) {
+        throw new IllegalArgumentException();
+      }
+      final byte b1 = name.byteAt(1);
+      switch (b1) {
+        case 'm': {
+          if (!name.equals(METHOD.value())) {
             throw new Http2Exception(PROTOCOL_ERROR);
+          }
+          request.method(HttpMethod.valueOf(value.toString()));
+          return;
         }
+        case 's': {
+          if (!name.equals(SCHEME.value())) {
+            throw new Http2Exception(PROTOCOL_ERROR);
+          }
+          request.scheme(value);
+          return;
+        }
+        case 'a': {
+          if (!name.equals(AUTHORITY.value())) {
+            throw new Http2Exception(PROTOCOL_ERROR);
+          }
+          request.authority(value);
+          return;
+        }
+        case 'p': {
+          if (!name.equals(PATH.value())) {
+            throw new Http2Exception(PROTOCOL_ERROR);
+          }
+          request.path(value);
+          return;
+        }
+        default:
+          throw new Http2Exception(PROTOCOL_ERROR);
       }
     }
 
