@@ -113,9 +113,9 @@ class ClientConnection {
   }
 
 
-  void send(final Http2Request request, final CompletableFuture<Http2Response> future) {
+  void send(final Http2Request request, final Http2ResponseHandler responseHandler) {
     assert connected;
-    final ChannelPromise promise = new RequestPromise(channel, future);
+    final ChannelPromise promise = new RequestPromise(channel, responseHandler);
     channel.write(request, promise);
     flusher.flush();
   }
@@ -230,7 +230,7 @@ class ClientConnection {
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
       final Exception exception = new ConnectionClosedException();
-      streams.forEach((streamId, request) -> request.responseFuture.completeExceptionally(exception));
+      streams.forEach((streamId, stream) -> fail(stream.responseHandler, exception));
       disconnectFuture.complete(ClientConnection.this);
     }
 
@@ -436,22 +436,32 @@ class ClientConnection {
 
       streams.remove(stream.id);
 
-      stream.responseFuture.complete(stream.response);
+      succeed(stream.responseHandler, stream.response);
     }
+  }
+
+  private void succeed(final Http2ResponseHandler responseHandler, final Http2Response response) {
+    listener.responseReceived(ClientConnection.this, response);
+    responseHandler.response(response);
+  }
+
+  private void fail(final Http2ResponseHandler responseHandler, final Throwable t) {
+    listener.requestFailed(ClientConnection.this);
+    responseHandler.failure(t);
   }
 
   private class RequestPromise extends DefaultChannelPromise {
 
-    private final CompletableFuture<Http2Response> responseFuture;
+    private final Http2ResponseHandler responseHandler;
 
-    public RequestPromise(final Channel channel, final CompletableFuture<Http2Response> responseFuture) {
+    public RequestPromise(final Channel channel, final Http2ResponseHandler responseHandler) {
       super(channel);
-      this.responseFuture = responseFuture;
+      this.responseHandler = responseHandler;
     }
 
     @Override
     public ChannelPromise setFailure(final Throwable cause) {
-      responseFuture.completeExceptionally(cause);
+      fail(responseHandler, cause);
       return super.setFailure(cause);
     }
   }
@@ -459,14 +469,14 @@ class ClientConnection {
   private static class Stream {
 
     final int id;
-    final CompletableFuture<Http2Response> responseFuture;
+    final Http2ResponseHandler responseHandler;
     final Http2Response response = new Http2Response();
 
     int localWindow;
 
-    public Stream(final int id, final CompletableFuture<Http2Response> responseFuture, final int localWindow) {
+    public Stream(final int id, final Http2ResponseHandler responseHandler, final int localWindow) {
       this.id = id;
-      this.responseFuture = responseFuture;
+      this.responseHandler = responseHandler;
       this.localWindow = localWindow;
     }
   }
@@ -488,14 +498,14 @@ class ClientConnection {
 
       // Already at max concurrent streams? Fail fast.
       if (streams.size() >= maxConcurrentStreams) {
-        requestPromise.responseFuture.completeExceptionally(new MaxConcurrentStreamsLimitReachedException());
+        fail(requestPromise.responseHandler, new MaxConcurrentStreamsLimitReachedException());
         return;
       }
 
       // Generate ID and store response future in stream map to correlate with responses
       final int streamId = nextStreamId();
       request.streamId(streamId);
-      final Stream stream = new Stream(streamId, requestPromise.responseFuture, initialLocalWindow);
+      final Stream stream = new Stream(streamId, requestPromise.responseHandler, initialLocalWindow);
       streams.put(streamId, stream);
 
       log.debug("sending request: {}", request);
@@ -622,5 +632,9 @@ class ClientConnection {
      * Called when remote peer settings changed.
      */
     void peerSettingsChanged(ClientConnection connection, Http2Settings settings);
+
+    void requestFailed(ClientConnection connection);
+
+    void responseReceived(ClientConnection connection, Http2Response response);
   }
 }

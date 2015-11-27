@@ -100,42 +100,50 @@ public class Http2Client implements ClientConnection.Listener {
     return send(request);
   }
 
-  public CompletableFuture<Http2Response> send(final Http2Request request) {
-
-    final CompletableFuture<Http2Response> future = new CompletableFuture<>();
-
+  public void send(final Http2Request request, final Http2ResponseHandler responseHandler) {
     // Racy but that's fine, the real limiting happens on the connection
     final long outstanding = this.outstanding.longValue();
     if (outstanding > maxConcurrentStreams) {
-      future.completeExceptionally(new OutstandingRequestLimitReachedException());
-      return future;
+      responseHandler.failure(new OutstandingRequestLimitReachedException());
+      return;
     }
     this.outstanding.increment();
-
-    // Decrement outstanding when the request completes
-    future.whenComplete((r, ex) -> this.outstanding.decrement());
 
     final ClientConnection connection = this.connection;
 
     // Are we connected? Then send immediately.
     if (connection.isConnected()) {
-      send(connection, request, future);
-      return future;
+      send(connection, request, responseHandler);
+      return;
     }
 
-    queue.add(new QueuedRequest(request, future));
+    queue.add(new QueuedRequest(request, responseHandler));
 
     // Guard against connection race
     pump();
+  }
 
+  public CompletableFuture<Http2Response> send(final Http2Request request) {
+    final CompletableFuture<Http2Response> future = new CompletableFuture<>();
+    send(request, new Http2ResponseHandler() {
+      @Override
+      public void response(final Http2Response response) {
+        future.complete(response);
+      }
+
+      @Override
+      public void failure(final Throwable e) {
+        future.completeExceptionally(e);
+      }
+    });
     return future;
   }
 
   private void send(final ClientConnection connection, final Http2Request request,
-                    final CompletableFuture<Http2Response> future) {
+                    final Http2ResponseHandler responseHandler) {
     request.authority(authority);
     request.scheme(HTTPS.name());
-    connection.send(request, future);
+    connection.send(request, responseHandler);
   }
 
   private void connect() {
@@ -161,7 +169,8 @@ public class Http2Client implements ClientConnection.Listener {
           if (request == null) {
             break;
           }
-          request.future.completeExceptionally(ex);
+          outstanding.decrement();
+          request.responseHandler.failure(ex);
         }
 
         // Retry
@@ -197,7 +206,7 @@ public class Http2Client implements ClientConnection.Listener {
       if (queuedRequest == null) {
         break;
       }
-      send(connection, queuedRequest.request, queuedRequest.future);
+      send(connection, queuedRequest.request, queuedRequest.responseHandler);
     }
   }
 
@@ -209,15 +218,25 @@ public class Http2Client implements ClientConnection.Listener {
     listener.peerSettingsChanged(Http2Client.this, settings);
   }
 
+  @Override
+  public void requestFailed(final ClientConnection connection) {
+    outstanding.decrement();
+  }
+
+  @Override
+  public void responseReceived(final ClientConnection connection, final Http2Response response) {
+    outstanding.decrement();
+  }
+
   private static class QueuedRequest {
 
     private final Http2Request request;
-    private final CompletableFuture<Http2Response> future;
+    private final Http2ResponseHandler responseHandler;
 
-    public QueuedRequest(final Http2Request request, final CompletableFuture<Http2Response> future) {
+    public QueuedRequest(final Http2Request request, final Http2ResponseHandler responseHandler) {
 
       this.request = request;
-      this.future = future;
+      this.responseHandler = responseHandler;
     }
   }
 

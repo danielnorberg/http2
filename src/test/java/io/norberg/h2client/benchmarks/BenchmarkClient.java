@@ -10,7 +10,11 @@ import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.util.AsciiString;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.norberg.h2client.Http2Client;
+import io.norberg.h2client.Http2Request;
+import io.norberg.h2client.Http2Response;
+import io.norberg.h2client.Http2ResponseHandler;
 
+import static io.netty.handler.codec.http.HttpMethod.GET;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 class BenchmarkClient {
@@ -64,20 +68,27 @@ class BenchmarkClient {
   private static void get(final Http2Client client, final ProgressMeter.Metric requests,
                           final ProgressMeter.Metric errors, final ProgressMeter.Metric data) {
     final long start = System.nanoTime();
-    client.get(PATH).whenComplete((response, ex) -> {
-      final long end = System.nanoTime();
-      final long latency = end - start;
-      if (ex != null) {
+    final Http2Request request = new Http2Request(GET, PATH);
+    client.send(request, new Http2ResponseHandler() {
+      @Override
+      public void response(final Http2Response response) {
+        final long end = System.nanoTime();
+        final long latency = end - start;
+        requests.inc(latency);
+        if (response.hasContent()) {
+          data.add(response.content().readableBytes(), latency);
+        }
+        response.release();
+        get(client, requests, errors, data);
+      }
+
+      @Override
+      public void failure(final Throwable e) {
+        final long end = System.nanoTime();
+        final long latency = end - start;
         errors.inc(latency);
         scheduler.schedule(() -> get(client, requests, errors, data), 1, SECONDS);
-        return;
       }
-      requests.inc(latency);
-      if (response.hasContent()) {
-        data.add(response.content().readableBytes(), latency);
-      }
-      response.release();
-      get(client, requests, errors, data);
     });
   }
 }
