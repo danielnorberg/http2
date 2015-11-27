@@ -4,9 +4,7 @@
 
 package io.norberg.h2client;
 
-import java.util.concurrent.CompletableFuture;
-
 public interface RequestHandler {
 
-  CompletableFuture<Http2Response> handleRequest(Http2Request request);
+  void handleRequest(final Http2RequestContext context, Http2Request request);
 }

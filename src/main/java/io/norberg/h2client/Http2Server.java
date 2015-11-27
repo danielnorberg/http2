@@ -38,7 +38,6 @@ import io.netty.util.AsciiString;
 import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
-import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_MAX_FRAME_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
@@ -55,7 +54,6 @@ import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.logging.LogLevel.TRACE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
 import static io.norberg.h2client.Util.completableFuture;
-import static io.norberg.h2client.Util.failure;
 
 public class Http2Server {
 
@@ -149,7 +147,7 @@ public class Http2Server {
     }
   }
 
-  private class FrameHandler implements Http2FrameListener {
+  class FrameHandler implements Http2FrameListener {
 
     private final IntObjectHashMap<Http2Request> requests = new IntObjectHashMap<>();
     private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
@@ -397,19 +395,19 @@ public class Http2Server {
       requests.remove(streamId);
 
       // Hand off request to request handler
-      final CompletableFuture<Http2Response> responseFuture = dispatch(request);
-
-      // Handle response
-      responseFuture.whenCompleteAsync((response, ex) -> {
-        // Return 500 for request handler errors
-        if (ex != null) {
-          response = new Http2Response(INTERNAL_SERVER_ERROR);
-        }
-        sendResponse(ctx, response, streamId);
-      }, executor);
+      final Http2RequestContext context = new Http2RequestContext(this, ctx, streamId);
+      dispatch(context, request);
     }
 
-    private void sendResponse(final ChannelHandlerContext ctx, final Http2Response response, final int streamId) {
+    void sendResponse(final ChannelHandlerContext ctx, final Http2Response response, final int streamId) {
+      if (eventLoop.inEventLoop()) {
+        sendResponse0(ctx, response, streamId);
+      } else {
+        eventLoop.execute(() -> sendResponse0(ctx, response, streamId));
+      }
+    }
+
+    private void sendResponse0(final ChannelHandlerContext ctx, final Http2Response response, final int streamId) {
       log.debug("sending response: {}", response);
       final boolean hasContent = response.hasContent();
       final ByteBuf buf = ctx.alloc().buffer();
@@ -426,11 +424,11 @@ public class Http2Server {
       flusher.flush();
     }
 
-    private CompletableFuture<Http2Response> dispatch(final Http2Request request) {
+    private void dispatch(final Http2RequestContext context, final Http2Request request) {
       try {
-        return requestHandler.handleRequest(request);
+        requestHandler.handleRequest(context, request);
       } catch (Exception e) {
-        return failure(e);
+        context.fail();
       }
     }
 

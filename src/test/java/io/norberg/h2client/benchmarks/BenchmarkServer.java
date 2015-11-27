@@ -4,7 +4,6 @@ import com.google.common.base.Strings;
 
 import com.spotify.logging.LoggingConfigurator;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 
 import io.netty.buffer.ByteBuf;
@@ -33,8 +32,8 @@ class BenchmarkServer {
 
   static void run() throws Exception {
 
-    final RequestHandler requestHandler = (request) -> CompletableFuture.completedFuture(
-        request.response(OK));
+    final RequestHandler requestHandler = (context, request) ->
+        context.respond(request.response(OK));
 
     final Http2Server server = new Http2Server(requestHandler, 4711);
 

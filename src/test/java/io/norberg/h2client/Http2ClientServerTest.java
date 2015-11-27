@@ -26,8 +26,9 @@ public class Http2ClientServerTest {
 
   @Test
   public void testReqRep() throws Exception {
-    final RequestHandler requestHandler = (request) ->
-        CompletableFuture.completedFuture(request.response(
+
+    final RequestHandler requestHandler = (context, request) ->
+        context.respond(request.response(
             OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server
@@ -38,6 +39,8 @@ public class Http2ClientServerTest {
     // Start client
     final Http2Client client = Http2Client.of("127.0.0.1", port);
 
+    Thread.sleep(1000);
+
     // Make a request
     final CompletableFuture<Http2Response> future = client.get("/hello/world");
     final Http2Response response = future.get();
@@ -47,8 +50,8 @@ public class Http2ClientServerTest {
 
   @Test
   public void testClientReconnects() throws Exception {
-    final RequestHandler requestHandler = (request) ->
-        CompletableFuture.completedFuture(request.response(
+    final RequestHandler requestHandler = (context, request) ->
+        context.respond(request.response(
             OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server
