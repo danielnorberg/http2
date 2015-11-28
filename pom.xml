@@ -165,7 +165,7 @@
         <version>2.19</version>
         <configuration>
           <systemPropertyVariables>
-            <io.netty.leakDetectionLevel>advanced</io.netty.leakDetectionLevel>
+            <io.netty.leakDetectionLevel>paranoid</io.netty.leakDetectionLevel>
           </systemPropertyVariables>
         </configuration>
       </plugin>

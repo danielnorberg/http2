@@ -258,7 +258,8 @@ class ClientConnection {
 
       ByteBuf content = stream.response.content();
       if (content == null) {
-        content = ctx.alloc().buffer(length);
+        // TODO: use pooled buffer or slice?
+        content = Unpooled.buffer(length);
         stream.response.content(content);
       }
       content.writeBytes(data);
