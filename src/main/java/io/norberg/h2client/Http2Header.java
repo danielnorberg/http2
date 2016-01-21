@@ -32,7 +32,7 @@ public final class Http2Header {
     return size(name, value());
   }
 
-  static int size(final AsciiString name, final AsciiString value) {
+  static int size(final CharSequence name, final CharSequence value) {
     return name.length() + value.length() + 32;
   }
 

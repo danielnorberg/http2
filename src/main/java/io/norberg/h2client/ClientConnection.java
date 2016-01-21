@@ -7,9 +7,11 @@ import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 
 import io.netty.bootstrap.Bootstrap;
@@ -60,6 +62,7 @@ import static io.netty.handler.logging.LogLevel.TRACE;
 import static io.norberg.h2client.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
 import static io.norberg.h2client.Util.connectionError;
+import static java.lang.Math.min;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
@@ -75,18 +78,25 @@ class ClientConnection {
   private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
   private final IntObjectHashMap<Stream> streams = new IntObjectHashMap<>();
 
+  private final List<Stream> requests = new ArrayList<>();
+  private final Queue<Stream> channelWindowed = new ArrayDeque<>();
+  private final List<Stream> pending = new ArrayList<>();
+
   private final Channel channel;
   private final BatchFlusher flusher;
   private final Listener listener;
 
   private int maxFrameSize;
   private int maxConcurrentStreams;
-  private int remoteInitialWindowSize = DEFAULT_WINDOW_SIZE;
+  private int initialRemoteWindowSize = DEFAULT_WINDOW_SIZE;
   private int maxHeaderListSize = Integer.MAX_VALUE;
+
+  private int remoteWindow = DEFAULT_WINDOW_SIZE;
 
   private int initialLocalWindow = DEFAULT_LOCAL_WINDOW_SIZE;
   private int localWindowUpdateThreshold = initialLocalWindow / 2;
   private int localWindow = initialLocalWindow;
+  private boolean remoteWindowUpdated;
 
   ClientConnection(final Builder builder) {
     this.listener = requireNonNull(builder.listener, "listener");
@@ -232,7 +242,7 @@ class ClientConnection {
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
       final Exception exception = new ConnectionClosedException();
-      streams.forEach((streamId, stream) -> fail(stream.responseHandler, exception));
+      streams.forEach((streamId, stream) -> fail(stream.requestPromise.responseHandler, exception));
       disconnectFuture.complete(ClientConnection.this);
     }
 
@@ -384,8 +394,13 @@ class ClientConnection {
         maxConcurrentStreams = settings.maxConcurrentStreams().intValue();
       }
       if (settings.initialWindowSize() != null) {
-        // TODO: apply delta etc
-        remoteInitialWindowSize = settings.initialWindowSize();
+        final int newRemoteInitialWindowSize = settings.initialWindowSize();
+        final int delta = newRemoteInitialWindowSize - initialRemoteWindowSize;
+        initialRemoteWindowSize = newRemoteInitialWindowSize;
+        remoteWindow += delta;
+        remoteWindowUpdated = true;
+        // TODO: apply delta to stream windows?
+        flusher.flush();
       }
       if (settings.maxHeaderListSize() != null) {
         maxHeaderListSize = settings.maxHeaderListSize();
@@ -445,6 +460,15 @@ class ClientConnection {
       if (log.isDebugEnabled()) {
         log.debug("got window update: streamId={}, windowSizeIncrement={}", streamId, windowSizeIncrement);
       }
+      if (streamId == 0) {
+        remoteWindow += windowSizeIncrement;
+        remoteWindowUpdated = true;
+      } else {
+        final Stream stream = stream(streamId);
+        stream.remoteWindow += windowSizeIncrement;
+        pending.add(stream);
+      }
+      flusher.flush();
     }
 
     @Override
@@ -464,7 +488,7 @@ class ClientConnection {
 
       streams.remove(stream.id);
 
-      succeed(stream.responseHandler, stream.response);
+      succeed(stream.requestPromise.responseHandler, stream.response);
     }
   }
 
@@ -512,23 +536,29 @@ class ClientConnection {
 
   private static class Stream {
 
-    final int id;
-    final Http2ResponseHandler responseHandler;
-    final Http2Response response = new Http2Response();
+    private final int id;
+    private final Http2Request request;
+    private final RequestPromise requestPromise;
+    private final Http2Response response = new Http2Response();
 
-    int localWindow;
+    private ByteBuf content;
 
-    public Stream(final int id, final Http2ResponseHandler responseHandler, final int localWindow) {
+    private int localWindow;
+    private int remoteWindow;
+    private int fragmentSize;
+
+    public Stream(final int id, final Http2Request request, final RequestPromise requestPromise,
+                  final int localWindow,
+                  final int remoteWindow) {
       this.id = id;
-      this.responseHandler = responseHandler;
+      this.request = request;
+      this.requestPromise = requestPromise;
       this.localWindow = localWindow;
+      this.remoteWindow = remoteWindow;
     }
   }
 
   private class WriteHandler extends ChannelOutboundHandlerAdapter {
-
-    private final List<Http2Request> requests = new ArrayList<>();
-    private final List<RequestPromise> promises = new ArrayList<>();
 
     private int streamId = 1;
 
@@ -540,69 +570,172 @@ class ClientConnection {
     @Override
     public void write(final ChannelHandlerContext ctx, final Object msg, final ChannelPromise promise)
         throws Exception {
-      requests.add((Http2Request) msg);
-      promises.add((RequestPromise) promise);
+
+      final Http2Request request = (Http2Request) msg;
+      final RequestPromise requestPromise = (RequestPromise) promise;
+
+      // Already at max concurrent streams? Fail fast.
+      if (streams.size() >= maxConcurrentStreams) {
+        fail(requestPromise.responseHandler, new MaxConcurrentStreamsLimitReachedException());
+        return;
+      }
+
+      // Generate ID and store response future in stream map to correlate with responses
+      final int streamId = nextStreamId();
+      final Stream stream = new Stream(streamId, request, requestPromise, initialLocalWindow, initialRemoteWindowSize);
+      streams.put(streamId, stream);
+      requests.add(stream);
     }
 
     @Override
     public void flush(final ChannelHandlerContext ctx) throws Exception {
-      final int n = requests.size();
 
-      final ByteBuf buf = ctx.alloc().buffer(estimateSize(requests));
+      int bufferSize = 0;
 
-      for (int i = 0; i < n; i++) {
-        final Http2Request request = requests.get(i);
-        final RequestPromise promise = promises.get(i);
+      // Prepare data frames for all streams that had window updates
+      for (int i = 0; i < pending.size(); i++) {
+        final Stream stream = pending.get(i);
+        bufferSize += prepareDataFrame(stream);
+      }
 
-        // Already at max concurrent streams? Fail fast.
-        if (streams.size() >= maxConcurrentStreams) {
-          fail(promise.responseHandler, new MaxConcurrentStreamsLimitReachedException());
-          continue;
-        }
-
-        // Generate ID and store response future in stream map to correlate with responses
-        final int streamId = nextStreamId();
-        final Stream stream = new Stream(streamId, promise.responseHandler, initialLocalWindow);
-        streams.put(streamId, stream);
-
-        final boolean hasContent = request.hasContent();
-        writeHeaders(buf, streamId, request, !hasContent);
-        if (hasContent) {
-          writeData(buf, streamId, request.content(), true);
+      // Prepare data frames for all streams that were blocking on a channel window update
+      if (remoteWindowUpdated) {
+        for (final Stream stream : channelWindowed) {
+          final int n = prepareDataFrame(stream);
+          if (n == 0) {
+            break;
+          }
+          bufferSize += n;
         }
       }
 
-      final AggregatePromise aggregatePromise = new AggregatePromise(ctx.channel(), promises);
+      // Prepare headers and data frames for new requests
+      for (int i = 0; i < requests.size(); i++) {
+        final Stream stream = requests.get(i);
+        final Http2Request request = stream.request;
+        bufferSize += estimateHeadersFrameSize(request);
+        bufferSize += prepareDataFrame(stream);
+      }
+
+      final ByteBuf buf = ctx.alloc().buffer(bufferSize);
+
+      // Write data frames for streams that had window updates
+      for (int i = 0; i < pending.size(); i++) {
+        final Stream stream = pending.get(i);
+        final int n = stream.fragmentSize;
+        if (n > 0) {
+          writeData(buf, stream);
+        }
+        if (remoteWindow == 0 &&
+            stream.content.readableBytes() > 0 &&
+            stream.remoteWindow > 0) {
+          channelWindowed.add(stream);
+        }
+      }
+
+      // Write data frames for streams that were blocking on a channel window update
+      if (remoteWindowUpdated) {
+        while (true) {
+          final Stream stream = channelWindowed.peek();
+          if (stream == null || stream.fragmentSize == 0) {
+            break;
+          }
+          writeData(buf, stream);
+          if (remoteWindow == 0 &&
+              stream.content.readableBytes() > 0 &&
+              stream.remoteWindow > 0) {
+            break;
+          }
+          channelWindowed.remove();
+        }
+
+        // Clear window update flag
+        remoteWindowUpdated = false;
+      }
+
+      // Write headers and data frames for new requests
+      for (int i = 0; i < requests.size(); i++) {
+
+        final Stream stream = requests.get(i);
+        final Http2Request request = stream.request;
+
+        // Write headers
+        final boolean hasContent = request.hasContent();
+        writeHeaders(buf, streamId, request, !hasContent);
+
+        // Write data
+        if (hasContent) {
+          writeData(buf, stream);
+          if (buf.isReadable() && stream.remoteWindow > 0) {
+            channelWindowed.add(stream);
+          }
+        }
+      }
 
       requests.clear();
-      promises.clear();
 
-      ctx.writeAndFlush(buf, aggregatePromise);
+      // TODO: create a promise that fulfills the write promises of the streams that have been completely written
+      ctx.writeAndFlush(buf);
     }
 
-    private int estimateSize(final List<Http2Request> requests) {
+    private int prepareDataFrame(final Stream stream) {
+      final Http2Request request = stream.request;
+      if (!request.hasContent()) {
+        return 0;
+      }
+      final int dataSize = request.content().readableBytes();
+      final int window = min(remoteWindow, stream.remoteWindow);
+      stream.fragmentSize = min(dataSize, window);
+      if (window == 0) {
+        return 0;
+      }
+//      if (window < dataSize && remoteWindow < stream.remoteWindow) {
+//        channelWindowed.add(stream);
+//      }
+      remoteWindow -= stream.fragmentSize;
+      stream.remoteWindow -= stream.fragmentSize;
+      return dataFrameSize(stream.fragmentSize);
+    }
+
+//    private int estimateSize(final List<Http2Request> requests) {
+//      int size = 0;
+//      for (int i = 0; i < requests.size(); i++) {
+//        final Http2Request request = requests.get(i);
+//        size += estimateSize(request);
+//      }
+//      return size;
+//    }
+
+    private static final int FRAME_HEADER_SIZE = 9;
+//
+//    private int estimateSize(final Http2Request request) {
+//      final int headersFrameSize = estimateHeadersSize(request);
+//      return headersFrameSize + estimateDataSize(request);
+//    }
+
+    private int dataFrameSize(final Http2Request request) {
+      return dataFrameSize(request.hasContent() ? request.content().readableBytes() : 0);
+    }
+
+    private int estimateHeadersFrameSize(final Http2Request request) {
+      return FRAME_HEADER_SIZE +
+             Http2Header.size(METHOD.value(), request.method().asciiName()) +
+             Http2Header.size(AUTHORITY.value(), request.authority()) +
+             Http2Header.size(SCHEME.value(), request.scheme()) +
+             Http2Header.size(PATH.value(), request.path()) +
+             (request.hasHeaders() ? estimateHeadersFrameSize(request.headers()) : 0);
+    }
+
+    private int estimateHeadersFrameSize(final Http2Headers headers) {
       int size = 0;
-      for (int i = 0; i < requests.size(); i++) {
-        final Http2Request request = requests.get(i);
-        size += estimateSize(request);
+      for (final Map.Entry<CharSequence, CharSequence> header : headers) {
+        size += Http2Header.size(header.getKey(), header.getValue());
       }
       return size;
     }
 
-    private static final int FRAME_HEADER_SIZE = 9;
-
-    private int estimateSize(final Http2Request request) {
-      final int headersFrameSize =
-          FRAME_HEADER_SIZE +
-          Http2Header.size(METHOD.value(), request.method().asciiName()) +
-          Http2Header.size(AUTHORITY.value(), request.authority()) +
-          Http2Header.size(SCHEME.value(), request.scheme()) +
-          Http2Header.size(PATH.value(), request.path()) +
-          (request.hasHeaders() ? estimateSize(request) : 0);
-      final int dataFrameSize =
-          FRAME_HEADER_SIZE +
-          (request.hasContent() ? request.content().readableBytes() : 0);
-      return headersFrameSize + dataFrameSize;
+    private int dataFrameSize(final int n) {
+      return FRAME_HEADER_SIZE + n;
     }
 
     private void writeHeaders(final ByteBuf buf, int streamId, Http2Request request, boolean endStream)
@@ -624,15 +757,24 @@ class ClientConnection {
       // TODO: padding + fields
     }
 
-    public void writeData(ByteBuf buf, int streamId, ByteBuf data, boolean endStream) {
+    private void writeData(ByteBuf buf, Stream stream) {
       final int headerIndex = buf.writerIndex();
-      int payloadLength = data.readableBytes();
+      final ByteBuf data = stream.content;
+      final int fragmentSize = stream.fragmentSize;
+      assert fragmentSize != 0;
+      final int dataSize = data.readableBytes();
+      final boolean endStream;
+      if (fragmentSize < dataSize) {
+        endStream = false;
+      } else {
+        endStream = true;
+      }
       final int flags = endStream ? END_STREAM : 0;
       buf.ensureWritable(FRAME_HEADER_LENGTH);
-      writeFrameHeader(buf, headerIndex, payloadLength, DATA, flags, streamId);
+      writeFrameHeader(buf, headerIndex, fragmentSize, DATA, flags, stream.id);
       buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
       // TODO: padding + fields
-      buf.writeBytes(data);
+      buf.writeBytes(data, fragmentSize);
     }
 
     private int encodeHeaders(Http2Request request, ByteBuf buffer) throws HpackEncodingException {
