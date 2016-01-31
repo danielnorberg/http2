@@ -395,11 +395,9 @@ class ClientConnection {
       }
       if (settings.initialWindowSize() != null) {
         final int newRemoteInitialWindowSize = settings.initialWindowSize();
+        // TODO: apply delta to stream windows
         final int delta = newRemoteInitialWindowSize - initialRemoteWindowSize;
         initialRemoteWindowSize = newRemoteInitialWindowSize;
-        remoteWindow += delta;
-        remoteWindowUpdated = true;
-        // TODO: apply delta to stream windows?
         flusher.flush();
       }
       if (settings.maxHeaderListSize() != null) {
