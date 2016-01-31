@@ -1,20 +1,22 @@
 package io.norberg.h2client;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.http2.Http2Exception;
 
-interface StreamWriter {
+interface StreamWriter<CTX, STREAM extends Stream> {
 
-  int estimateInitialHeadersFrameSize(Stream stream);
+  int estimateInitialHeadersFrameSize(final CTX ctx, STREAM stream) throws Http2Exception;
 
-  default int estimateDataFrameSize(Stream stream, int payloadSize) {
+  default int estimateDataFrameSize(final CTX ctx, STREAM stream, int payloadSize) throws Http2Exception {
     return Http2WireFormat.FRAME_HEADER_SIZE + payloadSize;
   }
 
-  ByteBuf writeStart(int bufferSize);
+  ByteBuf writeStart(final CTX ctx, int bufferSize) throws Http2Exception;
 
-  void writeDataFrame(final ByteBuf buf, Stream stream, int payloadSize, boolean endOfStream);
+  void writeDataFrame(final CTX ctx, final ByteBuf buf, STREAM stream, int payloadSize, boolean endOfStream)
+      throws Http2Exception;
 
-  void writeInitialHeadersFrame(ByteBuf buf, Stream stream, boolean endOfStream);
+  void writeInitialHeadersFrame(final CTX ctx, ByteBuf buf, STREAM stream, boolean endOfStream) throws Http2Exception;
 
-  void writeEnd(ByteBuf buf);
+  void writeEnd(final CTX ctx, ByteBuf buf) throws Http2Exception;
 }

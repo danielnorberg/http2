@@ -42,6 +42,7 @@ public class Http2ClientServerTest {
     // Make a request (queued and sent when the connection is up)
     {
       final CompletableFuture<Http2Response> future = client.get("/world/1");
+      Thread.sleep(1000);
       final Http2Response response = future.get();
       final String payload = response.content().toString(UTF_8);
       assertThat(payload, is("hello: /world/1"));

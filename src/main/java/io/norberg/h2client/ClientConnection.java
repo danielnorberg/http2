@@ -7,11 +7,8 @@ import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 
 import io.netty.bootstrap.Bootstrap;
@@ -38,7 +35,6 @@ import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.AsciiString;
-import io.netty.util.collection.IntObjectHashMap;
 
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_WINDOW_SIZE;
@@ -60,9 +56,9 @@ import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.logging.LogLevel.TRACE;
 import static io.norberg.h2client.Http2WireFormat.CLIENT_PREFACE;
+import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
 import static io.norberg.h2client.Util.connectionError;
-import static java.lang.Math.min;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
@@ -76,11 +72,8 @@ class ClientConnection {
   private final CompletableFuture<ClientConnection> disconnectFuture = new CompletableFuture<>();
 
   private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
-  private final IntObjectHashMap<Stream> streams = new IntObjectHashMap<>();
 
-  private final List<Stream> requests = new ArrayList<>();
-  private final Queue<Stream> channelWindowed = new ArrayDeque<>();
-  private final List<Stream> pending = new ArrayList<>();
+  private final StreamController<ChannelHandlerContext, ClientStream> streamController = new StreamController<>();
 
   private final Channel channel;
   private final BatchFlusher flusher;
@@ -88,15 +81,11 @@ class ClientConnection {
 
   private int maxFrameSize;
   private int maxConcurrentStreams;
-  private int initialRemoteWindowSize = DEFAULT_WINDOW_SIZE;
   private int maxHeaderListSize = Integer.MAX_VALUE;
-
-  private int remoteWindow = DEFAULT_WINDOW_SIZE;
 
   private int initialLocalWindow = DEFAULT_LOCAL_WINDOW_SIZE;
   private int localWindowUpdateThreshold = initialLocalWindow / 2;
   private int localWindow = initialLocalWindow;
-  private boolean remoteWindowUpdated;
 
   ClientConnection(final Builder builder) {
     this.listener = requireNonNull(builder.listener, "listener");
@@ -153,8 +142,8 @@ class ClientConnection {
     return channel.closeFuture();
   }
 
-  private Stream stream(final int streamId) throws Http2Exception {
-    final Stream stream = streams.get(streamId);
+  private ClientStream stream(final int streamId) throws Http2Exception {
+    final ClientStream stream = streamController.stream(streamId);
     if (stream == null) {
       throw connectionError(PROTOCOL_ERROR, "Unknown stream id %d", streamId);
     }
@@ -199,8 +188,8 @@ class ClientConnection {
 
     private BatchFlusher flusher;
 
-    // Current stream
-    private Stream stream;
+    // Stream currently being read
+    private ClientStream stream;
 
     private ConnectionHandler(final Channel channel) {
       this.reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE), this);
@@ -242,7 +231,7 @@ class ClientConnection {
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
       final Exception exception = new ConnectionClosedException();
-      streams.forEach((streamId, stream) -> fail(stream.requestPromise.responseHandler, exception));
+      streamController.forEach(stream -> fail(stream.requestPromise.responseHandler, exception));
       disconnectFuture.complete(ClientConnection.this);
     }
 
@@ -259,7 +248,7 @@ class ClientConnection {
       if (log.isDebugEnabled()) {
         log.debug("got data: streamId={}, data={}, padding={}, endOfStream={}", streamId, data, padding, endOfStream);
       }
-      final Stream stream = stream(streamId);
+      final ClientStream stream = stream(streamId);
       final int length = data.readableBytes();
       stream.localWindow -= length;
       localWindow -= length;
@@ -394,10 +383,7 @@ class ClientConnection {
         maxConcurrentStreams = settings.maxConcurrentStreams().intValue();
       }
       if (settings.initialWindowSize() != null) {
-        final int newRemoteInitialWindowSize = settings.initialWindowSize();
-        // TODO: apply delta to stream windows
-        final int delta = newRemoteInitialWindowSize - initialRemoteWindowSize;
-        initialRemoteWindowSize = newRemoteInitialWindowSize;
+        streamController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize());
         flusher.flush();
       }
       if (settings.maxHeaderListSize() != null) {
@@ -459,12 +445,9 @@ class ClientConnection {
         log.debug("got window update: streamId={}, windowSizeIncrement={}", streamId, windowSizeIncrement);
       }
       if (streamId == 0) {
-        remoteWindow += windowSizeIncrement;
-        remoteWindowUpdated = true;
+        streamController.remoteConnectionWindowUpdate(windowSizeIncrement);
       } else {
-        final Stream stream = stream(streamId);
-        stream.remoteWindow += windowSizeIncrement;
-        pending.add(stream);
+        streamController.remoteStreamWindowUpdate(streamId, windowSizeIncrement);
       }
       flusher.flush();
     }
@@ -479,12 +462,12 @@ class ClientConnection {
     }
 
     private void maybeDispatch(final ChannelHandlerContext ctx, final boolean endOfStream,
-                               final Stream stream) {
+                               final ClientStream stream) {
       if (!endOfStream) {
         return;
       }
 
-      streams.remove(stream.id);
+      streamController.removeStream(stream.id);
 
       succeed(stream.requestPromise.responseHandler, stream.response);
     }
@@ -532,31 +515,24 @@ class ClientConnection {
     }
   }
 
-  private static class Stream {
+  private static class ClientStream extends Stream {
 
-    private final int id;
     private final Http2Request request;
     private final RequestPromise requestPromise;
     private final Http2Response response = new Http2Response();
 
-    private ByteBuf content;
-
     private int localWindow;
-    private int remoteWindow;
-    private int fragmentSize;
 
-    public Stream(final int id, final Http2Request request, final RequestPromise requestPromise,
-                  final int localWindow,
-                  final int remoteWindow) {
-      this.id = id;
+    public ClientStream(final int id, final Http2Request request, final RequestPromise requestPromise,
+                        final int localWindow) {
+      super(id, request.content());
       this.request = request;
       this.requestPromise = requestPromise;
       this.localWindow = localWindow;
-      this.remoteWindow = remoteWindow;
     }
   }
 
-  private class WriteHandler extends ChannelOutboundHandlerAdapter {
+  private class WriteHandler extends ChannelOutboundHandlerAdapter implements StreamWriter<ChannelHandlerContext, ClientStream> {
 
     private int streamId = 1;
 
@@ -573,155 +549,21 @@ class ClientConnection {
       final RequestPromise requestPromise = (RequestPromise) promise;
 
       // Already at max concurrent streams? Fail fast.
-      if (streams.size() >= maxConcurrentStreams) {
+      if (streamController.streams() >= maxConcurrentStreams) {
         fail(requestPromise.responseHandler, new MaxConcurrentStreamsLimitReachedException());
         return;
       }
 
       // Generate ID and store response future in stream map to correlate with responses
       final int streamId = nextStreamId();
-      final Stream stream = new Stream(streamId, request, requestPromise, initialLocalWindow, initialRemoteWindowSize);
-      streams.put(streamId, stream);
-      requests.add(stream);
+      final ClientStream stream = new ClientStream(streamId, request, requestPromise, initialLocalWindow);
+      streamController.addStream(stream);
+      streamController.start(stream);
     }
 
     @Override
     public void flush(final ChannelHandlerContext ctx) throws Exception {
-
-      int bufferSize = 0;
-
-      // Prepare data frames for all streams that had window updates
-      for (int i = 0; i < pending.size(); i++) {
-        final Stream stream = pending.get(i);
-        bufferSize += prepareDataFrame(stream);
-      }
-
-      // Prepare data frames for all streams that were blocking on a channel window update
-      if (remoteWindowUpdated) {
-        for (final Stream stream : channelWindowed) {
-          final int n = prepareDataFrame(stream);
-          if (n == 0) {
-            break;
-          }
-          bufferSize += n;
-        }
-      }
-
-      // Prepare headers and data frames for new requests
-      for (int i = 0; i < requests.size(); i++) {
-        final Stream stream = requests.get(i);
-        final Http2Request request = stream.request;
-        bufferSize += estimateHeadersFrameSize(request);
-        bufferSize += prepareDataFrame(stream);
-      }
-
-      final ByteBuf buf = ctx.alloc().buffer(bufferSize);
-
-      // Write data frames for streams that had window updates
-      for (int i = 0; i < pending.size(); i++) {
-        final Stream stream = pending.get(i);
-        final int n = stream.fragmentSize;
-        if (n > 0) {
-          writeData(buf, stream);
-        }
-        if (remoteWindow == 0 &&
-            stream.content.readableBytes() > 0 &&
-            stream.remoteWindow > 0) {
-          channelWindowed.add(stream);
-        }
-      }
-
-      // Write data frames for streams that were blocking on a channel window update
-      if (remoteWindowUpdated) {
-        while (true) {
-          final Stream stream = channelWindowed.peek();
-          if (stream == null || stream.fragmentSize == 0) {
-            break;
-          }
-          writeData(buf, stream);
-          if (remoteWindow == 0 &&
-              stream.content.readableBytes() > 0 &&
-              stream.remoteWindow > 0) {
-            break;
-          }
-          channelWindowed.remove();
-        }
-
-        // Clear window update flag
-        remoteWindowUpdated = false;
-      }
-
-      // Write headers and data frames for new requests
-      for (int i = 0; i < requests.size(); i++) {
-
-        final Stream stream = requests.get(i);
-        final Http2Request request = stream.request;
-
-        // Write headers
-        final boolean hasContent = request.hasContent();
-        writeHeaders(buf, streamId, request, !hasContent);
-
-        // Write data
-        if (hasContent) {
-          writeData(buf, stream);
-          if (buf.isReadable() && stream.remoteWindow > 0) {
-            channelWindowed.add(stream);
-          }
-        }
-      }
-
-      requests.clear();
-
-      // TODO: create a promise that fulfills the write promises of the streams that have been completely written
-      ctx.writeAndFlush(buf);
-    }
-
-    private int prepareDataFrame(final Stream stream) {
-      final Http2Request request = stream.request;
-      if (!request.hasContent()) {
-        return 0;
-      }
-      final int dataSize = request.content().readableBytes();
-      final int window = min(remoteWindow, stream.remoteWindow);
-      stream.fragmentSize = min(dataSize, window);
-      if (window == 0) {
-        return 0;
-      }
-//      if (window < dataSize && remoteWindow < stream.remoteWindow) {
-//        channelWindowed.add(stream);
-//      }
-      remoteWindow -= stream.fragmentSize;
-      stream.remoteWindow -= stream.fragmentSize;
-      return dataFrameSize(stream.fragmentSize);
-    }
-
-//    private int estimateSize(final List<Http2Request> requests) {
-//      int size = 0;
-//      for (int i = 0; i < requests.size(); i++) {
-//        final Http2Request request = requests.get(i);
-//        size += estimateSize(request);
-//      }
-//      return size;
-//    }
-
-    private static final int FRAME_HEADER_SIZE = 9;
-//
-//    private int estimateSize(final Http2Request request) {
-//      final int headersFrameSize = estimateHeadersSize(request);
-//      return headersFrameSize + estimateDataSize(request);
-//    }
-
-    private int dataFrameSize(final Http2Request request) {
-      return dataFrameSize(request.hasContent() ? request.content().readableBytes() : 0);
-    }
-
-    private int estimateHeadersFrameSize(final Http2Request request) {
-      return FRAME_HEADER_SIZE +
-             Http2Header.size(METHOD.value(), request.method().asciiName()) +
-             Http2Header.size(AUTHORITY.value(), request.authority()) +
-             Http2Header.size(SCHEME.value(), request.scheme()) +
-             Http2Header.size(PATH.value(), request.path()) +
-             (request.hasHeaders() ? estimateHeadersFrameSize(request.headers()) : 0);
+      streamController.write(ctx, this);
     }
 
     private int estimateHeadersFrameSize(final Http2Headers headers) {
@@ -732,32 +574,46 @@ class ClientConnection {
       return size;
     }
 
-    private int dataFrameSize(final int n) {
-      return FRAME_HEADER_SIZE + n;
-    }
-
-    private void writeHeaders(final ByteBuf buf, int streamId, Http2Request request, boolean endStream)
-        throws HpackEncodingException {
-      final int headerIndex = buf.writerIndex();
-
-      buf.ensureWritable(FRAME_HEADER_LENGTH);
-      buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
-      final int size = encodeHeaders(request, buf);
-
-      if (size > maxFrameSize) {
-        // TODO: continuation frames
-        throw new AssertionError();
+    private int encodeHeaders(Http2Request request, ByteBuf buffer) throws HpackEncodingException {
+      final int mark = buffer.readableBytes();
+      headerEncoder.encodeRequest(buffer,
+                                  request.method().asciiName(),
+                                  request.scheme(),
+                                  request.authority(),
+                                  request.path());
+      if (request.hasHeaders()) {
+        for (Map.Entry<CharSequence, CharSequence> header : request.headers()) {
+          final AsciiString name = AsciiString.of(header.getKey());
+          final AsciiString value = AsciiString.of(header.getValue());
+          headerEncoder.encodeHeader(buffer, name, value, false);
+        }
       }
-
-      final int flags = END_HEADERS | (endStream ? END_STREAM : 0);
-      writeFrameHeader(buf, headerIndex, size, HEADERS, flags, streamId);
-
-      // TODO: padding + fields
+      return buffer.readableBytes() - mark;
     }
 
-    private void writeData(ByteBuf buf, Stream stream) {
+
+    @Override
+    public int estimateInitialHeadersFrameSize(final ChannelHandlerContext ctx, final ClientStream stream) {
+      final Http2Request request = stream.request;
+      return FRAME_HEADER_SIZE +
+             Http2Header.size(METHOD.value(), request.method().asciiName()) +
+             Http2Header.size(AUTHORITY.value(), request.authority()) +
+             Http2Header.size(SCHEME.value(), request.scheme()) +
+             Http2Header.size(PATH.value(), request.path()) +
+             (request.hasHeaders() ? estimateHeadersFrameSize(request.headers()) : 0);
+    }
+
+    @Override
+    public ByteBuf writeStart(final ChannelHandlerContext ctx, final int bufferSize) {
+      return ctx.alloc().buffer(bufferSize);
+    }
+
+    @Override
+    public void writeDataFrame(final ChannelHandlerContext ctx, final ByteBuf buf, final ClientStream stream,
+                               final int payloadSize,
+                               final boolean endOfStream) {
       final int headerIndex = buf.writerIndex();
-      final ByteBuf data = stream.content;
+      final ByteBuf data = stream.data;
       final int fragmentSize = stream.fragmentSize;
       assert fragmentSize != 0;
       final int dataSize = data.readableBytes();
@@ -775,31 +631,29 @@ class ClientConnection {
       buf.writeBytes(data, fragmentSize);
     }
 
-    private int encodeHeaders(Http2Request request, ByteBuf buffer) throws HpackEncodingException {
-      final int mark = buffer.readableBytes();
-      headerEncoder.encodeRequest(buffer,
-                                  request.method().asciiName(),
-                                  request.scheme(),
-                                  request.authority(),
-                                  request.path());
-      if (request.hasHeaders()) {
-        for (Map.Entry<CharSequence, CharSequence> header : request.headers()) {
-          final AsciiString name = AsciiString.of(header.getKey());
-          final AsciiString value = AsciiString.of(header.getValue());
-          headerEncoder.encodeHeader(buffer, name, value, false);
-        }
+    @Override
+    public void writeInitialHeadersFrame(final ChannelHandlerContext ctx, final ByteBuf buf, final ClientStream stream,
+                                         final boolean endOfStream) throws Http2Exception {
+      final int headerIndex = buf.writerIndex();
+
+      buf.ensureWritable(FRAME_HEADER_LENGTH);
+      buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
+      final int size = encodeHeaders(stream.request, buf);
+
+      if (size > maxFrameSize) {
+        // TODO: continuation frames
+        throw new AssertionError();
       }
-      final int size = buffer.readableBytes() - mark;
-      return size;
+
+      final int flags = END_HEADERS | (endOfStream ? END_STREAM : 0);
+      writeFrameHeader(buf, headerIndex, size, HEADERS, flags, streamId);
+
+      // TODO: padding + fields
     }
 
-    private byte[] toBytes(CharSequence s) {
-      final AsciiString as = AsciiString.of(s);
-      if (as.isEntireArrayUsed()) {
-        return as.array();
-      } else {
-        return as.toByteArray();
-      }
+    @Override
+    public void writeEnd(final ChannelHandlerContext ctx, final ByteBuf buf) {
+      ctx.writeAndFlush(buf);
     }
   }
 

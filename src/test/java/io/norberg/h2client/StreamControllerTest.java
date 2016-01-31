@@ -15,15 +15,21 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.mockito.Matchers.anyInt;
+import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.class)
 public class StreamControllerTest {
 
-  private StreamController<Stream> controller = new StreamController<>();
+  interface Context {
 
-  @Mock StreamWriter writer;
+  }
+
+  private StreamController<Context, Stream> controller = new StreamController<>();
+
+  @Mock Context ctx;
+  @Mock StreamWriter<Context, Stream> writer;
 
   @Captor ArgumentCaptor<Integer> bufferSizeCaptor;
 
@@ -49,7 +55,7 @@ public class StreamControllerTest {
     controller.start(stream);
 
     // Verify that the stream remote window is applied when it is started
-    assertThat(stream.remoteWindow, is(controller.initialRemoteStreamWindow()));
+    assertThat(stream.remoteWindow, is(controller.remoteInitialStreamWindow()));
 
     final ByteBuf buf = Unpooled.buffer(4096);
 
@@ -57,20 +63,20 @@ public class StreamControllerTest {
     final int estimatedInitialHeadersFrameSize = 17;
     final int estimatedDataFrameSize = size + 31;
     final int expectedBufferSize = estimatedInitialHeadersFrameSize + estimatedDataFrameSize;
-    when(writer.estimateInitialHeadersFrameSize(stream)).thenReturn(estimatedInitialHeadersFrameSize);
-    when(writer.estimateDataFrameSize(stream, size)).thenReturn(estimatedDataFrameSize);
-    when(writer.writeStart(anyInt())).thenReturn(buf);
+    when(writer.estimateInitialHeadersFrameSize(ctx, stream)).thenReturn(estimatedInitialHeadersFrameSize);
+    when(writer.estimateDataFrameSize(ctx, stream, size)).thenReturn(estimatedDataFrameSize);
+    when(writer.writeStart(eq(ctx), anyInt())).thenReturn(buf);
 
     // Write the stream
-    controller.write(writer);
+    controller.write(ctx, writer);
 
     // Verify the writer was correctly invoked
-    verify(writer).estimateInitialHeadersFrameSize(stream);
-    verify(writer).estimateDataFrameSize(stream, size);
-    verify(writer).writeStart(expectedBufferSize);
-    verify(writer).writeInitialHeadersFrame(buf, stream, false);
-    verify(writer).writeDataFrame(buf, stream, size, true);
-    verify(writer).writeEnd(buf);
+    verify(writer).estimateInitialHeadersFrameSize(ctx, stream);
+    verify(writer).estimateDataFrameSize(ctx, stream, size);
+    verify(writer).writeStart(ctx, expectedBufferSize);
+    verify(writer).writeInitialHeadersFrame(ctx, buf, stream, false);
+    verify(writer).writeDataFrame(ctx, buf, stream, size, true);
+    verify(writer).writeEnd(ctx, buf);
 
     // Verify that the windows have been updated appropriately
     assertThat(controller.remoteConnectionWindow(), is(DEFAULT_INITIAL_WINDOW_SIZE - size));

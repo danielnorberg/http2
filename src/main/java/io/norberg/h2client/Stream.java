@@ -1,7 +1,5 @@
 package io.norberg.h2client;
 
-import java.util.Objects;
-
 import io.netty.buffer.ByteBuf;
 
 class Stream {
@@ -18,7 +16,7 @@ class Stream {
       throw new IllegalArgumentException("stream id cannot be < 1");
     }
     this.id = id;
-    this.data = Objects.requireNonNull(data, "data");
+    this.data = data;
   }
 
   void close() {
