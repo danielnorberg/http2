@@ -20,6 +20,8 @@ class Stream {
   }
 
   void close() {
-    data.release();
+    if (data != null) {
+      data.release();
+    }
   }
 }

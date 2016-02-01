@@ -27,12 +27,12 @@ class BenchmarkClient {
   private static final AsciiString PATH = AsciiString.of("/hello");
 
   public static void main(final String... args) throws Exception {
+    LoggingConfigurator.configureNoLogging();
     ResourceLeakDetector.setLevel(DISABLED);
     run();
   }
 
   static void run() throws Exception {
-    LoggingConfigurator.configureNoLogging();
 
     final AtomicInteger maxConcurrentStreams = new AtomicInteger(2000);
 

@@ -468,6 +468,7 @@ class ClientConnection {
       }
 
       streamController.removeStream(stream.id);
+      stream.close();
 
       succeed(stream.requestPromise.responseHandler, stream.response);
     }
@@ -646,7 +647,7 @@ class ClientConnection {
       }
 
       final int flags = END_HEADERS | (endOfStream ? END_STREAM : 0);
-      writeFrameHeader(buf, headerIndex, size, HEADERS, flags, streamId);
+      writeFrameHeader(buf, headerIndex, size, HEADERS, flags, stream.id);
 
       // TODO: padding + fields
     }
