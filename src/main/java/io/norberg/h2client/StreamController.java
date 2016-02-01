@@ -62,7 +62,8 @@ class StreamController<CTX, STREAM extends Stream> implements Iterable<STREAM> {
     stream.fragmentSize = fragmentSize;
     stream.remoteWindow -= fragmentSize;
     remoteConnectionWindow -= fragmentSize;
-    return streamWriter.estimateDataFrameSize(ctx, stream, fragmentSize);
+    final int dataFrameSize = streamWriter.estimateDataFrameSize(ctx, stream, fragmentSize);
+    return dataFrameSize;
   }
 
   public void write(final CTX ctx, final StreamWriter<CTX, STREAM> writer) throws Http2Exception {
@@ -155,6 +156,7 @@ class StreamController<CTX, STREAM extends Stream> implements Iterable<STREAM> {
       }
     }
 
+    pending.clear();
     started.clear();
 
     writer.writeEnd(ctx, buf);
@@ -205,6 +207,7 @@ class StreamController<CTX, STREAM extends Stream> implements Iterable<STREAM> {
       throw connectionError(PROTOCOL_ERROR, "Unknown stream id %d", streamId);
     }
     stream.remoteWindow += windowSizeIncrement;
+    // TODO: handle multiple updates
     pending.add(stream);
   }
 }

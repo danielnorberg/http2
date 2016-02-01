@@ -82,4 +82,94 @@ public class StreamControllerTest {
     assertThat(controller.remoteConnectionWindow(), is(DEFAULT_INITIAL_WINDOW_SIZE - size));
     assertThat(stream.remoteWindow, is(DEFAULT_INITIAL_WINDOW_SIZE - size));
   }
+
+  @Test
+  public void testStreamWindowing() throws Exception {
+
+    // Three frames:
+    // Operation  | Data | Window
+    // --------------------------------
+    //            | 6    | 3
+    // Write:  3  | 3    | 0
+    // Update: 2  | 3    | 2
+    // Write:  2  | 1    | 0
+    // Update: 3  | 1    | 3
+    // Write:  1  | 0    | 2
+
+    final ByteBuf data = Unpooled.copiedBuffer("123456", UTF_8);
+    final int size = 6;
+    assertThat(data.readableBytes(), is(size));
+
+    final int smallWindow = 3;
+
+    final int initialConnectionWindow = controller.remoteConnectionWindow();
+
+    controller.remoteInitialStreamWindowSizeUpdate(smallWindow);
+
+    final Stream stream = new Stream(3, data);
+    controller.addStream(stream);
+    controller.start(stream);
+
+    assertThat(stream.remoteWindow, is(smallWindow));
+
+    // Prepare the mock writer
+    final int estimatedInitialHeadersFrameSize = 100;
+    final int estimatedDataFrame1Size = 10 + 3;
+    final int estimatedDataFrame2Size = 10 + 2;
+    final int estimatedDataFrame3Size = 10 + 1;
+    final int expectedBuffer1Size = estimatedInitialHeadersFrameSize + estimatedDataFrame1Size;
+    final int expectedBuffer2Size = estimatedDataFrame2Size;
+    final int expectedBuffer3Size = estimatedDataFrame3Size;
+    when(writer.estimateInitialHeadersFrameSize(ctx, stream)).thenReturn(estimatedInitialHeadersFrameSize);
+    when(writer.estimateDataFrameSize(ctx, stream, 3)).thenReturn(estimatedDataFrame1Size);
+    when(writer.estimateDataFrameSize(ctx, stream, 2)).thenReturn(estimatedDataFrame2Size);
+    when(writer.estimateDataFrameSize(ctx, stream, 1)).thenReturn(estimatedDataFrame3Size);
+
+    // First write
+    final ByteBuf buf1 = Unpooled.copyInt(1);
+    when(writer.writeStart(eq(ctx), anyInt())).thenReturn(buf1);
+    controller.write(ctx, writer);
+    verify(writer).estimateInitialHeadersFrameSize(ctx, stream);
+    verify(writer).estimateDataFrameSize(ctx, stream, 3);
+    verify(writer).writeStart(ctx, expectedBuffer1Size);
+    verify(writer).writeInitialHeadersFrame(ctx, buf1, stream, false);
+    verify(writer).writeDataFrame(ctx, buf1, stream, 3, false);
+    verify(writer).writeEnd(ctx, buf1);
+    stream.data.skipBytes(3);
+
+    assertThat(controller.remoteConnectionWindow(), is(initialConnectionWindow - 3));
+    assertThat(stream.remoteWindow, is(0));
+
+    // Update the stream window
+    controller.remoteStreamWindowUpdate(3, 2);
+    assertThat(stream.remoteWindow, is(2));
+
+    // Second write
+    final ByteBuf buf2 = Unpooled.copyInt(2);
+    when(writer.writeStart(eq(ctx), anyInt())).thenReturn(buf2);
+    controller.write(ctx, writer);
+    verify(writer).estimateDataFrameSize(ctx, stream, 2);
+    verify(writer).writeStart(ctx, expectedBuffer2Size);
+    verify(writer).writeDataFrame(ctx, buf2, stream, 2, false);
+    verify(writer).writeEnd(ctx, buf2);
+    stream.data.skipBytes(2);
+
+    assertThat(controller.remoteConnectionWindow(), is(initialConnectionWindow - 3 - 2));
+    assertThat(stream.remoteWindow, is(0));
+
+    // Update the stream window
+    controller.remoteStreamWindowUpdate(3, 3);
+    assertThat(stream.remoteWindow, is(3));
+
+    // Third and final write
+    final ByteBuf buf3 = Unpooled.copyInt(3);
+    when(writer.writeStart(eq(ctx), anyInt())).thenReturn(buf3);
+    controller.write(ctx, writer);
+    verify(writer).estimateDataFrameSize(ctx, stream, 1);
+    verify(writer).writeStart(ctx, expectedBuffer3Size);
+    verify(writer).writeDataFrame(ctx, buf3, stream, 1, true);
+    verify(writer).writeEnd(ctx, buf3);
+    stream.data.skipBytes(1);
+  }
+
 }
