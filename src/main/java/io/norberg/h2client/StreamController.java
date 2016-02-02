@@ -21,7 +21,7 @@ class StreamController<CTX, STREAM extends Stream> implements Iterable<STREAM> {
   private final IntObjectHashMap<STREAM> streams = new IntObjectHashMap<>();
 
   private final List<STREAM> started = new ArrayList<>();
-  private final Queue<STREAM> channelWindowed = new ArrayDeque<>();
+  private final Queue<STREAM> connectionWindowed = new ArrayDeque<>();
   private final List<STREAM> pending = new ArrayList<>();
 
   private int remoteInitialStreamWindow = Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
@@ -75,9 +75,9 @@ class StreamController<CTX, STREAM extends Stream> implements Iterable<STREAM> {
       bufferSize += prepareDataFrame(writer, stream, ctx);
     }
 
-    // Prepare data frames for all streams that were blocking on a channel window update
+    // Prepare data frames for all streams that were blocking on a connection window update
     if (remoteWindowUpdated) {
-      for (final STREAM stream : channelWindowed) {
+      for (final STREAM stream : connectionWindowed) {
         final int n = prepareDataFrame(writer, stream, ctx);
         if (n == 0) {
           break;
@@ -107,14 +107,14 @@ class StreamController<CTX, STREAM extends Stream> implements Iterable<STREAM> {
       if (remoteConnectionWindow == 0 &&
           stream.data.readableBytes() > 0 &&
           stream.remoteWindow > 0) {
-        channelWindowed.add(stream);
+        connectionWindowed.add(stream);
       }
     }
 
-    // Write data frames for streams that were blocking on a channel window update
+    // Write data frames for streams that were blocking on a connection window update
     if (remoteWindowUpdated) {
       while (true) {
-        final STREAM stream = channelWindowed.peek();
+        final STREAM stream = connectionWindowed.peek();
         if (stream == null) {
           break;
         }
@@ -129,7 +129,7 @@ class StreamController<CTX, STREAM extends Stream> implements Iterable<STREAM> {
             stream.remoteWindow > 0) {
           break;
         }
-        channelWindowed.remove();
+        connectionWindowed.remove();
       }
 
       // Clear window update flag
@@ -150,8 +150,10 @@ class StreamController<CTX, STREAM extends Stream> implements Iterable<STREAM> {
         final int size = stream.fragmentSize;
         final boolean endOfStream = stream.data.readableBytes() == size;
         writer.writeDataFrame(ctx, buf, stream, size, endOfStream);
-        if (buf.isReadable() && stream.remoteWindow > 0) {
-          channelWindowed.add(stream);
+        if (remoteConnectionWindow == 0 &&
+            stream.data.readableBytes() > 0 &&
+            stream.remoteWindow > 0) {
+          connectionWindowed.add(stream);
         }
       }
     }
@@ -168,6 +170,9 @@ class StreamController<CTX, STREAM extends Stream> implements Iterable<STREAM> {
   }
 
   public void remoteConnectionWindowUpdate(final int sizeIncrement) throws Http2Exception {
+    if (sizeIncrement <= 0) {
+      throw connectionError(PROTOCOL_ERROR, "Illegal window size increment: %d", sizeIncrement);
+    }
     remoteConnectionWindow += sizeIncrement;
     remoteWindowUpdated = true;
   }
@@ -204,7 +209,11 @@ class StreamController<CTX, STREAM extends Stream> implements Iterable<STREAM> {
   public void remoteStreamWindowUpdate(final int streamId, final int windowSizeIncrement) throws Http2Exception {
     final STREAM stream = stream(streamId);
     if (stream == null) {
-      throw connectionError(PROTOCOL_ERROR, "Unknown stream id %d", streamId);
+      throw connectionError(PROTOCOL_ERROR, "Unknown stream id: %d", streamId);
+    }
+    if (windowSizeIncrement <= 0) {
+      throw connectionError(PROTOCOL_ERROR, "Illegal window size increment: %d", windowSizeIncrement);
+
     }
     stream.remoteWindow += windowSizeIncrement;
     // TODO: handle multiple updates
