@@ -1,6 +1,7 @@
 package io.norberg.h2client;
 
 import java.security.cert.CertificateException;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import javax.net.ssl.SSLException;
@@ -18,13 +19,17 @@ import io.netty.handler.ssl.SslProvider;
 import io.netty.handler.ssl.SupportedCipherSuiteFilter;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.netty.util.concurrent.DefaultThreadFactory;
 import io.netty.util.concurrent.Future;
 
 class Util {
 
+  static final CompletableFuture[] COMPLETABLE_FUTURES = new CompletableFuture[0];
+
   private static class LazyDefaultEventLoopGroup {
 
-    private static final NioEventLoopGroup INSTANCE = new NioEventLoopGroup();
+    private static final NioEventLoopGroup INSTANCE = new NioEventLoopGroup(
+        0, new DefaultThreadFactory(NioEventLoopGroup.class, true));
   }
 
   static SslContext defaultClientSslContext() {
@@ -68,11 +73,11 @@ class Util {
     return LazyDefaultEventLoopGroup.INSTANCE;
   }
 
-  static CompletableFuture<Void> completableFuture(final Future<Void> f) {
-    final CompletableFuture<Void> cf = new CompletableFuture<>();
+  static <T> CompletableFuture<T> completableFuture(final Future<T> f) {
+    final CompletableFuture<T> cf = new CompletableFuture<>();
     f.addListener(future -> {
       if (f.isSuccess()) {
-        cf.complete(null);
+        cf.complete(f.getNow());
       } else {
         cf.completeExceptionally(f.cause());
       }
@@ -84,6 +89,20 @@ class Util {
     final CompletableFuture<T> failure = new CompletableFuture<>();
     failure.completeExceptionally(e);
     return failure;
+  }
+
+  static CompletableFuture<Void> allOf(List<CompletableFuture<?>> futures) {
+    return CompletableFuture.allOf(futures.toArray(COMPLETABLE_FUTURES));
+  }
+
+  static <T> void chain(CompletableFuture<T> in, CompletableFuture<T> out) {
+    in.whenComplete((value, ex) -> {
+      if (ex != null) {
+        out.completeExceptionally(ex);
+      } else {
+        out.complete(value);
+      }
+    });
   }
 
   static Http2Exception connectionError(Http2Error error, String fmt, Object... args) {

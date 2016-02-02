@@ -1,10 +1,15 @@
 package io.norberg.h2client;
 
+import org.junit.After;
 import org.junit.Test;
+import org.junit.runner.JUnitCore;
+import org.junit.runner.Request;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
@@ -22,7 +27,16 @@ import static org.mockito.Mockito.verify;
 @RunWith(MockitoJUnitRunner.class)
 public class Http2ClientServerTest {
 
+  private final List<Http2Server> servers = new ArrayList<>();
+  private final List<Http2Client> clients = new ArrayList<>();
+
   @Mock Http2Client.Listener listener;
+
+  @After
+  public void tearDown() throws Exception {
+    servers.forEach(Http2Server::close);
+    clients.forEach(Http2Client::close);
+  }
 
   @Test
   public void testReqRep() throws Exception {
@@ -32,12 +46,12 @@ public class Http2ClientServerTest {
             OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8)));
 
     // Start server
-    final Http2Server server = new Http2Server(requestHandler);
+    final Http2Server server = autoClosing(new Http2Server(requestHandler));
     server.bindFuture().syncUninterruptibly();
     final int port = server.port();
 
     // Start client
-    final Http2Client client = Http2Client.of("127.0.0.1", port);
+    final Http2Client client = autoClosing(Http2Client.of("127.0.0.1", port));
 
     // Make a request (queued and sent when the connection is up)
     {
@@ -63,15 +77,16 @@ public class Http2ClientServerTest {
             OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server
-    final Http2Server server1 = new Http2Server(requestHandler);
+    final Http2Server server1 = autoClosing(new Http2Server(requestHandler));
     server1.bindFuture().syncUninterruptibly();
     final int port = server1.port();
 
     // Make a successful request
-    final Http2Client client = Http2Client.builder()
-        .listener(listener)
-        .address("127.0.0.1", port)
-        .build();
+    final Http2Client client = autoClosing(
+        Http2Client.builder()
+            .listener(listener)
+            .address("127.0.0.1", port)
+            .build());
     client.get("/hello1").get();
 
     // Stop server
@@ -90,11 +105,26 @@ public class Http2ClientServerTest {
     }
 
     // Start server again
-    final Http2Server server2 = new Http2Server(requestHandler, port);
+    final Http2Server server2 = autoClosing(new Http2Server(requestHandler, port));
     server2.bindFuture().syncUninterruptibly();
     verify(listener, timeout(30000).times(2)).connectionEstablished(client);
 
     // Make another successful request after client reconnects
     client.get("/hello2").get();
+  }
+
+  private Http2Server autoClosing(final Http2Server server) {
+    servers.add(server);
+    return server;
+  }
+
+  private Http2Client autoClosing(final Http2Client client) {
+    clients.add(client);
+    return client;
+  }
+
+  public static void main(final String... args) {
+    JUnitCore junit = new JUnitCore();
+    junit.run(Request.method(Http2ClientServerTest.class, "testReqRep"));
   }
 }

@@ -3,6 +3,8 @@ package io.norberg.h2client;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -22,6 +24,8 @@ import io.netty.util.concurrent.DefaultThreadFactory;
 import static io.netty.handler.codec.http.HttpMethod.GET;
 import static io.netty.handler.codec.http.HttpMethod.POST;
 import static io.netty.handler.codec.http.HttpScheme.HTTPS;
+import static io.norberg.h2client.Util.allOf;
+import static io.norberg.h2client.Util.completableFuture;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class Http2Client implements ClientConnection.Listener {
@@ -37,7 +41,6 @@ public class Http2Client implements ClientConnection.Listener {
   private final ScheduledExecutorService scheduler = new ScheduledThreadPoolExecutor(
       0, new DefaultThreadFactory(Http2Client.class, true));
 
-
   private final InetSocketAddress address;
   private final EventLoopGroup workerGroup;
   private final AsciiString authority;
@@ -51,7 +54,6 @@ public class Http2Client implements ClientConnection.Listener {
   private volatile ClientConnection pendingConnection;
   private volatile ClientConnection connection;
   private volatile boolean closed;
-
 
   private Http2Client(final Builder builder) {
     InetSocketAddress address = Objects.requireNonNull(builder.address, "address");
@@ -76,11 +78,16 @@ public class Http2Client implements ClientConnection.Listener {
   public CompletableFuture<Void> close() {
     closed = true;
     scheduler.shutdownNow();
-    if (connection != null) {
-      connection.close().addListener(future -> closeFuture.complete(null));
-    } else {
-      closeFuture.complete(null);
+    final List<CompletableFuture<?>> closeFutures = new ArrayList<>();
+    final ClientConnection pendingConnection = this.pendingConnection;
+    if (pendingConnection != null) {
+      closeFutures.add(completableFuture(pendingConnection.close()));
     }
+    final ClientConnection connection = this.connection;
+    if (connection != null) {
+      closeFutures.add(completableFuture(connection.close()));
+    }
+    allOf(closeFutures).whenComplete((ignore, ex) -> closeFuture.complete(null));
     return closeFuture;
   }
 
@@ -111,7 +118,6 @@ public class Http2Client implements ClientConnection.Listener {
     }
     this.outstanding.increment();
 
-    // TODO: do not assign this.connection until we're connected
     final ClientConnection connection = this.connection;
 
     // Connected? Send immediately.
@@ -194,6 +200,12 @@ public class Http2Client implements ClientConnection.Listener {
 
       // Publish new connection
       connection = c;
+
+      // Bail if we were closed while connecting
+      if (closed) {
+        c.close();
+        return;
+      }
 
       // Notify listener that the connection was established
       listener.connectionEstablished(Http2Client.this);
