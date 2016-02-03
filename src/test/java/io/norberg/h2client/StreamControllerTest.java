@@ -5,11 +5,13 @@ import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.runners.MockitoJUnitRunner;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
+import static io.netty.buffer.Unpooled.EMPTY_BUFFER;
 import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.Matchers.is;
@@ -17,6 +19,7 @@ import static org.junit.Assert.assertThat;
 import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.class)
@@ -72,7 +75,7 @@ public class StreamControllerTest {
     when(writer.writeStart(eq(ctx), anyInt())).thenReturn(buf);
 
     // Write the stream
-    controller.write(ctx, writer);
+    controller.flush(ctx, writer);
 
     // Verify the writer was correctly invoked
     verify(writer).estimateInitialHeadersFrameSize(ctx, stream);
@@ -128,11 +131,12 @@ public class StreamControllerTest {
     when(writer.estimateDataFrameSize(ctx, stream, 3)).thenReturn(estimatedDataFrame1Size);
     when(writer.estimateDataFrameSize(ctx, stream, 2)).thenReturn(estimatedDataFrame2Size);
     when(writer.estimateDataFrameSize(ctx, stream, 1)).thenReturn(estimatedDataFrame3Size);
+    when(writer.writeStart(eq(ctx), eq(0))).thenReturn(EMPTY_BUFFER);
 
-    // First write
+    // First write - exhaust stream window
     final ByteBuf buf1 = Unpooled.copyInt(1);
     when(writer.writeStart(eq(ctx), anyInt())).thenReturn(buf1);
-    controller.write(ctx, writer);
+    controller.flush(ctx, writer);
     verify(writer).estimateInitialHeadersFrameSize(ctx, stream);
     verify(writer).estimateDataFrameSize(ctx, stream, 3);
     verify(writer).writeStart(ctx, expectedBuffer1Size);
@@ -141,25 +145,35 @@ public class StreamControllerTest {
     verify(writer).writeEnd(ctx, buf1);
     stream.data.skipBytes(3);
 
+    // Verify that windows updated appropriately
     assertThat(controller.remoteConnectionWindow(), is(initialConnectionWindow - 3));
     assertThat(stream.remoteWindow, is(0));
+
+    // Attempt to flush again, should not cause any writes
+    controller.flush(ctx, writer);
+    verifyNoMoreInteractions(writer);
 
     // Update the stream window
     controller.remoteStreamWindowUpdate(3, 2);
     assertThat(stream.remoteWindow, is(2));
 
-    // Second write
+    // Second write - exhaust stream window again
     final ByteBuf buf2 = Unpooled.copyInt(2);
     when(writer.writeStart(eq(ctx), anyInt())).thenReturn(buf2);
-    controller.write(ctx, writer);
+    controller.flush(ctx, writer);
     verify(writer).estimateDataFrameSize(ctx, stream, 2);
     verify(writer).writeStart(ctx, expectedBuffer2Size);
     verify(writer).writeDataFrame(ctx, buf2, stream, 2, false);
     verify(writer).writeEnd(ctx, buf2);
     stream.data.skipBytes(2);
 
+    // Verify that windows updated appropriately
     assertThat(controller.remoteConnectionWindow(), is(initialConnectionWindow - 3 - 2));
     assertThat(stream.remoteWindow, is(0));
+
+    // Attempt to flush again, should not cause any writes
+    controller.flush(ctx, writer);
+    verifyNoMoreInteractions(writer);
 
     // Update the stream window
     controller.remoteStreamWindowUpdate(3, 3);
@@ -168,25 +182,37 @@ public class StreamControllerTest {
     // Third and final write
     final ByteBuf buf3 = Unpooled.copyInt(3);
     when(writer.writeStart(eq(ctx), anyInt())).thenReturn(buf3);
-    controller.write(ctx, writer);
+    controller.flush(ctx, writer);
     verify(writer).estimateDataFrameSize(ctx, stream, 1);
     verify(writer).writeStart(ctx, expectedBuffer3Size);
     verify(writer).writeDataFrame(ctx, buf3, stream, 1, true);
     verify(writer).writeEnd(ctx, buf3);
     stream.data.skipBytes(1);
+
+    // Verify that windows updated appropriately
+    assertThat(controller.remoteConnectionWindow(), is(initialConnectionWindow - 3 - 2 - 1));
+    assertThat(stream.remoteWindow, is(2));
+
+    // Attempt to flush again, should not cause any writes
+    controller.flush(ctx, writer);
+    verifyNoMoreInteractions(writer);
   }
 
   @Test
   public void testConnectionWindowing() throws Exception {
 
     // First, consume all but 3 octets of the connection window
-    final ByteBuf ballast = Unpooled.buffer(controller.remoteConnectionWindow() - 3);
-    ballast.writerIndex(ballast.capacity());
+    final int ballastSize = controller.remoteConnectionWindow() - 3;
+    final ByteBuf ballast = Unpooled.buffer(ballastSize);
+    ballast.writerIndex(ballastSize);
     final Stream ballastStream = new Stream(3, ballast);
+    when(writer.estimateInitialHeadersFrameSize(ctx, ballastStream)).thenReturn(4711);
+    when(writer.estimateDataFrameSize(ctx, ballastStream, ballastSize)).thenReturn(32 + ballastSize);
     controller.addStream(ballastStream);
     controller.start(ballastStream);
-    controller.write(ctx, writer);
+    controller.flush(ctx, writer);
     assertThat(controller.remoteConnectionWindow(), is(3));
+    reset(writer);
 
     // Three frames:
     // Operation  | Data | Connection Window
@@ -224,7 +250,7 @@ public class StreamControllerTest {
     // First write
     final ByteBuf buf1 = Unpooled.copyInt(1);
     when(writer.writeStart(eq(ctx), anyInt())).thenReturn(buf1);
-    controller.write(ctx, writer);
+    controller.flush(ctx, writer);
     verify(writer).estimateInitialHeadersFrameSize(ctx, stream);
     verify(writer).estimateDataFrameSize(ctx, stream, 3);
     verify(writer).writeStart(ctx, expectedBuffer1Size);
@@ -233,8 +259,13 @@ public class StreamControllerTest {
     verify(writer).writeEnd(ctx, buf1);
     stream.data.skipBytes(3);
 
+    // Verify that windows updated appropriately
     assertThat(controller.remoteConnectionWindow(), is(0));
     assertThat(stream.remoteWindow, is(remoteInitialStreamWindow - 3));
+
+    // Attempt to flush again, should not cause any writes
+    controller.flush(ctx, writer);
+    verifyNoMoreInteractions(writer);
 
     // Update the connection window
     controller.remoteConnectionWindowUpdate(2);
@@ -244,15 +275,20 @@ public class StreamControllerTest {
     // Second write
     final ByteBuf buf2 = Unpooled.copyInt(2);
     when(writer.writeStart(eq(ctx), anyInt())).thenReturn(buf2);
-    controller.write(ctx, writer);
+    controller.flush(ctx, writer);
     verify(writer).estimateDataFrameSize(ctx, stream, 2);
     verify(writer).writeStart(ctx, expectedBuffer2Size);
     verify(writer).writeDataFrame(ctx, buf2, stream, 2, false);
     verify(writer).writeEnd(ctx, buf2);
     stream.data.skipBytes(2);
 
+    // Verify that windows updated appropriately
     assertThat(controller.remoteConnectionWindow(), is(0));
     assertThat(stream.remoteWindow, is(remoteInitialStreamWindow - 3 - 2));
+
+    // Attempt to flush again, should not cause any writes
+    controller.flush(ctx, writer);
+    verifyNoMoreInteractions(writer);
 
     // Update the connection window
     controller.remoteConnectionWindowUpdate(3);
@@ -262,15 +298,24 @@ public class StreamControllerTest {
     // Third and final write
     final ByteBuf buf3 = Unpooled.copyInt(3);
     when(writer.writeStart(eq(ctx), anyInt())).thenReturn(buf3);
-    controller.write(ctx, writer);
+    controller.flush(ctx, writer);
     verify(writer).estimateDataFrameSize(ctx, stream, 1);
     verify(writer).writeStart(ctx, expectedBuffer3Size);
     verify(writer).writeDataFrame(ctx, buf3, stream, 1, true);
     verify(writer).writeEnd(ctx, buf3);
     stream.data.skipBytes(1);
 
+    // Verify that windows updated appropriately
     assertThat(controller.remoteConnectionWindow(), is(2));
     assertThat(stream.remoteWindow, is(remoteInitialStreamWindow - 3 - 2 - 1));
+
+    // Attempt to flush again, should not cause any writes
+    controller.flush(ctx, writer);
+    verifyNoMoreInteractions(writer);
+  }
+
+  private static void reset(final Object mock) {
+    Mockito.reset(mock);
   }
 
 }

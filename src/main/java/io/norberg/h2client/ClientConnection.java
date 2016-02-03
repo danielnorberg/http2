@@ -564,7 +564,7 @@ class ClientConnection {
 
     @Override
     public void flush(final ChannelHandlerContext ctx) throws Exception {
-      streamController.write(ctx, this);
+      streamController.flush(ctx, this);
     }
 
     private int estimateHeadersFrameSize(final Http2Headers headers) {
@@ -611,25 +611,14 @@ class ClientConnection {
 
     @Override
     public void writeDataFrame(final ChannelHandlerContext ctx, final ByteBuf buf, final ClientStream stream,
-                               final int payloadSize,
-                               final boolean endOfStream) {
+                               final int payloadSize, final boolean endOfStream) {
       final int headerIndex = buf.writerIndex();
-      final ByteBuf data = stream.data;
-      final int fragmentSize = stream.fragmentSize;
-      assert fragmentSize != 0;
-      final int dataSize = data.readableBytes();
-      final boolean endStream;
-      if (fragmentSize < dataSize) {
-        endStream = false;
-      } else {
-        endStream = true;
-      }
-      final int flags = endStream ? END_STREAM : 0;
-      buf.ensureWritable(FRAME_HEADER_LENGTH);
-      writeFrameHeader(buf, headerIndex, fragmentSize, DATA, flags, stream.id);
+      final int flags = endOfStream ? END_STREAM : 0;
+      assert buf.writableBytes() >= FRAME_HEADER_LENGTH;
+      writeFrameHeader(buf, headerIndex, payloadSize, DATA, flags, stream.id);
       buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
       // TODO: padding + fields
-      buf.writeBytes(data, fragmentSize);
+      buf.writeBytes(stream.data, payloadSize);
     }
 
     @Override
