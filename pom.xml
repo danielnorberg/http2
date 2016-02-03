@@ -11,7 +11,7 @@
   <url>http://maven.apache.org</url>
 
   <properties>
-    <netty.version>4.1.0.Beta8</netty.version>
+    <netty.version>4.1.0.CR1</netty.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
@@ -19,7 +19,7 @@
     <dependency>
       <groupId>it.unimi.dsi</groupId>
       <artifactId>fastutil</artifactId>
-      <version>7.0.8</version>
+      <version>7.0.10</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
