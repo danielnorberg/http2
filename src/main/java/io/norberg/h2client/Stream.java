@@ -5,7 +5,11 @@ import io.netty.buffer.ByteBuf;
 class Stream {
 
   final int id;
-  final ByteBuf data;
+
+  /**
+   * Outgoing data buffer.
+   */
+  ByteBuf data;
 
   /**
    * The remote window size in octets.
@@ -16,6 +20,10 @@ class Stream {
    * The flow control computed fragment data frame payload size.
    */
   int fragmentSize;
+
+  Stream(final int id) {
+    this(id, null);
+  }
 
   Stream(final int id, final ByteBuf data) {
     if (id < 1) {

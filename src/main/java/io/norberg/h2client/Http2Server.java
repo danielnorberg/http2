@@ -36,9 +36,9 @@ import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.AsciiString;
-import io.netty.util.collection.IntObjectHashMap;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
+import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_MAX_FRAME_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
@@ -59,6 +59,8 @@ import static io.norberg.h2client.Util.completableFuture;
 
 public class Http2Server {
 
+  private static final int DEFAULT_LOCAL_WINDOW_SIZE = 1024 * 1024 * 128;
+
   private static final Logger log = LoggerFactory.getLogger(Http2Server.class);
 
   private static final int MAX_CONTENT_LENGTH = Integer.MAX_VALUE;
@@ -73,6 +75,8 @@ public class Http2Server {
 
   private int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
   private long maxConcurrentStreams;
+
+  private volatile int initialLocalWindow = DEFAULT_LOCAL_WINDOW_SIZE;
 
   public Http2Server(final RequestHandler requestHandler) {
     this(requestHandler, 0);
@@ -277,15 +281,20 @@ public class Http2Server {
   }
 
   private class ConnectionHandler extends ByteToMessageDecoder implements Http2FrameListener, ResponseChannel {
-    private final IntObjectHashMap<Http2Request> requests = new IntObjectHashMap<>();
+
+    private final StreamController<ChannelHandlerContext, ServerStream> streamController = new StreamController<>();
 
     private final Http2FrameReader reader;
     private final Http2Settings settings;
 
     private final BatchFlusher flusher;
 
-    private Http2Request request;
     private ChannelHandlerContext ctx;
+
+    /**
+     * Stream that headers are currently being read for.
+     */
+    private ServerStream stream;
 
     public ConnectionHandler(final Http2Settings settings, final Channel channel) {
       this.reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE), this);
@@ -311,7 +320,8 @@ public class Http2Server {
       if (log.isDebugEnabled()) {
         log.debug("got data: streamId={}, data={}, padding={}, endOfStream={}", streamId, data, padding, endOfStream);
       }
-      final Http2Request request = existingRequest(streamId);
+      final ServerStream stream = existingStream(streamId);
+      final Http2Request request = stream.request;
       final int n = data.readableBytes();
       ByteBuf content = request.content();
       if (content == null) {
@@ -319,7 +329,7 @@ public class Http2Server {
         request.content(content);
       }
       content.writeBytes(data);
-      maybeDispatch(ctx, streamId, endOfStream, request);
+      maybeDispatch(ctx, endOfStream, stream);
       return n + padding;
     }
 
@@ -331,7 +341,7 @@ public class Http2Server {
         log.debug("got headers: streamId={}, padding={}, endOfStream={}",
                   streamId, padding, endOfStream);
       }
-      request = newOrExistingRequest(streamId);
+      stream = newOrExistingStream(streamId);
     }
 
     @Override
@@ -344,23 +354,23 @@ public class Http2Server {
         log.debug("got headers: streamId={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
                   + "endOfStream={}", streamId, streamDependency, weight, exclusive, padding, endOfStream);
       }
-      request = newOrExistingRequest(streamId);
+      stream = newOrExistingStream(streamId);
     }
 
     @Override
     public void onHeaderRead(final Http2Header header) throws Http2Exception {
-      assert request != null;
+      assert stream != null;
       final AsciiString name = header.name();
       final AsciiString value = header.value();
       if (name.byteAt(0) == ':') {
         readPseudoHeader(name, value);
       } else {
-        request.header(name, value);
+        stream.request.header(name, value);
       }
     }
 
     private void readPseudoHeader(final AsciiString name, final AsciiString value) throws Http2Exception {
-      assert request != null;
+      assert stream != null;
       if (name.length() < 5) {
         throw new IllegalArgumentException();
       }
@@ -370,28 +380,28 @@ public class Http2Server {
           if (!name.equals(METHOD.value())) {
             throw new Http2Exception(PROTOCOL_ERROR);
           }
-          request.method(HttpMethod.valueOf(value.toString()));
+          stream.request.method(HttpMethod.valueOf(value.toString()));
           return;
         }
         case 's': {
           if (!name.equals(SCHEME.value())) {
             throw new Http2Exception(PROTOCOL_ERROR);
           }
-          request.scheme(value);
+          stream.request.scheme(value);
           return;
         }
         case 'a': {
           if (!name.equals(AUTHORITY.value())) {
             throw new Http2Exception(PROTOCOL_ERROR);
           }
-          request.authority(value);
+          stream.request.authority(value);
           return;
         }
         case 'p': {
           if (!name.equals(PATH.value())) {
             throw new Http2Exception(PROTOCOL_ERROR);
           }
-          request.path(value);
+          stream.request.path(value);
           return;
         }
         default:
@@ -402,9 +412,9 @@ public class Http2Server {
     @Override
     public void onHeadersEnd(final ChannelHandlerContext ctx, final int streamId, final boolean endOfStream)
         throws Http2Exception {
-      assert request != null;
-      maybeDispatch(ctx, streamId, endOfStream, request);
-      request = null;
+      assert stream != null;
+      maybeDispatch(ctx, endOfStream, stream);
+      stream = null;
     }
 
     @Override
@@ -495,42 +505,38 @@ public class Http2Server {
       }
     }
 
-    private Http2Request existingRequest(final int streamId) throws Http2Exception {
-      final Http2Request request = requests.get(streamId);
-      if (request == null) {
-        throw Util.connectionError(PROTOCOL_ERROR, "Data Frame recieved for unknown stream id %d", streamId);
+    private ServerStream existingStream(final int id) throws Http2Exception {
+      final ServerStream stream = streamController.stream(id);
+      if (stream == null) {
+        throw Util.connectionError(PROTOCOL_ERROR, "Data Frame recieved for unknown stream id %d", id);
       }
-      return request;
+      return stream;
     }
 
-    private Http2Request newOrExistingRequest(final int streamId) {
-      Http2Request request = requests.get(streamId);
-      if (request == null) {
-        request = new Http2Request();
-        requests.put(streamId, request);
+    private ServerStream newOrExistingStream(final int id) {
+      ServerStream stream = streamController.stream(id);
+      if (stream == null) {
+        stream = new ServerStream(id, this, initialLocalWindow);
+        streamController.addStream(stream);
       }
-      return request;
+      return stream;
     }
 
-    private void maybeDispatch(final ChannelHandlerContext ctx, final int streamId, final boolean endOfStream,
-                               final Http2Request request) {
+    private void maybeDispatch(final ChannelHandlerContext ctx, final boolean endOfStream,
+                               final ServerStream stream) {
       if (!endOfStream) {
         return;
       }
 
       // TODO: only add request if not only a single headers frame
-      requests.remove(streamId);
+      streamController.removeStream(stream.id);
 
       // Hand off request to request handler
-      final Http2RequestContext context = new Http2RequestContext(this, streamId);
-      dispatch(context, request);
-    }
-
-    private void dispatch(final Http2RequestContext context, final Http2Request request) {
       try {
-        requestHandler.handleRequest(context, request);
+        requestHandler.handleRequest(stream, stream.request);
       } catch (Exception e) {
-        context.fail();
+        log.error("Request handler threw exception", e);
+        stream.fail();
       }
     }
 
@@ -584,5 +590,26 @@ public class Http2Server {
     }
   }
 
+  private static class ServerStream extends Stream implements Http2RequestContext {
 
+    private final Http2Request request = new Http2Request();
+    private final ResponseChannel channel;
+
+    private int localWindow;
+
+    public ServerStream(final int id, final ResponseChannel channel, final int localWindow) {
+      super(id);
+      this.channel = channel;
+      this.localWindow = localWindow;
+    }
+
+    public void respond(final Http2Response response) {
+      channel.sendResponse(response, id);
+    }
+
+    public void fail() {
+      // Return 500 for request handler errors
+      respond(new Http2Response(INTERNAL_SERVER_ERROR));
+    }
+  }
 }

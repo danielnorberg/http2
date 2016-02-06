@@ -2,8 +2,6 @@ package io.norberg.h2client;
 
 import org.junit.After;
 import org.junit.Test;
-import org.junit.runner.JUnitCore;
-import org.junit.runner.Request;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
@@ -121,10 +119,5 @@ public class Http2ClientServerTest {
   private Http2Client autoClosing(final Http2Client client) {
     clients.add(client);
     return client;
-  }
-
-  public static void main(final String... args) {
-    JUnitCore junit = new JUnitCore();
-    junit.run(Request.method(Http2ClientServerTest.class, "testReqRep"));
   }
 }

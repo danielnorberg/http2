@@ -83,7 +83,8 @@ class ClientConnection {
   private int maxConcurrentStreams;
   private int maxHeaderListSize = Integer.MAX_VALUE;
 
-  private int initialLocalWindow = DEFAULT_LOCAL_WINDOW_SIZE;
+  private volatile int initialLocalWindow = DEFAULT_LOCAL_WINDOW_SIZE;
+
   private int localWindowUpdateThreshold = initialLocalWindow / 2;
   private int localWindow = initialLocalWindow;
 
