@@ -6,7 +6,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -22,6 +21,7 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -42,18 +42,23 @@ import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERR
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_MAX_FRAME_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
+import static io.netty.handler.codec.http2.Http2CodecUtil.INT_FIELD_LENGTH;
+import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+import static io.netty.handler.codec.http2.Http2Flags.ACK;
 import static io.netty.handler.codec.http2.Http2Flags.END_HEADERS;
 import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
 import static io.netty.handler.codec.http2.Http2FrameTypes.DATA;
 import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
 import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
+import static io.netty.handler.codec.http2.Http2FrameTypes.WINDOW_UPDATE;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
 import static io.netty.handler.logging.LogLevel.TRACE;
+import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
 import static io.norberg.h2client.Util.completableFuture;
 
@@ -148,21 +153,26 @@ public class Http2Server {
     protected void initChannel(SocketChannel ch) throws Exception {
       channels.add(ch);
       final Http2Settings settings = new Http2Settings();
+      final StreamController<ChannelHandlerContext, ServerStream> streamController = new StreamController<>();
       ch.pipeline().addLast(
           sslCtx.newHandler(ch.alloc()),
           new PrefaceHandler(settings),
-          new WriteHandler(),
-          new ConnectionHandler(settings, ch),
+          new WriteHandler(streamController),
+          new ConnectionHandler(settings, ch, streamController),
           new ExceptionHandler());
     }
   }
 
-  private class WriteHandler extends ChannelOutboundHandlerAdapter {
 
-    private final List<Http2Response> responses = new ArrayList<>();
-    private final List<ResponsePromise> promises = new ArrayList<>();
+  private class WriteHandler extends ChannelOutboundHandlerAdapter
+      implements StreamWriter<ChannelHandlerContext, ServerStream> {
 
     private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
+    private final StreamController<ChannelHandlerContext, ServerStream> streamController;
+
+    public WriteHandler(final StreamController<ChannelHandlerContext, ServerStream> streamController) {
+      this.streamController = streamController;
+    }
 
     @Override
     public void write(final ChannelHandlerContext ctx, final Object msg, final ChannelPromise promise)
@@ -171,89 +181,18 @@ public class Http2Server {
         super.write(ctx, msg, promise);
         return;
       }
-      responses.add((Http2Response) msg);
-      promises.add((ResponsePromise) promise);
+      final Http2Response response = (Http2Response) msg;
+      final ResponsePromise responsePromise = (ResponsePromise) promise;
+      // TODO: handle duplicate responses
+      final ServerStream stream = responsePromise.stream;
+      stream.response = response;
+      stream.data = response.content();
+      streamController.start(stream);
     }
 
     @Override
     public void flush(final ChannelHandlerContext ctx) throws Exception {
-      final int n = responses.size();
-
-      final ByteBuf buf = ctx.alloc().buffer(estimateSize(responses));
-
-      for (int i = 0; i < n; i++) {
-        final Http2Response response = responses.get(i);
-        final ResponsePromise promise = promises.get(i);
-
-        final boolean hasContent = response.hasContent();
-        try {
-          writeHeaders(buf, promise.streamId, response, !hasContent);
-        } catch (HpackEncodingException e) {
-          ctx.fireExceptionCaught(e);
-          return;
-        }
-        if (hasContent) {
-          writeData(buf, promise.streamId, response.content(), true);
-        }
-      }
-
-      responses.clear();
-      promises.clear();
-
-      final AggregatePromise aggregatePromise = new AggregatePromise(ctx.channel(), promises);
-      ctx.writeAndFlush(buf, aggregatePromise);
-    }
-
-    private int estimateSize(final List<Http2Response> responses) {
-      int size = 0;
-      for (int i = 0; i < responses.size(); i++) {
-        final Http2Response request = responses.get(i);
-        size += estimateSize(request);
-      }
-      return size;
-    }
-
-    private static final int FRAME_HEADER_SIZE = 9;
-
-    private int estimateSize(final Http2Response response) {
-      final int headersFrameSize =
-          FRAME_HEADER_SIZE +
-          Http2Header.size(STATUS.value(), response.status().codeAsText()) +
-          (response.hasHeaders() ? estimateSize(response) : 0);
-      final int dataFrameSize =
-          FRAME_HEADER_SIZE +
-          (response.hasContent() ? response.content().readableBytes() : 0);
-      return headersFrameSize + dataFrameSize;
-    }
-
-    private void writeHeaders(final ByteBuf buf, int streamId, Http2Response response, boolean endStream)
-        throws HpackEncodingException {
-      final int headerIndex = buf.writerIndex();
-
-      buf.ensureWritable(FRAME_HEADER_LENGTH);
-      buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
-      final int size = encodeHeaders(response, buf);
-
-      if (size > maxFrameSize) {
-        // TODO: continuation frames
-        throw new AssertionError();
-      }
-
-      final int flags = END_HEADERS | (endStream ? END_STREAM : 0);
-      writeFrameHeader(buf, headerIndex, size, HEADERS, flags, streamId);
-
-      // TODO: padding + fields
-    }
-
-    public void writeData(ByteBuf buf, int streamId, ByteBuf data, boolean endStream) {
-      final int headerIndex = buf.writerIndex();
-      int payloadLength = data.readableBytes();
-      final int flags = endStream ? END_STREAM : 0;
-      buf.ensureWritable(FRAME_HEADER_LENGTH);
-      writeFrameHeader(buf, headerIndex, payloadLength, DATA, flags, streamId);
-      buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
-      // TODO: padding + fields
-      buf.writeBytes(data);
+      streamController.flush(ctx, this);
     }
 
     private int encodeHeaders(Http2Response response, ByteBuf buffer) throws HpackEncodingException {
@@ -269,6 +208,77 @@ public class Http2Server {
       final int size = buffer.readableBytes() - mark;
       return size;
     }
+
+    @Override
+    public int estimateInitialHeadersFrameSize(final ChannelHandlerContext ctx,
+                                               final ServerStream stream) throws Http2Exception {
+      final Http2Response response = stream.response;
+      return FRAME_HEADER_SIZE +
+             Http2Header.size(STATUS.value(), response.status().codeAsText()) +
+             (response.hasHeaders() ? estimateHeadersFrameSize(response.headers()) : 0);
+    }
+
+    private int estimateHeadersFrameSize(final Http2Headers headers) {
+      int size = 0;
+      for (final Map.Entry<CharSequence, CharSequence> header : headers) {
+        size += Http2Header.size(header.getKey(), header.getValue());
+      }
+      return size;
+    }
+
+    @Override
+    public ByteBuf writeStart(final ChannelHandlerContext ctx, final int bufferSize)
+        throws Http2Exception {
+      return ctx.alloc().buffer(bufferSize);
+    }
+
+    @Override
+    public void writeDataFrame(final ChannelHandlerContext ctx, final ByteBuf buf,
+                               final ServerStream stream, final int payloadSize, final boolean endOfStream)
+        throws Http2Exception {
+      final int headerIndex = buf.writerIndex();
+      final int flags = endOfStream ? END_STREAM : 0;
+      assert buf.writableBytes() >= FRAME_HEADER_LENGTH;
+      writeFrameHeader(buf, headerIndex, payloadSize, DATA, flags, stream.id);
+      buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
+      // TODO: padding + fields
+      buf.writeBytes(stream.data, payloadSize);
+
+      // TODO: move stream lifecycle control out of stream controller
+      if (endOfStream) {
+        streamController.removeStream(stream.id);
+      }
+    }
+
+    @Override
+    public void writeInitialHeadersFrame(final ChannelHandlerContext ctx, final ByteBuf buf,
+                                         final ServerStream stream, final boolean endOfStream) throws Http2Exception {
+      final int headerIndex = buf.writerIndex();
+
+      buf.ensureWritable(FRAME_HEADER_LENGTH);
+      buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
+      final int size = encodeHeaders(stream.response, buf);
+
+      if (size > maxFrameSize) {
+        // TODO: continuation frames
+        throw new AssertionError();
+      }
+
+      final int flags = END_HEADERS | (endOfStream ? END_STREAM : 0);
+      writeFrameHeader(buf, headerIndex, size, HEADERS, flags, stream.id);
+
+      // TODO: padding + fields
+
+      // TODO: move stream lifecycle control out of stream controller
+      if (endOfStream) {
+        streamController.removeStream(stream.id);
+      }
+    }
+
+    @Override
+    public void writeEnd(final ChannelHandlerContext ctx, final ByteBuf buf) throws Http2Exception {
+      ctx.writeAndFlush(buf);
+    }
   }
 
   private class ExceptionHandler extends ChannelInboundHandlerAdapter {
@@ -282,24 +292,29 @@ public class Http2Server {
 
   private class ConnectionHandler extends ByteToMessageDecoder implements Http2FrameListener, ResponseChannel {
 
-    private final StreamController<ChannelHandlerContext, ServerStream> streamController = new StreamController<>();
-
     private final Http2FrameReader reader;
     private final Http2Settings settings;
 
     private final BatchFlusher flusher;
 
+    private final StreamController<ChannelHandlerContext, ServerStream> streamController;
+
     private ChannelHandlerContext ctx;
+
+    private int localWindowUpdateThreshold = initialLocalWindow / 2;
+    private int localWindow = initialLocalWindow;
 
     /**
      * Stream that headers are currently being read for.
      */
     private ServerStream stream;
 
-    public ConnectionHandler(final Http2Settings settings, final Channel channel) {
+    public ConnectionHandler(final Http2Settings settings, final Channel channel,
+                             final StreamController<ChannelHandlerContext, ServerStream> streamController) {
       this.reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE), this);
       this.settings = settings;
       this.flusher = new BatchFlusher(channel);
+      this.streamController = streamController;
     }
 
     @Override
@@ -321,8 +336,10 @@ public class Http2Server {
         log.debug("got data: streamId={}, data={}, padding={}, endOfStream={}", streamId, data, padding, endOfStream);
       }
       final ServerStream stream = existingStream(streamId);
+      final int length = data.readableBytes();
+      stream.localWindow -= length;
+      localWindow -= length;
       final Http2Request request = stream.request;
-      final int n = data.readableBytes();
       ByteBuf content = request.content();
       if (content == null) {
         content = ctx.alloc().buffer(data.readableBytes());
@@ -330,7 +347,36 @@ public class Http2Server {
       }
       content.writeBytes(data);
       maybeDispatch(ctx, endOfStream, stream);
-      return n + padding;
+
+      final boolean updateChannelWindow = localWindow < localWindowUpdateThreshold;
+      final boolean updateStreamWindow = !endOfStream && stream.localWindow < localWindowUpdateThreshold;
+      if (updateChannelWindow || updateStreamWindow) {
+        final int bufSize = (updateChannelWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0) +
+                            (updateStreamWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0);
+        final ByteBuf buf = ctx.alloc().buffer(bufSize);
+        if (updateChannelWindow) {
+          final int sizeIncrement = initialLocalWindow - localWindow;
+          localWindow = initialLocalWindow;
+          writeWindowUpdate(buf, 0, sizeIncrement);
+        }
+        if (updateStreamWindow) {
+          final int sizeIncrement = initialLocalWindow - stream.localWindow;
+          stream.localWindow = initialLocalWindow;
+          writeWindowUpdate(buf, streamId, sizeIncrement);
+        }
+        ctx.write(buf);
+        flusher.flush();
+      }
+
+      return length + padding;
+    }
+
+    private void writeWindowUpdate(final ByteBuf buf, final int streamId, final int sizeIncrement) {
+      final int offset = buf.writerIndex();
+      buf.ensureWritable(FRAME_HEADER_LENGTH);
+      writeFrameHeader(buf, offset, INT_FIELD_LENGTH, WINDOW_UPDATE, 0, streamId);
+      buf.writerIndex(offset + FRAME_HEADER_LENGTH);
+      buf.writeInt(sizeIncrement);
     }
 
     @Override
@@ -452,6 +498,19 @@ public class Http2Server {
       if (settings.maxConcurrentStreams() != null) {
         maxConcurrentStreams = settings.maxConcurrentStreams();
       }
+      if (settings.initialWindowSize() != null) {
+        streamController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize());
+        flusher.flush();
+      }
+      sendSettingsAck(ctx);
+    }
+
+    private void sendSettingsAck(final ChannelHandlerContext ctx) {
+      final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH);
+      writeFrameHeader(buf, 0, 0, SETTINGS, ACK, 0);
+      buf.writerIndex(FRAME_HEADER_LENGTH);
+      ctx.write(buf);
+      flusher.flush();
     }
 
     @Override
@@ -494,6 +553,12 @@ public class Http2Server {
       if (log.isDebugEnabled()) {
         log.debug("got window update: streamId={}, windowSizeIncrement={}", streamId, windowSizeIncrement);
       }
+      if (streamId == 0) {
+        streamController.remoteConnectionWindowUpdate(windowSizeIncrement);
+      } else {
+        streamController.remoteStreamWindowUpdate(streamId, windowSizeIncrement);
+      }
+      flusher.flush();
     }
 
     @Override
@@ -528,9 +593,6 @@ public class Http2Server {
         return;
       }
 
-      // TODO: only add request if not only a single headers frame
-      streamController.removeStream(stream.id);
-
       // Hand off request to request handler
       try {
         requestHandler.handleRequest(stream, stream.request);
@@ -541,8 +603,8 @@ public class Http2Server {
     }
 
     @Override
-    public void sendResponse(final Http2Response response, final int streamId) {
-      ctx.write(response, new ResponsePromise(ctx.channel(), streamId));
+    public void sendResponse(final Http2Response response, final ServerStream stream) {
+      ctx.write(response, new ResponsePromise(ctx.channel(), stream));
       flusher.flush();
     }
   }
@@ -594,6 +656,7 @@ public class Http2Server {
 
     private final Http2Request request = new Http2Request();
     private final ResponseChannel channel;
+    private Http2Response response;
 
     private int localWindow;
 
@@ -604,12 +667,27 @@ public class Http2Server {
     }
 
     public void respond(final Http2Response response) {
-      channel.sendResponse(response, id);
+      channel.sendResponse(response, this);
     }
 
     public void fail() {
       // Return 500 for request handler errors
       respond(new Http2Response(INTERNAL_SERVER_ERROR));
+    }
+  }
+
+  private interface ResponseChannel {
+
+    void sendResponse(Http2Response response, ServerStream streamId);
+  }
+
+  public static class ResponsePromise extends DefaultChannelPromise {
+
+    final ServerStream stream;
+
+    public ResponsePromise(final Channel channel, final ServerStream stream) {
+      super(channel);
+      this.stream = stream;
     }
   }
 }
