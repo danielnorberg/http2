@@ -33,7 +33,7 @@ E.g.
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-tcnative</artifactId>
-      <version>1.1.33.Fork10</version>
+      <version>1.1.33.Fork12</version>
       <classifier>osx-x86_64</classifier>
       <scope>test</scope>
     </dependency>
@@ -43,7 +43,7 @@ E.g.
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-tcnative</artifactId>
-      <version>1.1.33.Fork10</version>
+      <version>1.1.33.Fork12</version>
       <classifier>linux-x86_64</classifier>
       <scope>test</scope>
     </dependency>
