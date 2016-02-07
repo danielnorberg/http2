@@ -58,7 +58,6 @@ import static io.netty.handler.logging.LogLevel.TRACE;
 import static io.norberg.h2client.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
-import static io.norberg.h2client.Util.connectionError;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
@@ -73,7 +72,8 @@ class ClientConnection {
 
   private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
 
-  private final StreamController<ChannelHandlerContext, ClientStream> streamController = new StreamController<>();
+  private final StreamController<ClientStream> streamController = new StreamController<>();
+  private final FlowController<ChannelHandlerContext, ClientStream> flowController = new FlowController<>();
 
   private final Channel channel;
   private final BatchFlusher flusher;
@@ -141,14 +141,6 @@ class ClientConnection {
 
   ChannelFuture closeFuture() {
     return channel.closeFuture();
-  }
-
-  private ClientStream stream(final int streamId) throws Http2Exception {
-    final ClientStream stream = streamController.stream(streamId);
-    if (stream == null) {
-      throw connectionError(PROTOCOL_ERROR, "Unknown stream id %d", streamId);
-    }
-    return stream;
   }
 
   private class Initializer extends ChannelInitializer<SocketChannel> {
@@ -249,7 +241,7 @@ class ClientConnection {
       if (log.isDebugEnabled()) {
         log.debug("got data: streamId={}, data={}, padding={}, endOfStream={}", streamId, data, padding, endOfStream);
       }
-      final ClientStream stream = stream(streamId);
+      final ClientStream stream = streamController.existingStream(streamId);
       final int length = data.readableBytes();
       stream.localWindow -= length;
       localWindow -= length;
@@ -304,7 +296,7 @@ class ClientConnection {
         log.debug("got headers: streamId={}, padding={}, endOfStream={}",
                   streamId, padding, endOfStream);
       }
-      this.stream = stream(streamId);
+      this.stream = streamController.existingStream(streamId);
     }
 
     @Override
@@ -317,7 +309,7 @@ class ClientConnection {
         log.debug("got headers: streamId={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
                   + "endOfStream={}", streamId, streamDependency, weight, exclusive, padding, endOfStream);
       }
-      this.stream = stream(streamId);
+      this.stream = streamController.existingStream(streamId);
     }
 
     @Override
@@ -384,7 +376,7 @@ class ClientConnection {
         maxConcurrentStreams = settings.maxConcurrentStreams().intValue();
       }
       if (settings.initialWindowSize() != null) {
-        streamController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize());
+        flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize());
         flusher.flush();
       }
       if (settings.maxHeaderListSize() != null) {
@@ -446,9 +438,10 @@ class ClientConnection {
         log.debug("got window update: streamId={}, windowSizeIncrement={}", streamId, windowSizeIncrement);
       }
       if (streamId == 0) {
-        streamController.remoteConnectionWindowUpdate(windowSizeIncrement);
+        flowController.remoteConnectionWindowUpdate(windowSizeIncrement);
       } else {
-        streamController.remoteStreamWindowUpdate(streamId, windowSizeIncrement);
+        final ClientStream stream = streamController.existingStream(streamId);
+        flowController.remoteStreamWindowUpdate(stream, windowSizeIncrement);
       }
       flusher.flush();
     }
@@ -560,12 +553,12 @@ class ClientConnection {
       final int streamId = nextStreamId();
       final ClientStream stream = new ClientStream(streamId, request, requestPromise, initialLocalWindow);
       streamController.addStream(stream);
-      streamController.start(stream);
+      flowController.start(stream);
     }
 
     @Override
     public void flush(final ChannelHandlerContext ctx) throws Exception {
-      streamController.flush(ctx, this);
+      flowController.flush(ctx, this);
     }
 
     private int estimateHeadersFrameSize(final Http2Headers headers) {
@@ -645,6 +638,11 @@ class ClientConnection {
     @Override
     public void writeEnd(final ChannelHandlerContext ctx, final ByteBuf buf) {
       ctx.writeAndFlush(buf);
+    }
+
+    @Override
+    public void streamEnd(final ClientStream stream) {
+      streamController.removeStream(stream.id);
     }
   }
 

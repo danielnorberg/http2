@@ -153,12 +153,13 @@ public class Http2Server {
     protected void initChannel(SocketChannel ch) throws Exception {
       channels.add(ch);
       final Http2Settings settings = new Http2Settings();
-      final StreamController<ChannelHandlerContext, ServerStream> streamController = new StreamController<>();
+      final StreamController<ServerStream> streamController = new StreamController<>();
+      final FlowController<ChannelHandlerContext, ServerStream> flowController = new FlowController<>();
       ch.pipeline().addLast(
           sslCtx.newHandler(ch.alloc()),
           new PrefaceHandler(settings),
-          new WriteHandler(streamController),
-          new ConnectionHandler(settings, ch, streamController),
+          new WriteHandler(streamController, flowController),
+          new ConnectionHandler(settings, ch, streamController, flowController),
           new ExceptionHandler());
     }
   }
@@ -168,10 +169,14 @@ public class Http2Server {
       implements StreamWriter<ChannelHandlerContext, ServerStream> {
 
     private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
-    private final StreamController<ChannelHandlerContext, ServerStream> streamController;
 
-    public WriteHandler(final StreamController<ChannelHandlerContext, ServerStream> streamController) {
+    private final StreamController<ServerStream> streamController;
+    private final FlowController<ChannelHandlerContext, ServerStream> flowController;
+
+    public WriteHandler(final StreamController<ServerStream> streamController,
+                        final FlowController<ChannelHandlerContext, ServerStream> flowController) {
       this.streamController = streamController;
+      this.flowController = flowController;
     }
 
     @Override
@@ -187,12 +192,12 @@ public class Http2Server {
       final ServerStream stream = responsePromise.stream;
       stream.response = response;
       stream.data = response.content();
-      streamController.start(stream);
+      flowController.start(stream);
     }
 
     @Override
     public void flush(final ChannelHandlerContext ctx) throws Exception {
-      streamController.flush(ctx, this);
+      flowController.flush(ctx, this);
     }
 
     private int encodeHeaders(Http2Response response, ByteBuf buffer) throws HpackEncodingException {
@@ -243,11 +248,6 @@ public class Http2Server {
       buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
       // TODO: padding + fields
       buf.writeBytes(stream.data, payloadSize);
-
-      // TODO: move stream lifecycle control out of stream controller
-      if (endOfStream) {
-        streamController.removeStream(stream.id);
-      }
     }
 
     @Override
@@ -268,16 +268,16 @@ public class Http2Server {
       writeFrameHeader(buf, headerIndex, size, HEADERS, flags, stream.id);
 
       // TODO: padding + fields
-
-      // TODO: move stream lifecycle control out of stream controller
-      if (endOfStream) {
-        streamController.removeStream(stream.id);
-      }
     }
 
     @Override
     public void writeEnd(final ChannelHandlerContext ctx, final ByteBuf buf) throws Http2Exception {
       ctx.writeAndFlush(buf);
+    }
+
+    @Override
+    public void streamEnd(final ServerStream stream) {
+      streamController.removeStream(stream.id);
     }
   }
 
@@ -297,7 +297,8 @@ public class Http2Server {
 
     private final BatchFlusher flusher;
 
-    private final StreamController<ChannelHandlerContext, ServerStream> streamController;
+    private final StreamController<ServerStream> streamController;
+    private final FlowController<ChannelHandlerContext, ServerStream> flowController;
 
     private ChannelHandlerContext ctx;
 
@@ -310,11 +311,13 @@ public class Http2Server {
     private ServerStream stream;
 
     public ConnectionHandler(final Http2Settings settings, final Channel channel,
-                             final StreamController<ChannelHandlerContext, ServerStream> streamController) {
+                             final StreamController<ServerStream> streamController,
+                             final FlowController<ChannelHandlerContext, ServerStream> flowController) {
+      this.streamController = streamController;
       this.reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE), this);
       this.settings = settings;
       this.flusher = new BatchFlusher(channel);
-      this.streamController = streamController;
+      this.flowController = flowController;
     }
 
     @Override
@@ -335,7 +338,7 @@ public class Http2Server {
       if (log.isDebugEnabled()) {
         log.debug("got data: streamId={}, data={}, padding={}, endOfStream={}", streamId, data, padding, endOfStream);
       }
-      final ServerStream stream = existingStream(streamId);
+      final ServerStream stream = streamController.existingStream(streamId);
       final int length = data.readableBytes();
       stream.localWindow -= length;
       localWindow -= length;
@@ -499,7 +502,7 @@ public class Http2Server {
         maxConcurrentStreams = settings.maxConcurrentStreams();
       }
       if (settings.initialWindowSize() != null) {
-        streamController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize());
+        flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize());
         flusher.flush();
       }
       sendSettingsAck(ctx);
@@ -554,9 +557,10 @@ public class Http2Server {
         log.debug("got window update: streamId={}, windowSizeIncrement={}", streamId, windowSizeIncrement);
       }
       if (streamId == 0) {
-        streamController.remoteConnectionWindowUpdate(windowSizeIncrement);
+        flowController.remoteConnectionWindowUpdate(windowSizeIncrement);
       } else {
-        streamController.remoteStreamWindowUpdate(streamId, windowSizeIncrement);
+        final ServerStream stream = streamController.existingStream(streamId);
+        flowController.remoteStreamWindowUpdate(stream, windowSizeIncrement);
       }
       flusher.flush();
     }
@@ -568,14 +572,6 @@ public class Http2Server {
       if (log.isDebugEnabled()) {
         log.debug("got unknown frame: {} {} {} {}", frameType, streamId, flags, payload);
       }
-    }
-
-    private ServerStream existingStream(final int id) throws Http2Exception {
-      final ServerStream stream = streamController.stream(id);
-      if (stream == null) {
-        throw Util.connectionError(PROTOCOL_ERROR, "Data Frame recieved for unknown stream id %d", id);
-      }
-      return stream;
     }
 
     private ServerStream newOrExistingStream(final int id) {

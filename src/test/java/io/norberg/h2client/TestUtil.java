@@ -1,5 +1,10 @@
 package io.norberg.h2client;
 
+import java.util.concurrent.ThreadLocalRandom;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+
 class TestUtil {
 
   static byte[] bytes(final int... values) {
@@ -8,5 +13,11 @@ class TestUtil {
       bytes[i] = (byte) values[i];
     }
     return bytes;
+  }
+
+  static ByteBuf randomByteBuf(final int size) {
+    final byte[] bytes = new byte[size];
+    ThreadLocalRandom.current().nextBytes(bytes);
+    return Unpooled.wrappedBuffer(bytes);
   }
 }
