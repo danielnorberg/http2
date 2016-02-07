@@ -14,6 +14,7 @@ import io.netty.buffer.Unpooled;
 
 import static io.netty.buffer.Unpooled.EMPTY_BUFFER;
 import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
+import static io.norberg.h2client.TestUtil.randomByteBuf;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -53,6 +54,19 @@ public class FlowControllerTest {
   }
 
   @Test
+  public void testRemoteInitialStreamWindow() throws Exception {
+    final int remoteInitialStreamWindow = controller.remoteInitialStreamWindow();
+
+    final Stream stream = new Stream(17, randomByteBuf(4711));
+    assertThat(stream.remoteWindow, is(0));
+
+    controller.start(stream);
+
+    // Verify that the stream remote window is applied when it is started
+    assertThat(stream.remoteWindow, is(remoteInitialStreamWindow));
+  }
+
+  @Test
   public void testHappyPathSingleStream() throws Exception {
     testHappyPathSingleStream(1, 17);
   }
@@ -62,14 +76,11 @@ public class FlowControllerTest {
     final int remoteInitialStreamWindowPre = controller.remoteInitialStreamWindow();
     final int remoteConnectionWindowPre = controller.remoteConnectionWindow();
 
-    final ByteBuf data = TestUtil.randomByteBuf(size);
+    final ByteBuf data = randomByteBuf(size);
     final Stream stream = new Stream(id, data);
 
     // Start the outgoing stream
     controller.start(stream);
-
-    // Verify that the stream remote window is applied when it is started
-    assertThat(stream.remoteWindow, is(controller.remoteInitialStreamWindow()));
 
     final ByteBuf buf = Unpooled.buffer(4096);
 
@@ -116,10 +127,6 @@ public class FlowControllerTest {
     // Start the outgoing streams
     controller.start(stream1);
     controller.start(stream2);
-
-    // Verify that the stream remote window is applied when it is started
-    assertThat(stream1.remoteWindow, is(remoteInitialStreamWindowPre));
-    assertThat(stream2.remoteWindow, is(remoteInitialStreamWindowPre));
 
     final ByteBuf buf = Unpooled.buffer(4096);
 
