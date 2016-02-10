@@ -9,6 +9,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http2.Http2Exception;
 
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.h2client.Util.connectionError;
 import static java.lang.Math.min;
 
@@ -18,10 +19,19 @@ class FlowController<CTX, STREAM extends Stream> {
   private final Deque<STREAM> connectionWindowBlockedStreams = new ArrayDeque<>();
   private final List<STREAM> streamWindowUpdatedStreams = new ArrayList<>();
 
-  private int remoteInitialStreamWindow = Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
-  private int remoteConnectionWindow = Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
+  private int remoteInitialStreamWindow;
+  private int remoteConnectionWindow;
 
   private boolean remoteConnectionWindowUpdated;
+
+  FlowController() {
+    this(DEFAULT_INITIAL_WINDOW_SIZE, DEFAULT_INITIAL_WINDOW_SIZE);
+  }
+
+  FlowController(final int remoteConnectionWindow, final int remoteInitialStreamWindow) {
+    this.remoteInitialStreamWindow = remoteInitialStreamWindow;
+    this.remoteConnectionWindow = remoteConnectionWindow;
+  }
 
   int remoteConnectionWindow() {
     return remoteConnectionWindow;
