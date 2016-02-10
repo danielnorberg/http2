@@ -15,6 +15,7 @@ import io.netty.buffer.Unpooled;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.util.CharsetUtil.UTF_8;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -54,7 +55,7 @@ public class Http2ClientServerTest {
     // Make a request (queued and sent when the connection is up)
     {
       final CompletableFuture<Http2Response> future = client.get("/world/1");
-      final Http2Response response = future.get();
+      final Http2Response response = future.get(30, SECONDS);
       final String payload = response.content().toString(UTF_8);
       assertThat(payload, is("hello: /world/1"));
     }
@@ -62,7 +63,7 @@ public class Http2ClientServerTest {
     // Make another request (sent directly)
     {
       final CompletableFuture<Http2Response> future = client.get("/world/2");
-      final Http2Response response = future.get();
+      final Http2Response response = future.get(10, SECONDS);
       final String payload = response.content().toString(UTF_8);
       assertThat(payload, is("hello: /world/2"));
     }
@@ -85,10 +86,10 @@ public class Http2ClientServerTest {
             .listener(listener)
             .address("127.0.0.1", port)
             .build());
-    client.get("/hello1").get();
+    client.get("/hello1").get(10, SECONDS);
 
     // Stop server
-    server1.close().get();
+    server1.close().get(10, SECONDS);
 
     // Wait for client to notice that the connection closed
     verify(listener, timeout(30000)).connectionClosed(client);
@@ -96,7 +97,7 @@ public class Http2ClientServerTest {
     // Make another request, observe it fail
     final CompletableFuture<Http2Response> failure = client.get("/hello2");
     try {
-      failure.get();
+      failure.get(10, SECONDS);
       fail();
     } catch (ExecutionException e) {
       assertThat(e.getCause(), is(instanceOf(ConnectionClosedException.class)));
@@ -108,7 +109,7 @@ public class Http2ClientServerTest {
     verify(listener, timeout(30000).times(2)).connectionEstablished(client);
 
     // Make another successful request after client reconnects
-    client.get("/hello2").get();
+    client.get("/hello2").get(10, SECONDS);
   }
 
   private Http2Server autoClosing(final Http2Server server) {
