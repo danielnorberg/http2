@@ -20,11 +20,9 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http2.Http2Exception;
 
-import static io.netty.buffer.Unpooled.EMPTY_BUFFER;
 import static io.norberg.h2client.FlowControllerTest.FlushOp.Flags.END_OF_STREAM;
 import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.h2client.TestUtil.randomByteBuf;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -113,6 +111,8 @@ public class FlowControllerTest {
   @Test
   public void testStreamWindowExhaustionSingleStream() throws Exception {
 
+    controller.remoteInitialStreamWindowSizeUpdate(3);
+
     // Three frames:
     // Operation  | Data | Stream Window
     // ---------------------------------
@@ -123,103 +123,15 @@ public class FlowControllerTest {
     // Update: 3  | 1    | 3
     // Write:  1  | 0    | 2
 
-    final ByteBuf data = Unpooled.copiedBuffer("123456", UTF_8);
-    final int size = 6;
-    assertThat(data.readableBytes(), is(size));
-
-    final int smallWindow = 3;
-
-    final int initialConnectionWindow = controller.remoteConnectionWindow();
-
-    controller.remoteInitialStreamWindowSizeUpdate(smallWindow);
-
-    final Stream stream = new Stream(1, data);
-    controller.start(stream);
-
-    assertThat(stream.remoteWindow, is(smallWindow));
-
-    // Prepare the mock writer
-    final InOrder inOrder = inOrder(writer);
-    final int estimatedInitialHeadersFrameSize = 100;
-    final int estimatedDataFrame1Size = 10 + 3;
-    final int estimatedDataFrame2Size = 10 + 2;
-    final int estimatedDataFrame3Size = 10 + 1;
-    final int expectedBuffer1Size = estimatedInitialHeadersFrameSize + estimatedDataFrame1Size;
-    final int expectedBuffer2Size = estimatedDataFrame2Size;
-    final int expectedBuffer3Size = estimatedDataFrame3Size;
-    when(writer.estimateInitialHeadersFrameSize(ctx, stream)).thenReturn(estimatedInitialHeadersFrameSize);
-    when(writer.estimateDataFrameSize(ctx, stream, 3)).thenReturn(estimatedDataFrame1Size);
-    when(writer.estimateDataFrameSize(ctx, stream, 2)).thenReturn(estimatedDataFrame2Size);
-    when(writer.estimateDataFrameSize(ctx, stream, 1)).thenReturn(estimatedDataFrame3Size);
-    when(writer.writeStart(eq(ctx), eq(0))).thenReturn(EMPTY_BUFFER);
-
-    // First write - exhaust stream window
-    final ByteBuf buf1 = Unpooled.copyInt(1);
-    when(writer.writeStart(eq(ctx), eq(expectedBuffer1Size))).thenReturn(buf1);
-    controller.flush(ctx, writer);
-    inOrder.verify(writer).estimateInitialHeadersFrameSize(ctx, stream);
-    inOrder.verify(writer).estimateDataFrameSize(ctx, stream, 3);
-    inOrder.verify(writer).writeStart(ctx, expectedBuffer1Size);
-    inOrder.verify(writer).writeInitialHeadersFrame(ctx, buf1, stream, false);
-    inOrder.verify(writer).writeDataFrame(ctx, buf1, stream, 3, false);
-    inOrder.verify(writer).writeEnd(ctx, buf1);
-    verifyNoMoreInteractions(writer);
-    stream.data.skipBytes(3);
-
-    // Verify that windows updated appropriately
-    assertThat(controller.remoteConnectionWindow(), is(initialConnectionWindow - 3));
+    final Stream stream = startStream(1, 6);
+    verifyFlush(writer, stream(stream).headers().estimate(3).write(3));
     assertThat(stream.remoteWindow, is(0));
-
-    // Attempt to flush again, should not cause any writes
-    controller.flush(ctx, writer);
-    verifyNoMoreInteractions(writer);
-
-    // Update the stream window
-    controller.remoteStreamWindowUpdate(stream, 2);
-    assertThat(stream.remoteWindow, is(2));
-
-    // Second write - exhaust stream window again
-    final ByteBuf buf2 = Unpooled.copyInt(2);
-    when(writer.writeStart(eq(ctx), eq(expectedBuffer2Size))).thenReturn(buf2);
-    controller.flush(ctx, writer);
-    inOrder.verify(writer).estimateDataFrameSize(ctx, stream, 2);
-    inOrder.verify(writer).writeStart(ctx, expectedBuffer2Size);
-    inOrder.verify(writer).writeDataFrame(ctx, buf2, stream, 2, false);
-    inOrder.verify(writer).writeEnd(ctx, buf2);
-    verifyNoMoreInteractions(writer);
-    stream.data.skipBytes(2);
-
-    // Verify that windows updated appropriately
-    assertThat(controller.remoteConnectionWindow(), is(initialConnectionWindow - 3 - 2));
+    verifyRemoteStreamWindowUpdate(2, stream);
+    verifyFlush(writer, stream(stream).estimate(2).write(2));
     assertThat(stream.remoteWindow, is(0));
-
-    // Attempt to flush again, should not cause any writes
-    controller.flush(ctx, writer);
-    verifyNoMoreInteractions(writer);
-
-    // Update the stream window
-    controller.remoteStreamWindowUpdate(stream, 3);
-    assertThat(stream.remoteWindow, is(3));
-
-    // Third and final write
-    final ByteBuf buf3 = Unpooled.copyInt(3);
-    when(writer.writeStart(eq(ctx), eq(expectedBuffer3Size))).thenReturn(buf3);
-    controller.flush(ctx, writer);
-    inOrder.verify(writer).estimateDataFrameSize(ctx, stream, 1);
-    inOrder.verify(writer).writeStart(ctx, expectedBuffer3Size);
-    inOrder.verify(writer).writeDataFrame(ctx, buf3, stream, 1, true);
-    inOrder.verify(writer).streamEnd(stream);
-    inOrder.verify(writer).writeEnd(ctx, buf3);
-    verifyNoMoreInteractions(writer);
-    stream.data.skipBytes(1);
-
-    // Verify that windows updated appropriately
-    assertThat(controller.remoteConnectionWindow(), is(initialConnectionWindow - 3 - 2 - 1));
+    verifyRemoteStreamWindowUpdate(3, stream);
+    verifyFlush(writer, stream(stream).estimate(1).write(1, END_OF_STREAM));
     assertThat(stream.remoteWindow, is(2));
-
-    // Attempt to flush again, should not cause any writes
-    controller.flush(ctx, writer);
-    verifyNoMoreInteractions(writer);
   }
 
   @Test
@@ -250,6 +162,13 @@ public class FlowControllerTest {
     final Stream stream = new Stream(id, data);
     controller.start(stream);
     return stream;
+  }
+
+  private void verifyRemoteStreamWindowUpdate(final int windowIncrease, final Stream stream) throws Http2Exception {
+    final int currentRemoteWindow = stream.remoteWindow;
+    final int expectedRemoteWindow = currentRemoteWindow + windowIncrease;
+    controller.remoteStreamWindowUpdate(stream, windowIncrease);
+    assertThat(stream.remoteWindow, is(expectedRemoteWindow));
   }
 
   private void verifyRemoteConnectionWindowUpdate(final int bytes, final Stream... streams) throws Http2Exception {
