@@ -8,7 +8,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.runners.MockitoJUnitRunner;
 
 import java.util.IdentityHashMap;
@@ -28,6 +27,7 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -77,7 +77,7 @@ public class FlowControllerTest {
   @Test
   public void testHappyPathSingleStream() throws Exception {
     final Stream stream1 = startStream(1, 17);
-    verifyFlush(writer, stream(stream1).headers().estimate(17).write(17, END_OF_STREAM));
+    verifyFlush(stream(stream1).headers().estimate(17).write(17, END_OF_STREAM));
   }
 
   @Test
@@ -86,8 +86,8 @@ public class FlowControllerTest {
     final int size2 = 17;
     final Stream stream1 = startStream(1, size1);
     final Stream stream2 = startStream(3, size2);
-    verifyFlush(writer,
-                stream(stream1).headers().estimate(size1).write(size1, END_OF_STREAM),
+    verifyFlush(
+        stream(stream1).headers().estimate(size1).write(size1, END_OF_STREAM),
                 stream(stream2).headers().estimate(size2).write(size2, END_OF_STREAM));
   }
 
@@ -101,7 +101,7 @@ public class FlowControllerTest {
 
     for (final int size : sizes) {
       final Stream stream = startStream(id, size);
-      verifyFlush(writer, stream(stream).headers().estimate(size).write(size, END_OF_STREAM));
+      verifyFlush(stream(stream).headers().estimate(size).write(size, END_OF_STREAM));
       expectedRemoteConnectionWindow -= size;
       assertThat(controller.remoteConnectionWindow(), is(expectedRemoteConnectionWindow));
       id += 2;
@@ -124,14 +124,89 @@ public class FlowControllerTest {
     // Write:  1  | 0    | 2
 
     final Stream stream = startStream(1, 6);
-    verifyFlush(writer, stream(stream).headers().estimate(3).write(3));
+    verifyFlush(stream(stream).headers().estimate(3).write(3));
     assertThat(stream.remoteWindow, is(0));
     verifyRemoteStreamWindowUpdate(2, stream);
-    verifyFlush(writer, stream(stream).estimate(2).write(2));
+    verifyFlush(stream(stream).estimate(2).write(2));
     assertThat(stream.remoteWindow, is(0));
     verifyRemoteStreamWindowUpdate(3, stream);
-    verifyFlush(writer, stream(stream).estimate(1).write(1, END_OF_STREAM));
+    verifyFlush(stream(stream).estimate(1).write(1, END_OF_STREAM));
     assertThat(stream.remoteWindow, is(2));
+  }
+
+  @Test
+  public void testOneStreamWindowExhaustedStreamWithTwoHappyStreams() throws Exception {
+
+    controller.remoteInitialStreamWindowSizeUpdate(10);
+
+    final Stream exhausted = startStream(1, 20);
+    verifyFlush(stream(exhausted).headers().estimate(10).write(10));
+    final Stream happy1 = startStream(3, 5);
+    final Stream happy2 = startStream(5, 10);
+    verifyFlush(
+        stream(happy1).headers().estimate(5).write(5, END_OF_STREAM),
+                stream(happy2).headers().estimate(10).write(10, END_OF_STREAM));
+  }
+
+  @Test
+  public void testTwoStreamWindowExhaustedStreamsWithOneHappyStream() throws Exception {
+
+    controller.remoteInitialStreamWindowSizeUpdate(10);
+
+    final Stream exhausted1 = startStream(1, 20);
+    final Stream happy = startStream(3, 5);
+    final Stream exhausted2 = startStream(5, 30);
+    verifyFlush(
+        stream(exhausted1).headers().estimate(10).write(10),
+                stream(happy).headers().estimate(5).write(5, END_OF_STREAM),
+                stream(exhausted2).headers().estimate(10).write(10));
+  }
+
+  @Test
+  public void testStreamAndConnectionWindowExhaustedStreams() throws Exception {
+
+    final int remoteConnectionWindow = 20;
+    final int remoteInitialStreamWindow = 10;
+    controller = new FlowController<>(remoteConnectionWindow, remoteInitialStreamWindow);
+
+    // Exhaust the window of two streams and the connection window
+    final Stream streamWindowExhausted1 = startStream(1, 20);
+    final Stream streamWindowExhausted2 = startStream(3, 20);
+    verifyFlush(
+        stream(streamWindowExhausted1).headers().estimate(10).write(10),
+                stream(streamWindowExhausted2).headers().estimate(10).write(10));
+    assertThat(controller.remoteConnectionWindow(), is(0));
+
+    // Update the connection window with enough for the first stream to complete
+    verifyRemoteConnectionWindowUpdate(15, streamWindowExhausted1, streamWindowExhausted2);
+
+    // Stream windows are still exhausted
+    verifyFlush();
+
+    // Feed stream windows
+    verifyRemoteStreamWindowUpdate(5, streamWindowExhausted1);
+    verifyFlush(stream(streamWindowExhausted1).estimate(5).write(5));
+    verifyRemoteStreamWindowUpdate(5, streamWindowExhausted2);
+    verifyRemoteStreamWindowUpdate(5, streamWindowExhausted1);
+    verifyFlush(
+        stream(streamWindowExhausted2).estimate(5).write(5),
+                stream(streamWindowExhausted1).estimate(5).write(5, END_OF_STREAM));
+
+    assertThat(controller.remoteConnectionWindow(), is(0));
+    assertThat(streamWindowExhausted2.remoteWindow, is(0));
+
+    // Connection window is still exhausted
+    verifyFlush();
+
+    // Finish it
+    verifyRemoteConnectionWindowUpdate(20, streamWindowExhausted2);
+
+    // Stream window is still exhausted
+    verifyFlush();
+
+    // Feed stream window and finish stream
+    verifyRemoteStreamWindowUpdate(10, streamWindowExhausted2);
+    verifyFlush(stream(streamWindowExhausted2).estimate(5).write(5, END_OF_STREAM));
   }
 
   @Test
@@ -150,11 +225,11 @@ public class FlowControllerTest {
     // Write:  1  | 0    | 2
 
     final Stream stream = startStream(1, 6);
-    verifyFlush(writer, stream(stream).headers().estimate(3).write(3));
+    verifyFlush(stream(stream).headers().estimate(3).write(3));
     verifyRemoteConnectionWindowUpdate(2, stream);
-    verifyFlush(writer, stream(stream).estimate(2).write(2));
+    verifyFlush(stream(stream).estimate(2).write(2));
     verifyRemoteConnectionWindowUpdate(3, stream);
-    verifyFlush(writer, stream(stream).estimate(1).write(1, END_OF_STREAM));
+    verifyFlush(stream(stream).estimate(1).write(1, END_OF_STREAM));
   }
 
   private Stream startStream(final int id, final int size) {
@@ -195,17 +270,14 @@ public class FlowControllerTest {
     }
   }
 
-  private static void reset(final Object mock) {
-    Mockito.reset(mock);
+  private void verifyFlush(final FlushOp... ops) throws Http2Exception {
+    verifyFlush(asList(ops));
   }
 
-  private void verifyFlush(final StreamWriter<Context, Stream> writer, final FlushOp... ops) throws Http2Exception {
-    verifyFlush(writer, asList(ops));
-  }
-
-  private void verifyFlush(final StreamWriter<Context, Stream> writer,
-                           final List<FlushOp> ops)
+  private void verifyFlush(final List<FlushOp> ops)
       throws Http2Exception {
+
+    reset(writer);
 
     // Record window sizes before write
     final int remoteConnectionWindowPre = controller.remoteConnectionWindow();
