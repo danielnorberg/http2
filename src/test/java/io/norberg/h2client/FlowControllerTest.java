@@ -78,44 +78,10 @@ public class FlowControllerTest {
 
   @Test
   public void testHappyPathSingleStream() throws Exception {
-    testHappyPathSingleStream(1, 17);
+    final Stream stream1 = startStream(1, 17);
+    verifyFlush(writer, stream(stream1).headers().estimate(17).write(17, END_OF_STREAM));
   }
 
-  private void testHappyPathSingleStream(final int id, final int size)
-      throws io.netty.handler.codec.http2.Http2Exception {
-    final int remoteInitialStreamWindowPre = controller.remoteInitialStreamWindow();
-    final int remoteConnectionWindowPre = controller.remoteConnectionWindow();
-
-    final Stream stream = startStream(id, size);
-
-    final ByteBuf buf = Unpooled.buffer(4096);
-
-    // Prepare the mock writer
-    final InOrder inOrder = inOrder(writer);
-    final int estimatedInitialHeadersFrameSize = 17;
-    final int estimatedDataFrameSize = size + 31;
-    final int expectedBufferSize = estimatedInitialHeadersFrameSize + estimatedDataFrameSize;
-    when(writer.estimateInitialHeadersFrameSize(ctx, stream)).thenReturn(estimatedInitialHeadersFrameSize);
-    when(writer.estimateDataFrameSize(ctx, stream, size)).thenReturn(estimatedDataFrameSize);
-    when(writer.writeStart(eq(ctx), eq(expectedBufferSize))).thenReturn(buf);
-
-    // Write the stream
-    controller.flush(ctx, writer);
-
-    // Verify the writer was correctly invoked
-    inOrder.verify(writer).estimateInitialHeadersFrameSize(ctx, stream);
-    inOrder.verify(writer).estimateDataFrameSize(ctx, stream, size);
-    inOrder.verify(writer).writeStart(ctx, expectedBufferSize);
-    inOrder.verify(writer).writeInitialHeadersFrame(ctx, buf, stream, false);
-    inOrder.verify(writer).writeDataFrame(ctx, buf, stream, size, true);
-    inOrder.verify(writer).streamEnd(stream);
-    inOrder.verify(writer).writeEnd(ctx, buf);
-    verifyNoMoreInteractions(writer);
-
-    // Verify that the windows have been updated appropriately
-    assertThat(controller.remoteConnectionWindow(), is(remoteConnectionWindowPre - size));
-    assertThat(stream.remoteWindow, is(remoteInitialStreamWindowPre - size));
-  }
   @Test
   public void testHappyPathTwoConcurrentStreams() throws Exception {
     final int size1 = 7;
@@ -136,7 +102,8 @@ public class FlowControllerTest {
     int id = 1;
 
     for (final int size : sizes) {
-      testHappyPathSingleStream(id, size);
+      final Stream stream = startStream(id, size);
+      verifyFlush(writer, stream(stream).headers().estimate(size).write(size, END_OF_STREAM));
       expectedRemoteConnectionWindow -= size;
       assertThat(controller.remoteConnectionWindow(), is(expectedRemoteConnectionWindow));
       id += 2;
