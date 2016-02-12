@@ -49,6 +49,7 @@ class FlowController<CTX, STREAM extends Stream> {
     }
     final int dataSize = data.readableBytes();
     final int window = min(remoteConnectionWindow, stream.remoteWindow);
+    // TODO: max frame size
     if (window == 0) {
       stream.fragmentSize = 0;
       return 0;

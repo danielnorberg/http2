@@ -28,6 +28,7 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http2.Http2CodecUtil;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2Flags;
 import io.netty.handler.codec.http2.Http2FrameLogger;
@@ -65,8 +66,6 @@ class ClientConnection {
 
   private static final Logger log = LoggerFactory.getLogger(ClientConnection.class);
 
-  private static final int DEFAULT_LOCAL_WINDOW_SIZE = 1024 * 1024 * 128;
-
   private final CompletableFuture<ClientConnection> connectFuture = new CompletableFuture<>();
   private final CompletableFuture<ClientConnection> disconnectFuture = new CompletableFuture<>();
 
@@ -79,11 +78,13 @@ class ClientConnection {
   private final BatchFlusher flusher;
   private final Listener listener;
 
-  private int maxFrameSize;
-  private int maxConcurrentStreams;
+  private int remoteMaxFrameSize = Http2CodecUtil.DEFAULT_MAX_FRAME_SIZE;
+  private int localMaxFrameSize;
+  private int remoteMaxConcurrentStreams = Integer.MAX_VALUE;
+  private int localMaxConcurrentStreams;
   private int maxHeaderListSize = Integer.MAX_VALUE;
 
-  private volatile int initialLocalWindow = DEFAULT_LOCAL_WINDOW_SIZE;
+  private volatile int initialLocalWindow = Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 
   private int localWindowUpdateThreshold = initialLocalWindow / 2;
   private int localWindow = initialLocalWindow;
@@ -91,8 +92,8 @@ class ClientConnection {
   ClientConnection(final Builder builder) {
     this.listener = requireNonNull(builder.listener, "listener");
 
-    this.maxFrameSize = builder.maxFrameSize;
-    this.maxConcurrentStreams = builder.maxConcurrentStreams;
+    this.localMaxFrameSize = builder.maxFrameSize;
+    this.localMaxConcurrentStreams = builder.maxConcurrentStreams;
 
     // Connect
     final Bootstrap b = new Bootstrap()
@@ -195,22 +196,25 @@ class ClientConnection {
       writeSettings(ctx);
 
       // Update channel window size
-      final ByteBuf buf = ctx.alloc().buffer(WINDOW_UPDATE_FRAME_LENGTH);
       final int sizeIncrement = initialLocalWindow - DEFAULT_WINDOW_SIZE;
-      writeWindowUpdate(buf, 0, sizeIncrement);
-      ctx.write(buf);
+      // TODO: handle initialLocalWindow < DEFAULT_WINDOW_SIZE ?
+      if (sizeIncrement > 0) {
+        final ByteBuf buf = ctx.alloc().buffer(WINDOW_UPDATE_FRAME_LENGTH);
+        writeWindowUpdate(buf, 0, sizeIncrement);
+        ctx.write(buf);
+      }
 
       flusher.flush();
       connectFuture.complete(ClientConnection.this);
     }
 
     private void writeSettings(final ChannelHandlerContext ctx) {
-      final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH);
       final Http2Settings settings = new Http2Settings();
       settings.initialWindowSize(initialLocalWindow);
-      settings.maxConcurrentStreams(maxConcurrentStreams);
-      settings.maxFrameSize(maxFrameSize);
+      settings.maxConcurrentStreams(localMaxConcurrentStreams);
+      settings.maxFrameSize(localMaxFrameSize);
       final int length = SETTING_ENTRY_LENGTH * settings.size();
+      final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH + length);
       writeFrameHeader(buf, 0, length, SETTINGS, 0, 0);
       buf.writerIndex(FRAME_HEADER_LENGTH);
       for (final char identifier : settings.keySet()) {
@@ -281,6 +285,7 @@ class ClientConnection {
     }
 
     private void writeWindowUpdate(final ByteBuf buf, final int streamId, final int sizeIncrement) {
+      log.debug("writeWindowUpdate: streamId={}, sizeIncrement={}", streamId, sizeIncrement);
       final int offset = buf.writerIndex();
       buf.ensureWritable(FRAME_HEADER_LENGTH);
       writeFrameHeader(buf, offset, INT_FIELD_LENGTH, WINDOW_UPDATE, 0, streamId);
@@ -370,10 +375,10 @@ class ClientConnection {
         log.debug("got settings: {}", settings);
       }
       if (settings.maxFrameSize() != null) {
-        maxFrameSize = settings.maxFrameSize();
+        remoteMaxFrameSize = settings.maxFrameSize();
       }
       if (settings.maxConcurrentStreams() != null) {
-        maxConcurrentStreams = settings.maxConcurrentStreams().intValue();
+        remoteMaxConcurrentStreams = settings.maxConcurrentStreams().intValue();
       }
       if (settings.initialWindowSize() != null) {
         flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize());
@@ -527,7 +532,8 @@ class ClientConnection {
     }
   }
 
-  private class WriteHandler extends ChannelOutboundHandlerAdapter implements StreamWriter<ChannelHandlerContext, ClientStream> {
+  private class WriteHandler extends ChannelOutboundHandlerAdapter
+      implements StreamWriter<ChannelHandlerContext, ClientStream> {
 
     private int streamId = 1;
 
@@ -544,7 +550,7 @@ class ClientConnection {
       final RequestPromise requestPromise = (RequestPromise) promise;
 
       // Already at max concurrent streams? Fail fast.
-      if (streamController.streams() >= maxConcurrentStreams) {
+      if (streamController.streams() >= remoteMaxConcurrentStreams) {
         fail(requestPromise.responseHandler, new MaxConcurrentStreamsLimitReachedException());
         return;
       }
@@ -559,6 +565,7 @@ class ClientConnection {
     @Override
     public void flush(final ChannelHandlerContext ctx) throws Exception {
       flowController.flush(ctx, this);
+      ctx.flush();
     }
 
     private int estimateHeadersFrameSize(final Http2Headers headers) {
@@ -624,7 +631,7 @@ class ClientConnection {
       buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
       final int size = encodeHeaders(stream.request, buf);
 
-      if (size > maxFrameSize) {
+      if (size > remoteMaxConcurrentStreams) {
         // TODO: continuation frames
         throw new AssertionError();
       }
@@ -637,12 +644,11 @@ class ClientConnection {
 
     @Override
     public void writeEnd(final ChannelHandlerContext ctx, final ByteBuf buf) {
-      ctx.writeAndFlush(buf);
+      ctx.write(buf);
     }
 
     @Override
     public void streamEnd(final ClientStream stream) {
-      streamController.removeStream(stream.id);
     }
   }
 

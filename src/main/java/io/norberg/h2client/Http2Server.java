@@ -41,8 +41,10 @@ import io.netty.util.concurrent.GlobalEventExecutor;
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_MAX_FRAME_SIZE;
+import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_WINDOW_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.INT_FIELD_LENGTH;
+import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
 import static io.netty.handler.codec.http2.Http2Flags.ACK;
@@ -58,13 +60,12 @@ import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
 import static io.netty.handler.logging.LogLevel.TRACE;
+import static io.norberg.h2client.Http2Protocol.CLIENT_PREFACE;
 import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
 import static io.norberg.h2client.Util.completableFuture;
 
 public class Http2Server {
-
-  private static final int DEFAULT_LOCAL_WINDOW_SIZE = 1024 * 1024 * 128;
 
   private static final Logger log = LoggerFactory.getLogger(Http2Server.class);
 
@@ -78,10 +79,13 @@ public class Http2Server {
 
   private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
 
-  private int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
-  private long maxConcurrentStreams;
+  // TODO: move to ServerConnection etc (connection scope)
+  private int localMaxFrameSize = DEFAULT_MAX_FRAME_SIZE;
+  private int remoteMaxFrameSize = DEFAULT_MAX_FRAME_SIZE;
+  private long remoteMaxConcurrentStreams = Long.MAX_VALUE;
+  private long localMaxConcurrentStreams = 100;
 
-  private volatile int initialLocalWindow = DEFAULT_LOCAL_WINDOW_SIZE;
+  private volatile int initialLocalWindow = Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 
   public Http2Server(final RequestHandler requestHandler) {
     this(requestHandler, 0);
@@ -198,6 +202,7 @@ public class Http2Server {
     @Override
     public void flush(final ChannelHandlerContext ctx) throws Exception {
       flowController.flush(ctx, this);
+      ctx.flush();
     }
 
     private int encodeHeaders(Http2Response response, ByteBuf buffer) throws HpackEncodingException {
@@ -259,7 +264,7 @@ public class Http2Server {
       buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
       final int size = encodeHeaders(stream.response, buf);
 
-      if (size > maxFrameSize) {
+      if (size > remoteMaxFrameSize) {
         // TODO: continuation frames
         throw new AssertionError();
       }
@@ -272,7 +277,7 @@ public class Http2Server {
 
     @Override
     public void writeEnd(final ChannelHandlerContext ctx, final ByteBuf buf) throws Http2Exception {
-      ctx.writeAndFlush(buf);
+      ctx.write(buf);
     }
 
     @Override
@@ -326,6 +331,21 @@ public class Http2Server {
     }
 
     @Override
+    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
+      super.channelActive(ctx);
+
+      // Update channel window size
+      final int sizeIncrement = initialLocalWindow - DEFAULT_WINDOW_SIZE;
+      // TODO: handle initialLocalWindow < DEFAULT_WINDOW_SIZE ?
+      if (sizeIncrement > 0) {
+        final ByteBuf buf = ctx.alloc().buffer(WINDOW_UPDATE_FRAME_LENGTH);
+        writeWindowUpdate(buf, 0, sizeIncrement);
+        ctx.write(buf);
+        flusher.flush();
+      }
+    }
+
+    @Override
     protected void decode(final ChannelHandlerContext ctx, final ByteBuf in, final List<Object> out)
         throws Exception {
       reader.readFrames(ctx, in);
@@ -375,6 +395,7 @@ public class Http2Server {
     }
 
     private void writeWindowUpdate(final ByteBuf buf, final int streamId, final int sizeIncrement) {
+      log.debug("writeWindowUpdate: streamId={}, sizeIncrement={}", streamId, sizeIncrement);
       final int offset = buf.writerIndex();
       buf.ensureWritable(FRAME_HEADER_LENGTH);
       writeFrameHeader(buf, offset, INT_FIELD_LENGTH, WINDOW_UPDATE, 0, streamId);
@@ -496,10 +517,10 @@ public class Http2Server {
         log.debug("got settings: {}", settings);
       }
       if (settings.maxFrameSize() != null) {
-        maxFrameSize = settings.maxFrameSize();
+        remoteMaxFrameSize = settings.maxFrameSize();
       }
       if (settings.maxConcurrentStreams() != null) {
-        maxConcurrentStreams = settings.maxConcurrentStreams();
+        remoteMaxConcurrentStreams = settings.maxConcurrentStreams();
       }
       if (settings.initialWindowSize() != null) {
         flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize());
@@ -605,10 +626,7 @@ public class Http2Server {
     }
   }
 
-  private static class PrefaceHandler extends ByteToMessageDecoder {
-
-    private static final AsciiString CLIENT_PREFACE =
-        AsciiString.of("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
+  private class PrefaceHandler extends ByteToMessageDecoder {
 
     private int prefaceIndex;
 
@@ -622,12 +640,23 @@ public class Http2Server {
     public void channelActive(final ChannelHandlerContext ctx) throws Exception {
       writeSettings(ctx);
       ctx.flush();
+      super.channelActive(ctx);
     }
 
     private void writeSettings(final ChannelHandlerContext ctx) {
-      final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH);
-      writeFrameHeader(buf, 0, 0, SETTINGS, 0, 0);
+      final Http2Settings settings = new Http2Settings();
+      settings.initialWindowSize(initialLocalWindow);
+      settings.maxConcurrentStreams(localMaxConcurrentStreams);
+      settings.maxFrameSize(localMaxFrameSize);
+      final int length = SETTING_ENTRY_LENGTH * settings.size();
+      final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH + length);
+      writeFrameHeader(buf, 0, length, SETTINGS, 0, 0);
       buf.writerIndex(FRAME_HEADER_LENGTH);
+      for (final char identifier : settings.keySet()) {
+        final int value = settings.getIntValue(identifier);
+        buf.writeShort(identifier);
+        buf.writeInt(value);
+      }
       ctx.write(buf);
     }
 
