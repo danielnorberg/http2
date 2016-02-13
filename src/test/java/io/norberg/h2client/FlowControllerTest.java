@@ -88,7 +88,7 @@ public class FlowControllerTest {
     final Stream stream2 = startStream(3, size2);
     verifyFlush(
         stream(stream1).headers().estimate(size1).write(size1, END_OF_STREAM),
-                stream(stream2).headers().estimate(size2).write(size2, END_OF_STREAM));
+        stream(stream2).headers().estimate(size2).write(size2, END_OF_STREAM));
   }
 
   @Test
@@ -145,7 +145,7 @@ public class FlowControllerTest {
     final Stream happy2 = startStream(5, 10);
     verifyFlush(
         stream(happy1).headers().estimate(5).write(5, END_OF_STREAM),
-                stream(happy2).headers().estimate(10).write(10, END_OF_STREAM));
+        stream(happy2).headers().estimate(10).write(10, END_OF_STREAM));
   }
 
   @Test
@@ -158,8 +158,8 @@ public class FlowControllerTest {
     final Stream exhausted2 = startStream(5, 30);
     verifyFlush(
         stream(exhausted1).headers().estimate(10).write(10),
-                stream(happy).headers().estimate(5).write(5, END_OF_STREAM),
-                stream(exhausted2).headers().estimate(10).write(10));
+        stream(happy).headers().estimate(5).write(5, END_OF_STREAM),
+        stream(exhausted2).headers().estimate(10).write(10));
   }
 
   @Test
@@ -174,7 +174,7 @@ public class FlowControllerTest {
     final Stream streamWindowExhausted2 = startStream(3, 20);
     verifyFlush(
         stream(streamWindowExhausted1).headers().estimate(10).write(10),
-                stream(streamWindowExhausted2).headers().estimate(10).write(10));
+        stream(streamWindowExhausted2).headers().estimate(10).write(10));
     assertThat(controller.remoteConnectionWindow(), is(0));
 
     // Update the connection window with enough for the first stream to complete
@@ -190,7 +190,7 @@ public class FlowControllerTest {
     verifyRemoteStreamWindowUpdate(5, streamWindowExhausted1);
     verifyFlush(
         stream(streamWindowExhausted2).estimate(5).write(5),
-                stream(streamWindowExhausted1).estimate(5).write(5, END_OF_STREAM));
+        stream(streamWindowExhausted1).estimate(5).write(5, END_OF_STREAM));
 
     assertThat(controller.remoteConnectionWindow(), is(0));
     assertThat(streamWindowExhausted2.remoteWindow, is(0));

@@ -11,9 +11,9 @@ import java.util.Map;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.socket.SocketChannel;
@@ -84,13 +84,15 @@ class ServerConnection {
         new ExceptionHandler());
   }
 
-  private class WriteHandler extends ChannelOutboundHandlerAdapter
+  private class WriteHandler extends ChannelDuplexHandler
       implements StreamWriter<ChannelHandlerContext, ServerStream> {
 
     private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
 
     private final StreamController<ServerStream> streamController;
     private final FlowController<ChannelHandlerContext, ServerStream> flowController;
+
+    private boolean inActive;
 
     public WriteHandler(final StreamController<ServerStream> streamController,
                         final FlowController<ChannelHandlerContext, ServerStream> flowController) {
@@ -99,12 +101,25 @@ class ServerConnection {
     }
 
     @Override
+    public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
+      super.channelInactive(ctx);
+      this.inActive = true;
+    }
+
+    @Override
     public void write(final ChannelHandlerContext ctx, final Object msg, final ChannelPromise promise)
         throws Exception {
+
       if (!(msg instanceof Http2Response)) {
         super.write(ctx, msg, promise);
         return;
       }
+
+      if (inActive) {
+        promise.tryFailure(new ConnectionClosedException());
+        return;
+      }
+
       final Http2Response response = (Http2Response) msg;
       final ResponsePromise responsePromise = (ResponsePromise) promise;
       // TODO: handle duplicate responses

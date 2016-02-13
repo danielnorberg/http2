@@ -15,12 +15,12 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.EventLoopGroup;
@@ -192,6 +192,8 @@ class ClientConnection {
 
     @Override
     public void channelActive(final ChannelHandlerContext ctx) throws Exception {
+      super.channelActive(ctx);
+
       ctx.write(Unpooled.wrappedBuffer(CLIENT_PREFACE.array()));
       writeSettings(ctx);
 
@@ -227,6 +229,7 @@ class ClientConnection {
 
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
+      super.channelInactive(ctx);
       final Exception exception = new ConnectionClosedException();
       streamController.forEach(stream -> fail(stream.requestPromise.responseHandler, exception));
       disconnectFuture.complete(ClientConnection.this);
@@ -532,10 +535,11 @@ class ClientConnection {
     }
   }
 
-  private class WriteHandler extends ChannelOutboundHandlerAdapter
+  private class WriteHandler extends ChannelDuplexHandler
       implements StreamWriter<ChannelHandlerContext, ClientStream> {
 
     private int streamId = 1;
+    private boolean inActive;
 
     private int nextStreamId() {
       streamId += 2;
@@ -543,8 +547,24 @@ class ClientConnection {
     }
 
     @Override
+    public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
+      super.channelInactive(ctx);
+      inActive = true;
+    }
+
+    @Override
     public void write(final ChannelHandlerContext ctx, final Object msg, final ChannelPromise promise)
         throws Exception {
+
+      if (!(msg instanceof Http2Request)) {
+        super.write(ctx, msg, promise);
+        return;
+      }
+
+      if (inActive) {
+        promise.tryFailure(new ConnectionClosedException());
+        return;
+      }
 
       final Http2Request request = (Http2Request) msg;
       final RequestPromise requestPromise = (RequestPromise) promise;
