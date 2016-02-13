@@ -10,6 +10,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 
+import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
@@ -23,11 +24,14 @@ import static io.norberg.h2client.FlowControllerTest.FlushOp.Flags.END_OF_STREAM
 import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.h2client.TestUtil.randomByteBuf;
 import static java.util.Arrays.asList;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.mockito.Matchers.eq;
+import static org.mockito.Matchers.intThat;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -78,6 +82,15 @@ public class FlowControllerTest {
   public void testHappyPathSingleStream() throws Exception {
     final Stream stream1 = startStream(1, 17);
     verifyFlush(stream(stream1).headers().estimate(17).write(17, END_OF_STREAM));
+  }
+
+  @Test
+  public void testHappyPathSingleStreamMultipleFrames() throws Exception {
+    controller.remoteMaxFrameSize(8);
+    final Stream stream1 = startStream(1, 17);
+    verifyFlush(stream(stream1).headers()
+                    .estimate(8).estimate(1)
+                    .write(8, 2).write(1, END_OF_STREAM));
   }
 
   @Test
@@ -287,21 +300,22 @@ public class FlowControllerTest {
     }
 
     // Prepare the mock writer
-    int expectedBufferSize = 0;
+    int expectedMinBufferSize = 0;
     for (final FlushOp op : ops) {
       if (op.headers) {
         final int estimatedInitialHeadersFrameSize = ThreadLocalRandom.current().nextInt(128);
-        expectedBufferSize += estimatedInitialHeadersFrameSize;
+        expectedMinBufferSize += estimatedInitialHeadersFrameSize;
         when(writer.estimateInitialHeadersFrameSize(ctx, op.stream)).thenReturn(estimatedInitialHeadersFrameSize);
       }
-      if (op.estimateBytes != null) {
+      for (final int estimate : op.estimates) {
         final int estimatedDataFrameSize = ThreadLocalRandom.current().nextInt(128);
-        expectedBufferSize += estimatedDataFrameSize;
-        when(writer.estimateDataFrameSize(ctx, op.stream, op.estimateBytes)).thenReturn(estimatedDataFrameSize);
+        expectedMinBufferSize += estimatedDataFrameSize;
+        when(writer.estimateDataFrameSize(ctx, op.stream, estimate)).thenReturn(estimatedDataFrameSize);
       }
     }
-    final ByteBuf buf = Unpooled.buffer(expectedBufferSize);
-    when(writer.writeStart(eq(ctx), eq(expectedBufferSize))).thenReturn(buf);
+    final ByteBuf buf = Unpooled.buffer(expectedMinBufferSize);
+    when(writer.writeStart(eq(ctx), bufferSizeCaptor.capture()))
+        .thenAnswer(i -> Unpooled.buffer(i.getArgumentAt(1, Integer.class)));
 
     final InOrder inOrder = inOrder(writer);
 
@@ -313,14 +327,22 @@ public class FlowControllerTest {
       if (op.headers) {
         inOrder.verify(writer).estimateInitialHeadersFrameSize(ctx, op.stream);
       }
-      if (op.estimateBytes != null) {
-        inOrder.verify(writer).estimateDataFrameSize(ctx, op.stream, op.estimateBytes);
+      for (final int estimate : op.estimates) {
+        inOrder.verify(writer).estimateDataFrameSize(ctx, op.stream, estimate);
       }
     }
 
-    // Verify that the write phase started if there was anything to write
-    if (expectedBufferSize > 0) {
-      inOrder.verify(writer).writeStart(ctx, expectedBufferSize);
+    // Verify that the write phase started if there is anything to write
+    final int expectedWritesBytes = ops.stream()
+        .mapToInt(op -> op.writes.stream()
+            .mapToInt(w -> w.bytes * w.times)
+            .sum())
+        .sum();
+    if (expectedWritesBytes > 0) {
+      inOrder.verify(writer).writeStart(eq(ctx),
+                                        intThat(greaterThanOrEqualTo(expectedMinBufferSize)));
+      final int bufferSize = bufferSizeCaptor.getValue();
+      assertThat(bufferSize, is(greaterThanOrEqualTo(expectedMinBufferSize)));
     }
 
     // Verify expected data header and frame writes
@@ -329,9 +351,9 @@ public class FlowControllerTest {
         final boolean endOfStream = op.headerFlags.contains(END_OF_STREAM);
         inOrder.verify(writer).writeInitialHeadersFrame(ctx, buf, op.stream, endOfStream);
       }
-      if (op.writeBytes != null) {
-        final boolean endOfStream = op.writeFlags.contains(END_OF_STREAM);
-        inOrder.verify(writer).writeDataFrame(ctx, buf, op.stream, op.writeBytes, endOfStream);
+      for (final FlushOp.Write write : op.writes) {
+        final boolean endOfStream = write.flags.contains(END_OF_STREAM);
+        inOrder.verify(writer, times(write.times)).writeDataFrame(ctx, buf, op.stream, write.bytes, endOfStream);
         if (endOfStream) {
           inOrder.verify(writer).streamEnd(op.stream);
         }
@@ -339,27 +361,27 @@ public class FlowControllerTest {
     }
 
     // Verify that the write ended if there was anything to write
-    if (expectedBufferSize > 0) {
+    if (expectedWritesBytes > 0) {
       inOrder.verify(writer).writeEnd(ctx, buf);
     }
     verifyNoMoreInteractions(writer);
 
     // Consume written bytes
     for (final FlushOp op : ops) {
-      if (op.writeBytes != null) {
-        op.stream.data.skipBytes(op.writeBytes);
+      for (final FlushOp.Write write : op.writes) {
+        op.stream.data.skipBytes(write.bytes * write.times);
       }
     }
 
     // Verify that the windows have been updated appropriately
-    final int remoteConnectionWindowConsumption = ops.stream()
-        .filter(op -> op.writeBytes != null)
-        .mapToInt(op -> op.writeBytes).sum();
+    final int remoteConnectionWindowConsumption = expectedWritesBytes;
     assertThat(controller.remoteConnectionWindow(), is(remoteConnectionWindowPre - remoteConnectionWindowConsumption));
     for (final FlushOp op : ops) {
-      if (op.writeBytes != null) {
-        assertThat(op.stream.remoteWindow, is(remoteStreamWindowsPre.get(op.stream) - op.writeBytes));
-      }
+      final int streamWindowConsumption = op.writes.stream()
+          .mapToInt(w -> w.bytes * w.times)
+          .sum();
+      final int expectedStreamWindow = remoteStreamWindowsPre.get(op.stream) - streamWindowConsumption;
+      assertThat(op.stream.remoteWindow, is(expectedStreamWindow));
     }
 
     // Attempt to flush again, should not cause any writes
@@ -373,12 +395,23 @@ public class FlowControllerTest {
 
   static class FlushOp {
 
+    static class Write {
+      private final int bytes;
+      private final int times;
+      private Set<Flags> flags;
+
+      Write(final int bytes, final int times, final Set<Flags> flags) {
+        this.bytes = bytes;
+        this.times = times;
+        this.flags = flags;
+      }
+    }
+
     private final Stream stream;
     private boolean headers;
     private Set<Flags> headerFlags;
-    private Integer estimateBytes;
-    private Integer writeBytes;
-    private Set<Flags> writeFlags;
+    private List<Integer> estimates = new ArrayList<>();
+    private List<Write> writes = new ArrayList<>();
 
     FlushOp(final Stream stream) {
 
@@ -396,13 +429,17 @@ public class FlowControllerTest {
     }
 
     FlushOp estimate(final int bytes) {
-      this.estimateBytes = bytes;
+      this.estimates.add(bytes);
+      return this;
+    }
+
+    FlushOp write(final int bytes, final int times, final Flags... flags) {
+      this.writes.add(new Write(bytes, times, ImmutableSet.copyOf(flags)));
       return this;
     }
 
     FlushOp write(final int bytes, final Flags... flags) {
-      this.writeBytes = bytes;
-      this.writeFlags = ImmutableSet.copyOf(flags);
+      this.writes.add(new Write(bytes, 1, ImmutableSet.copyOf(flags)));
       return this;
     }
 

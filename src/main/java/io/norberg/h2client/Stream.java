@@ -21,6 +21,11 @@ class Stream {
    */
   int fragmentSize;
 
+  /**
+   * The number of data frames to write in the current flush.
+   */
+  int frames;
+
   Stream(final int id) {
     this(id, null);
   }
