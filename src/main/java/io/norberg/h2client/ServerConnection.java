@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -279,7 +280,8 @@ class ServerConnection {
       final Http2Request request = stream.request;
       ByteBuf content = request.content();
       if (content == null) {
-        content = ctx.alloc().buffer(data.readableBytes());
+        // TODO: use pooled buffer or slice?
+        content = Unpooled.buffer(length);
         request.content(content);
       }
       content.writeBytes(data);
