@@ -65,7 +65,7 @@ public class Http2ClientServerTest {
     // Make another request (sent directly)
     {
       final CompletableFuture<Http2Response> future = client.get("/world/2");
-      final Http2Response response = future.get(10, SECONDS);
+      final Http2Response response = future.get(30, SECONDS);
       final String payload = response.content().toString(UTF_8);
       assertThat(payload, is("hello: /world/2"));
     }
@@ -113,10 +113,10 @@ public class Http2ClientServerTest {
             .listener(listener)
             .address("127.0.0.1", port)
             .build());
-    client.get("/hello1").get(10, SECONDS);
+    client.get("/hello1").get(30, SECONDS);
 
     // Stop server
-    server1.close().get(10, SECONDS);
+    server1.close().get(30, SECONDS);
 
     // Wait for client to notice that the connection closed
     verify(listener, timeout(30000)).connectionClosed(client);
@@ -124,7 +124,7 @@ public class Http2ClientServerTest {
     // Make another request, observe it fail
     final CompletableFuture<Http2Response> failure = client.get("/hello2");
     try {
-      failure.get(10, SECONDS);
+      failure.get(30, SECONDS);
       fail();
     } catch (ExecutionException e) {
       assertThat(e.getCause(), is(instanceOf(ConnectionClosedException.class)));
@@ -136,7 +136,7 @@ public class Http2ClientServerTest {
     verify(listener, timeout(30000).times(2)).connectionEstablished(client);
 
     // Make another successful request after client reconnects
-    client.get("/hello2").get(10, SECONDS);
+    client.get("/hello2").get(30, SECONDS);
   }
 
   private Http2Server autoClosing(final Http2Server server) {
