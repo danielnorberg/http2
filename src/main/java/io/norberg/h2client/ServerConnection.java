@@ -449,6 +449,8 @@ class ServerConnection {
       }
       if (settings.maxFrameSize() != null) {
         remoteMaxFrameSize = settings.maxFrameSize();
+        Http2Protocol.validateMaxFrameSize(remoteMaxFrameSize);
+        flowController.remoteMaxFrameSize(remoteMaxFrameSize);
       }
       if (settings.maxConcurrentStreams() != null) {
         remoteMaxConcurrentStreams = settings.maxConcurrentStreams();
