@@ -41,6 +41,7 @@ import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_S
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_WINDOW_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.INT_FIELD_LENGTH;
+import static io.netty.handler.codec.http2.Http2CodecUtil.PING_FRAME_PAYLOAD_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
@@ -49,6 +50,7 @@ import static io.netty.handler.codec.http2.Http2Flags.END_HEADERS;
 import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
 import static io.netty.handler.codec.http2.Http2FrameTypes.DATA;
 import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
+import static io.netty.handler.codec.http2.Http2FrameTypes.PING;
 import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
 import static io.netty.handler.codec.http2.Http2FrameTypes.WINDOW_UPDATE;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
@@ -412,7 +414,16 @@ class ClientConnection {
       if (log.isDebugEnabled()) {
         log.debug("got ping");
       }
-      // TODO: ack
+      sendPingAck(ctx, data);
+    }
+
+    private void sendPingAck(final ChannelHandlerContext ctx, final ByteBuf data) {
+      final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH + PING_FRAME_PAYLOAD_LENGTH);
+      writeFrameHeader(buf, 0, PING_FRAME_PAYLOAD_LENGTH, PING, ACK, 0);
+      buf.writerIndex(FRAME_HEADER_LENGTH);
+      buf.writeBytes(data);
+      ctx.write(buf);
+      flusher.flush();
     }
 
     @Override
@@ -428,6 +439,13 @@ class ClientConnection {
                                   final int padding) throws Http2Exception {
       if (log.isDebugEnabled()) {
         log.debug("got push promise");
+      }
+    }
+
+    @Override
+    public void onPushPromiseHeadersEnd(final ChannelHandlerContext ctx, final int streamId) {
+      if (log.isDebugEnabled()) {
+        log.debug("got push promise headers");
       }
     }
 

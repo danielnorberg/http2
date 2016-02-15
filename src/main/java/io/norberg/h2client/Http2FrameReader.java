@@ -166,21 +166,26 @@ class Http2FrameReader implements HpackDecoder.Listener {
   private void readHeadersFrameWithoutPriority(final ChannelHandlerContext ctx, final ByteBuf in) throws Http2Exception {
     final short padding = readPadding(in);
     final int blockLength = length - (readFlag(PADDED) ? 1 : 0) - padding;
+    final boolean endOfStream = readFlag(END_STREAM);
     final int writerMark = in.writerIndex();
     in.writerIndex(in.readerIndex() + blockLength);
-    final boolean endOfStream = readFlag(END_STREAM);
     listener.onHeadersRead(ctx, streamId, null, padding, endOfStream);
     hpackDecoder.decode(in, this);
     listener.onHeadersEnd(ctx, streamId, endOfStream);
     in.writerIndex(writerMark);
   }
 
-  private void readPriorityFrame(final ChannelHandlerContext ctx, final ByteBuf in) {
-    // TODO
+  private void readPriorityFrame(final ChannelHandlerContext ctx, final ByteBuf in) throws Http2Exception {
+    final long w0 = in.readUnsignedInt();
+    final short weight = in.readUnsignedByte();
+    final int streamDependency = (int) (w0 & 0x7FFFFFFFL);
+    final boolean exclusive = (w0 & 0x80000000L) != 0;
+    listener.onPriorityRead(ctx, streamId, streamDependency, weight, exclusive);
   }
 
-  private void readRstStreamFrame(final ChannelHandlerContext ctx, final ByteBuf in) {
-    // TODO
+  private void readRstStreamFrame(final ChannelHandlerContext ctx, final ByteBuf in) throws Http2Exception {
+    final long errorCode = in.readUnsignedInt();
+    listener.onRstStreamRead(ctx, streamId, errorCode);
   }
 
   private void readSettingsFrame(final ChannelHandlerContext ctx, final ByteBuf in)
@@ -200,7 +205,20 @@ class Http2FrameReader implements HpackDecoder.Listener {
   }
 
   private void readPushPromiseFrame(final ChannelHandlerContext ctx, final ByteBuf in) throws Http2Exception {
-    // TODO
+    final short padding = readPadding(in);
+    final long w0 = in.readUnsignedInt();
+    final int promisedStreamId = (int) (w0 & 0x7FFFFFFFL);
+    final boolean endHeaders = readFlag(END_HEADERS);
+    if (!endHeaders) {
+      throw new UnsupportedOperationException("TODO");
+    }
+    final int blockLength = length - (readFlag(PADDED) ? 1 : 0) - padding;
+    final int writerMark = in.writerIndex();
+    in.writerIndex(in.readerIndex() + blockLength);
+    listener.onPushPromiseRead(ctx,  streamId, promisedStreamId, null, padding);
+    hpackDecoder.decode(in, this);
+    listener.onPushPromiseHeadersEnd(ctx, streamId);
+    in.writerIndex(writerMark);
   }
 
   private void readPingFrame(final ChannelHandlerContext ctx, final ByteBuf in)

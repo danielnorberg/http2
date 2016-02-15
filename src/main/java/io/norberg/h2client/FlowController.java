@@ -2,8 +2,10 @@ package io.norberg.h2client;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
+import java.util.Set;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http2.Http2Exception;
@@ -220,6 +222,13 @@ class FlowController<CTX, STREAM extends Stream> {
   void start(final STREAM stream) {
     stream.remoteWindow = remoteInitialStreamWindow;
     startedStreams.add(stream);
+  }
+
+  public void stop(final STREAM stream) {
+    final Set<STREAM> s = Collections.singleton(stream);
+    startedStreams.removeAll(s);
+    connectionWindowBlockedStreams.removeAll(s);
+    streamWindowUpdatedStreams.removeAll(s);
   }
 
   void remoteConnectionWindowUpdate(final int sizeIncrement) throws Http2Exception {
