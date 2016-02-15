@@ -199,7 +199,6 @@ class ClientConnection {
 
       // Update channel window size
       final int sizeIncrement = initialLocalWindow - DEFAULT_WINDOW_SIZE;
-      // TODO: handle initialLocalWindow < DEFAULT_WINDOW_SIZE ?
       if (sizeIncrement > 0) {
         final ByteBuf buf = ctx.alloc().buffer(WINDOW_UPDATE_FRAME_LENGTH);
         writeWindowUpdate(buf, 0, sizeIncrement);
