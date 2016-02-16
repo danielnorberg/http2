@@ -26,6 +26,7 @@ import io.netty.handler.codec.http2.Http2Flags;
 import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslHandler;
 import io.netty.util.AsciiString;
 import io.netty.util.AttributeKey;
 
@@ -85,8 +86,14 @@ class ServerConnection {
     final StreamController<ServerStream> streamController = new StreamController<>();
     final FlowController<ChannelHandlerContext, ServerStream> flowController =
         new FlowController<>();
+    final SslHandler sslHandler = sslContext.newHandler(ch.alloc());
+
+    // XXX: Discard read bytes well before consolidating
+    // https://github.com/netty/netty/commit/c8a941d01e85148c21cc01bae80764bc134b1fdd
+    sslHandler.setDiscardAfterReads(7);
+
     ch.pipeline().addLast(
-        sslContext.newHandler(ch.alloc()),
+        sslHandler,
         new PrefaceHandler(localSettings),
         new WriteHandler(streamController, flowController),
         new ConnectionHandler(localSettings, ch, streamController, flowController),

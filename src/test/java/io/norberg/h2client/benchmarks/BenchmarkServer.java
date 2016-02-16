@@ -36,10 +36,11 @@ class BenchmarkServer {
   static void run() throws Exception {
 
     final RequestHandler requestHandler = (context, request) ->
-        context.respond(request.response(OK, HELLO_WORLD.duplicate()));
+        context.respond(request.response(OK));
 
     final Http2Server server = Http2Server.builder()
         .requestHandler(requestHandler)
+        .initialWindowSize(1024 * 1024)
         .build();
     final int port = server.bind(4711).get().getPort();
 

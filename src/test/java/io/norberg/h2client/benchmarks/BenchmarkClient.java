@@ -48,6 +48,7 @@ class BenchmarkClient {
     final Http2Client client = Http2Client.builder()
         .listener(listener)
         .maxConcurrentStreams(maxConcurrentStreams.intValue())
+        .initialWindowSize(1024 * 1024)
         .address("127.0.0.1", 4711)
         .build();
 
