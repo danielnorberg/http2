@@ -131,6 +131,8 @@ class FlowController<CTX, STREAM extends Stream> {
     for (int i = 0; i < streamWindowUpdatedStreams.size(); i++) {
       final STREAM stream = streamWindowUpdatedStreams.get(i);
 
+      assert stream.data != null && stream.data.isReadable();
+
       // Write data frames
       final int size = stream.fragmentSize;
       final boolean endOfStream = (stream.data.readableBytes() == size);
@@ -156,6 +158,8 @@ class FlowController<CTX, STREAM extends Stream> {
         if (stream == null) {
           break;
         }
+
+        assert stream.data != null && stream.data.isReadable();
 
         // Bail if the connection window was exhausted before this stream could get any quota.
         // All following streams in the queue will still be blocked on the connection window.
@@ -271,6 +275,9 @@ class FlowController<CTX, STREAM extends Stream> {
       throw connectionError(PROTOCOL_ERROR, "Illegal window size increment: %d", windowSizeIncrement);
     }
     stream.remoteWindow += windowSizeIncrement;
+    if (stream.data == null || !stream.data.isReadable()) {
+      return;
+    }
     // TODO: handle multiple updates
     streamWindowUpdatedStreams.add(stream);
   }

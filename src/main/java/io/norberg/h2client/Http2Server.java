@@ -37,29 +37,17 @@ public class Http2Server {
   private final Http2Settings settings;
   private final EventLoopGroup group;
 
-  public Http2Server(final RequestHandler requestHandler) {
-    this(requestHandler, 0);
-  }
-
-  public Http2Server(final RequestHandler requestHandler, final int port) {
-    this(requestHandler, "", port);
-  }
-
-  public Http2Server(final RequestHandler requestHandler, final String hostname, final int port) {
-    this(requestHandler, new InetSocketAddress(hostname, port), new Http2Settings());
-  }
-
-  private Http2Server(final RequestHandler requestHandler, final InetSocketAddress address,
-                      final Http2Settings settings) {
-    this(requestHandler, settings);
-    bind(address);
-  }
-
-  private Http2Server(final RequestHandler requestHandler, final Http2Settings settings) {
-    this.requestHandler = Objects.requireNonNull(requestHandler, "requestHandler");
+  private Http2Server(final Builder builder) {
+    this.requestHandler = Objects.requireNonNull(builder.requestHandler, "requestHandler");
     this.sslCtx = Util.defaultServerSslContext();
     this.group = Util.defaultEventLoopGroup();
-    this.settings = Objects.requireNonNull(settings);
+    this.settings = new Http2Settings();
+    if (builder.maxConcurrentStreams != null) {
+      settings.maxConcurrentStreams(builder.maxConcurrentStreams);
+    }
+    if (builder.initialWindowSize != null) {
+      settings.initialWindowSize(builder.initialWindowSize);
+    }
   }
 
   public CompletableFuture<InetSocketAddress> bind(final int port) {
@@ -77,18 +65,6 @@ public class Http2Server {
     channels.add(channel);
     return completableFuture(bindFuture).thenApply(
         ch -> (InetSocketAddress) ch.localAddress());
-  }
-
-  private Http2Server(final Builder builder) {
-    this(builder.requestHandler, settings(builder));
-  }
-
-  private static Http2Settings settings(final Builder builder) {
-    final Http2Settings settings = new Http2Settings();
-    if (builder.maxConcurrentStreams != null) {
-      settings.maxConcurrentStreams(builder.maxConcurrentStreams);
-    }
-    return settings;
   }
 
   public CompletableFuture<Void> close() {
@@ -115,6 +91,7 @@ public class Http2Server {
     private Integer maxConcurrentStreams;
     private List<InetSocketAddress> bind;
     private RequestHandler requestHandler;
+    private Integer initialWindowSize;
 
     private Builder() {
     }
@@ -142,6 +119,12 @@ public class Http2Server {
       return this;
     }
 
+    public Builder initialWindowSize(final Integer initialWindowSize) {
+      // TODO: separate connection and stream window configuration
+      this.initialWindowSize = initialWindowSize;
+      return this;
+    }
+
     public Http2Server build() {
       return new Http2Server(this);
     }
@@ -153,6 +136,7 @@ public class Http2Server {
     protected void initChannel(SocketChannel ch) throws Exception {
       channels.add(ch);
       final ServerConnection connection = new ServerConnection(sslCtx, requestHandler, settings);
+      ch.attr(ServerConnection.ATTR_KEY).set(connection);
       connection.initialize(ch);
     }
   }

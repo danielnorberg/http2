@@ -76,19 +76,30 @@ public class Http2ClientServerTest {
     // Large response
     final RequestHandler requestHandler = (context, request) ->
         context.respond(request.response(
-            OK,  Unpooled.copiedBuffer(request.content())));
+            OK, Unpooled.copiedBuffer(request.content())));
 
     // Start server
-    final Http2Server server = autoClosing(new Http2Server(requestHandler));
+    final Http2Server server = autoClosing(
+        Http2Server.builder()
+            .requestHandler(requestHandler)
+            .initialWindowSize(256 * 1024)
+            .build());
     final int port = server.bind(0).get().getPort();
 
     // Start client
-    final Http2Client client = autoClosing(Http2Client.of("127.0.0.1", port));
+    final Http2Client client = autoClosing(
+        Http2Client.builder()
+            .address("127.0.0.1", port)
+            .initialWindowSize(256 * 1024)
+            .build());
 
     // Make a large request
     final ByteBuf requestPayload = randomByteBuf(16 * 1024 * 1024);
     final ByteBuf expectedResponsePaylod = Unpooled.copiedBuffer(requestPayload);
     final CompletableFuture<Http2Response> future = client.post("/world", requestPayload);
+    while (!future.isDone()) {
+      Thread.sleep(1000);
+    }
     final Http2Response response = future.get(10000, SECONDS);
     final ByteBuf responsePayload = response.content();
     assertThat(responsePayload, is(expectedResponsePaylod));

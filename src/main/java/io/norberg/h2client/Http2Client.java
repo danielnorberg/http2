@@ -30,9 +30,6 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class Http2Client implements ClientConnection.Listener {
 
-  private static final int DEFAULT_MAX_CONCURRENT_STREAMS = 100;
-  private static final int DEFAULT_MAX_FRAME_SIZE = 1024 * 1024;
-
   private static final int DEFAULT_PORT = HTTPS.port();
 
   private final ConcurrentLinkedQueue<QueuedRequest> queue = new ConcurrentLinkedQueue<>();
@@ -49,8 +46,12 @@ public class Http2Client implements ClientConnection.Listener {
   private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
   private final Listener listener;
 
-  private volatile int maxConcurrentStreams;
-  private volatile int maxFrameSize;
+  private final Integer localInitialWindowSize;
+  private final Integer localMaxConcurrentStreams;
+  private final Integer localMaxFrameSize;
+
+  private volatile int remoteMaxConcurrentStreams = Integer.MAX_VALUE;
+
   private volatile ClientConnection pendingConnection;
   private volatile ClientConnection connection;
   private volatile boolean closed;
@@ -64,11 +65,12 @@ public class Http2Client implements ClientConnection.Listener {
       this.address = address;
       this.authority = new AsciiString(address.getHostString() + ":" + address.getPort());
     }
-    if (builder.maxConcurrentStreams < 0) {
+    if (builder.maxConcurrentStreams != null && builder.maxConcurrentStreams < 0) {
       throw new IllegalArgumentException("Invalid maxConcurrentStreams: " + builder.maxConcurrentStreams);
     }
-    this.maxConcurrentStreams = builder.maxConcurrentStreams;
-    this.maxFrameSize = builder.maxFrameSize;
+    this.localMaxConcurrentStreams = builder.maxConcurrentStreams;
+    this.localMaxFrameSize = builder.maxFrameSize;
+    this.localInitialWindowSize = builder.initialWindowSize;
     this.sslContext = Optional.ofNullable(builder.sslContext).orElseGet(Util::defaultClientSslContext);
     this.workerGroup = Util.defaultEventLoopGroup();
     this.listener = Optional.ofNullable(builder.listener).orElse(new ListenerAdapter());
@@ -110,9 +112,10 @@ public class Http2Client implements ClientConnection.Listener {
   }
 
   public void send(final Http2Request request, final Http2ResponseHandler responseHandler) {
-    // Racy but that's fine, the real limiting happens on the connection
+    // Racy but that's fine, the real limiting happens on the connection.
+    // This is just to put a bound on the request and write queues.
     final long outstanding = this.outstanding.longValue();
-    if (outstanding > maxConcurrentStreams) {
+    if (outstanding > remoteMaxConcurrentStreams) {
       responseHandler.failure(new OutstandingRequestLimitReachedException());
       return;
     }
@@ -166,8 +169,9 @@ public class Http2Client implements ClientConnection.Listener {
         .workerGroup(workerGroup)
         .sslContext(sslContext)
         .listener(this)
-        .maxConcurrentStreams(maxConcurrentStreams)
-        .maxFrameSize(maxFrameSize)
+        .maxConcurrentStreams(localMaxConcurrentStreams)
+        .maxFrameSize(localMaxFrameSize)
+        .initialWindowSize(localInitialWindowSize)
         .build();
 
     pendingConnection.connectFuture().whenComplete((c, ex) -> {
@@ -234,7 +238,7 @@ public class Http2Client implements ClientConnection.Listener {
   @Override
   public void peerSettingsChanged(final ClientConnection connection, final Http2Settings settings) {
     if (settings.maxConcurrentStreams() != null) {
-      maxConcurrentStreams = settings.maxConcurrentStreams().intValue();
+      remoteMaxConcurrentStreams = settings.maxConcurrentStreams().intValue();
     }
     listener.peerSettingsChanged(Http2Client.this, settings);
   }
@@ -283,12 +287,16 @@ public class Http2Client implements ClientConnection.Listener {
 
   public static final class Builder {
 
+    // Max concurrent streams is unlimited by default in the http2 protocol. Set a sane default limit.
+    private static final Integer DEFAULT_MAX_CONCURRENT_STREAMS = 100;
+
     private InetSocketAddress address;
     private Listener listener;
     private SslContext sslContext;
 
-    private int maxConcurrentStreams = DEFAULT_MAX_CONCURRENT_STREAMS;
-    private int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
+    private Integer maxConcurrentStreams = DEFAULT_MAX_CONCURRENT_STREAMS;
+    private Integer maxFrameSize;
+    private Integer initialWindowSize;
 
     public Builder address(final String host) {
       return address(InetSocketAddress.createUnresolved(host, 0));
@@ -319,6 +327,12 @@ public class Http2Client implements ClientConnection.Listener {
 
     public Builder maxFrameSize(final int maxFrameSize) {
       this.maxFrameSize = maxFrameSize;
+      return this;
+    }
+
+    public Builder initialWindowSize(final Integer initialWindowSize) {
+      // TODO: separate connection and stream window configuration
+      this.initialWindowSize = initialWindowSize;
       return this;
     }
 

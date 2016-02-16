@@ -36,9 +36,11 @@ class BenchmarkServer {
   static void run() throws Exception {
 
     final RequestHandler requestHandler = (context, request) ->
-        context.respond(request.response(OK));
+        context.respond(request.response(OK, HELLO_WORLD.duplicate()));
 
-    final Http2Server server = Http2Server.create(requestHandler);
+    final Http2Server server = Http2Server.builder()
+        .requestHandler(requestHandler)
+        .build();
     final int port = server.bind(4711).get().getPort();
 
     System.out.println("Server listening on 0.0.0.0:" + port);

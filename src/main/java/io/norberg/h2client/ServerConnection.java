@@ -27,6 +27,7 @@ import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.AsciiString;
+import io.netty.util.AttributeKey;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
@@ -59,6 +60,8 @@ class ServerConnection {
 
   private static final Logger log = LoggerFactory.getLogger(ServerConnection.class);
 
+  static final AttributeKey<ServerConnection> ATTR_KEY = AttributeKey.newInstance("h2-server-connection");
+
   private final SslContext sslContext;
   private final RequestHandler requestHandler;
 
@@ -79,14 +82,14 @@ class ServerConnection {
   }
 
   public void initialize(final SocketChannel ch) {
-    final Http2Settings settings = new Http2Settings();
     final StreamController<ServerStream> streamController = new StreamController<>();
-    final FlowController<ChannelHandlerContext, ServerStream> flowController = new FlowController<>();
+    final FlowController<ChannelHandlerContext, ServerStream> flowController =
+        new FlowController<>();
     ch.pipeline().addLast(
         sslContext.newHandler(ch.alloc()),
-        new PrefaceHandler(settings),
+        new PrefaceHandler(localSettings),
         new WriteHandler(streamController, flowController),
-        new ConnectionHandler(settings, ch, streamController, flowController),
+        new ConnectionHandler(localSettings, ch, streamController, flowController),
         new ExceptionHandler());
   }
 
@@ -539,8 +542,12 @@ class ServerConnection {
       if (streamId == 0) {
         flowController.remoteConnectionWindowUpdate(windowSizeIncrement);
       } else {
-        final ServerStream stream = streamController.existingStream(streamId);
-        flowController.remoteStreamWindowUpdate(stream, windowSizeIncrement);
+        final ServerStream stream = streamController.stream(streamId);
+
+        // The stream might already be closed. That's ok.
+        if (stream != null) {
+          flowController.remoteStreamWindowUpdate(stream, windowSizeIncrement);
+        }
       }
       flusher.flush();
     }

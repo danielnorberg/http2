@@ -9,6 +9,7 @@ import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 import io.netty.bootstrap.Bootstrap;
@@ -58,6 +59,7 @@ import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.logging.LogLevel.TRACE;
+import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.h2client.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
@@ -80,23 +82,35 @@ class ClientConnection {
   private final BatchFlusher flusher;
   private final Listener listener;
 
+  private final Http2Settings localSettings = new Http2Settings();
+
   private int remoteMaxFrameSize = Http2CodecUtil.DEFAULT_MAX_FRAME_SIZE;
-  private int localMaxFrameSize;
   private int remoteMaxConcurrentStreams = Integer.MAX_VALUE;
-  private int localMaxConcurrentStreams;
-  private int maxHeaderListSize = Integer.MAX_VALUE;
+  private int remoteMaxHeaderListSize = Integer.MAX_VALUE;
 
-  private volatile int initialLocalWindow = Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
+  private volatile int initialLocalWindow;
 
-  private int localWindowUpdateThreshold = initialLocalWindow / 2;
-  private int localWindow = initialLocalWindow;
+  private int localWindowUpdateThreshold;
+  private int localWindow;
 
   ClientConnection(final Builder builder) {
     this.listener = requireNonNull(builder.listener, "listener");
 
-    this.localMaxFrameSize = builder.maxFrameSize;
-    this.localMaxConcurrentStreams = builder.maxConcurrentStreams;
+    this.initialLocalWindow = Optional.ofNullable(builder.initialWindowSize).orElse(DEFAULT_INITIAL_WINDOW_SIZE);
+    this.localWindowUpdateThreshold = initialLocalWindow / 2;
+    this.localWindow = initialLocalWindow;
 
+    if (builder.initialWindowSize != null) {
+      localSettings.initialWindowSize(initialLocalWindow);
+    }
+    if (builder.maxConcurrentStreams != null) {
+      localSettings.maxConcurrentStreams(builder.maxConcurrentStreams);
+    }
+    if (builder.maxFrameSize != null) {
+      localSettings.maxFrameSize(builder.maxFrameSize);
+    }
+
+    // TODO: unsafe publication, move this out of constructor
     // Connect
     final Bootstrap b = new Bootstrap()
         .group(requireNonNull(builder.workerGroup, "workerGroup"))
@@ -212,16 +226,12 @@ class ClientConnection {
     }
 
     private void writeSettings(final ChannelHandlerContext ctx) {
-      final Http2Settings settings = new Http2Settings();
-      settings.initialWindowSize(initialLocalWindow);
-      settings.maxConcurrentStreams(localMaxConcurrentStreams);
-      settings.maxFrameSize(localMaxFrameSize);
-      final int length = SETTING_ENTRY_LENGTH * settings.size();
+      final int length = SETTING_ENTRY_LENGTH * localSettings.size();
       final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH + length);
       writeFrameHeader(buf, 0, length, SETTINGS, 0, 0);
       buf.writerIndex(FRAME_HEADER_LENGTH);
-      for (final char identifier : settings.keySet()) {
-        final int value = settings.getIntValue(identifier);
+      for (final char identifier : localSettings.keySet()) {
+        final int value = localSettings.getIntValue(identifier);
         buf.writeShort(identifier);
         buf.writeInt(value);
       }
@@ -391,7 +401,7 @@ class ClientConnection {
         flusher.flush();
       }
       if (settings.maxHeaderListSize() != null) {
-        maxHeaderListSize = settings.maxHeaderListSize();
+        remoteMaxHeaderListSize = settings.maxHeaderListSize();
       }
       // TODO: SETTINGS_HEADER_TABLE_SIZE
       // TODO: SETTINGS_ENABLE_PUSH
@@ -468,7 +478,11 @@ class ClientConnection {
         flowController.remoteConnectionWindowUpdate(windowSizeIncrement);
       } else {
         final ClientStream stream = streamController.existingStream(streamId);
-        flowController.remoteStreamWindowUpdate(stream, windowSizeIncrement);
+
+        // The stream might already be closed. That's ok.
+        if (stream != null) {
+          flowController.remoteStreamWindowUpdate(stream, windowSizeIncrement);
+        }
       }
       flusher.flush();
     }
@@ -702,8 +716,9 @@ class ClientConnection {
     private SslContext sslContext;
     private EventLoopGroup workerGroup;
 
-    private int maxConcurrentStreams;
-    private int maxFrameSize;
+    private Integer maxConcurrentStreams;
+    private Integer maxFrameSize;
+    private Integer initialWindowSize;
 
     public Builder address(final InetSocketAddress address) {
       this.address = address;
@@ -725,13 +740,18 @@ class ClientConnection {
       return this;
     }
 
-    public Builder maxConcurrentStreams(final int maxConcurrentStreams) {
+    public Builder maxConcurrentStreams(final Integer maxConcurrentStreams) {
       this.maxConcurrentStreams = maxConcurrentStreams;
       return this;
     }
 
-    public Builder maxFrameSize(final int maxFrameSize) {
+    public Builder maxFrameSize(final Integer maxFrameSize) {
       this.maxFrameSize = maxFrameSize;
+      return this;
+    }
+
+    public Builder initialWindowSize(final Integer initialWindowSize) {
+      this.initialWindowSize = initialWindowSize;
       return this;
     }
 
