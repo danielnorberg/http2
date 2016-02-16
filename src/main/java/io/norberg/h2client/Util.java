@@ -6,6 +6,8 @@ import java.util.concurrent.CompletableFuture;
 
 import javax.net.ssl.SSLException;
 
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.handler.codec.http2.Http2Error;
 import io.netty.handler.codec.http2.Http2Exception;
@@ -78,6 +80,18 @@ class Util {
     f.addListener(future -> {
       if (f.isSuccess()) {
         cf.complete(f.getNow());
+      } else {
+        cf.completeExceptionally(f.cause());
+      }
+    });
+    return cf;
+  }
+
+  static CompletableFuture<Channel> completableFuture(final ChannelFuture f) {
+    final CompletableFuture<Channel> cf = new CompletableFuture<>();
+    f.addListener(future -> {
+      if (f.isSuccess()) {
+        cf.complete(f.channel());
       } else {
         cf.completeExceptionally(f.cause());
       }

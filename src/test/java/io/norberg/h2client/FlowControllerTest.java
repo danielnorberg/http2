@@ -79,16 +79,22 @@ public class FlowControllerTest {
   }
 
   @Test
+  public void testHappyPathSingleEmptyStream() throws Exception {
+    final Stream stream = startStream(1, 0);
+    verifyFlush(stream(stream).headers(END_OF_STREAM));
+  }
+
+  @Test
   public void testHappyPathSingleStream() throws Exception {
-    final Stream stream1 = startStream(1, 17);
-    verifyFlush(stream(stream1).headers().estimate(17).write(17, END_OF_STREAM));
+    final Stream stream = startStream(1, 17);
+    verifyFlush(stream(stream).headers().estimate(17).write(17, END_OF_STREAM));
   }
 
   @Test
   public void testHappyPathSingleStreamMultipleFrames() throws Exception {
     controller.remoteMaxFrameSize(8);
-    final Stream stream1 = startStream(1, 17);
-    verifyFlush(stream(stream1).headers()
+    final Stream stream = startStream(1, 17);
+    verifyFlush(stream(stream).headers()
                     .estimate(8).estimate(1)
                     .write(8, 2).write(1, END_OF_STREAM));
   }
@@ -303,12 +309,12 @@ public class FlowControllerTest {
     int expectedMinBufferSize = 0;
     for (final FlushOp op : ops) {
       if (op.headers) {
-        final int estimatedInitialHeadersFrameSize = ThreadLocalRandom.current().nextInt(128);
+        final int estimatedInitialHeadersFrameSize = ThreadLocalRandom.current().nextInt(32, 128);
         expectedMinBufferSize += estimatedInitialHeadersFrameSize;
         when(writer.estimateInitialHeadersFrameSize(ctx, op.stream)).thenReturn(estimatedInitialHeadersFrameSize);
       }
       for (final int estimate : op.estimates) {
-        final int estimatedDataFrameSize = ThreadLocalRandom.current().nextInt(128);
+        final int estimatedDataFrameSize = ThreadLocalRandom.current().nextInt(32, 128);
         expectedMinBufferSize += estimatedDataFrameSize;
         when(writer.estimateDataFrameSize(ctx, op.stream, estimate)).thenReturn(estimatedDataFrameSize);
       }
@@ -319,7 +325,7 @@ public class FlowControllerTest {
 
     final InOrder inOrder = inOrder(writer);
 
-    // Write the streams
+    // Flush the streams
     controller.flush(ctx, writer);
 
     // Verify that header and data frame estimations come first, in stream order
@@ -338,7 +344,7 @@ public class FlowControllerTest {
             .mapToInt(w -> w.bytes * w.times)
             .sum())
         .sum();
-    if (expectedWritesBytes > 0) {
+    if (ops.size() > 0) {
       inOrder.verify(writer).writeStart(eq(ctx),
                                         intThat(greaterThanOrEqualTo(expectedMinBufferSize)));
       final int bufferSize = bufferSizeCaptor.getValue();
@@ -350,6 +356,9 @@ public class FlowControllerTest {
       if (op.headers) {
         final boolean endOfStream = op.headerFlags.contains(END_OF_STREAM);
         inOrder.verify(writer).writeInitialHeadersFrame(ctx, buf, op.stream, endOfStream);
+        if (endOfStream) {
+          inOrder.verify(writer).streamEnd(op.stream);
+        }
       }
       for (final FlushOp.Write write : op.writes) {
         final boolean endOfStream = write.flags.contains(END_OF_STREAM);
@@ -361,7 +370,7 @@ public class FlowControllerTest {
     }
 
     // Verify that the write ended if there was anything to write
-    if (expectedWritesBytes > 0) {
+    if (ops.size() > 0) {
       inOrder.verify(writer).writeEnd(ctx, buf);
     }
     verifyNoMoreInteractions(writer);

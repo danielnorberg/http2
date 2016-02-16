@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
@@ -12,11 +13,12 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
@@ -28,12 +30,12 @@ public class Http2Server {
 
   private final ChannelGroup channels = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE, true);
 
-  private final ChannelFuture bindFuture;
-  private final Channel channel;
   private final RequestHandler requestHandler;
 
   private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
   private final SslContext sslCtx;
+  private final Http2Settings settings;
+  private final EventLoopGroup group;
 
   public Http2Server(final RequestHandler requestHandler) {
     this(requestHandler, 0);
@@ -44,21 +46,49 @@ public class Http2Server {
   }
 
   public Http2Server(final RequestHandler requestHandler, final String hostname, final int port) {
+    this(requestHandler, new InetSocketAddress(hostname, port), new Http2Settings());
+  }
+
+  private Http2Server(final RequestHandler requestHandler, final InetSocketAddress address,
+                      final Http2Settings settings) {
+    this(requestHandler, settings);
+    bind(address);
+  }
+
+  private Http2Server(final RequestHandler requestHandler, final Http2Settings settings) {
     this.requestHandler = Objects.requireNonNull(requestHandler, "requestHandler");
-
     this.sslCtx = Util.defaultServerSslContext();
-    final NioEventLoopGroup group = Util.defaultEventLoopGroup();
+    this.group = Util.defaultEventLoopGroup();
+    this.settings = Objects.requireNonNull(settings);
+  }
 
+  public CompletableFuture<InetSocketAddress> bind(final int port) {
+    return bind(new InetSocketAddress(port));
+  }
+
+  public CompletableFuture<InetSocketAddress> bind(final InetSocketAddress address) {
     final ServerBootstrap b = new ServerBootstrap()
         .option(ChannelOption.SO_BACKLOG, 1024)
         .group(group)
         .channel(NioServerSocketChannel.class)
         .childHandler(new Initializer());
-
-    this.bindFuture = b.bind(hostname, port);
-    this.channel = bindFuture.channel();
-
+    final ChannelFuture bindFuture = b.bind(address);
+    final Channel channel = bindFuture.channel();
     channels.add(channel);
+    return completableFuture(bindFuture).thenApply(
+        ch -> (InetSocketAddress) ch.localAddress());
+  }
+
+  private Http2Server(final Builder builder) {
+    this(builder.requestHandler, settings(builder));
+  }
+
+  private static Http2Settings settings(final Builder builder) {
+    final Http2Settings settings = new Http2Settings();
+    if (builder.maxConcurrentStreams != null) {
+      settings.maxConcurrentStreams(builder.maxConcurrentStreams);
+    }
+    return settings;
   }
 
   public CompletableFuture<Void> close() {
@@ -70,24 +100,51 @@ public class Http2Server {
     return closeFuture;
   }
 
-  public String hostname() {
-    final InetSocketAddress localAddress = (InetSocketAddress) channel.localAddress();
-    if (localAddress == null) {
-      return null;
-    }
-    return localAddress.getHostName();
+  public static Http2Server create(final RequestHandler requestHandler) {
+    return builder()
+        .requestHandler(requestHandler)
+        .build();
   }
 
-  public int port() {
-    final InetSocketAddress localAddress = (InetSocketAddress) channel.localAddress();
-    if (localAddress == null) {
-      return -1;
-    }
-    return localAddress.getPort();
+  public static Builder builder() {
+    return new Builder();
   }
 
-  public ChannelFuture bindFuture() {
-    return bindFuture;
+  public static class Builder {
+
+    private Integer maxConcurrentStreams;
+    private List<InetSocketAddress> bind;
+    private RequestHandler requestHandler;
+
+    private Builder() {
+    }
+
+    public Builder maxConcurrentStreams(final Integer maxConcurrentStreams) {
+      this.maxConcurrentStreams = maxConcurrentStreams;
+      return this;
+    }
+
+    public Builder bind() {
+      return bind(0);
+    }
+
+    public Builder bind(final int port) {
+      return bind(new InetSocketAddress(port));
+    }
+
+    public Builder bind(final InetSocketAddress address) {
+      this.bind.add(address);
+      return this;
+    }
+
+    public Builder requestHandler(final RequestHandler requestHandler) {
+      this.requestHandler = requestHandler;
+      return this;
+    }
+
+    public Http2Server build() {
+      return new Http2Server(this);
+    }
   }
 
   private class Initializer extends ChannelInitializer<SocketChannel> {
@@ -95,7 +152,7 @@ public class Http2Server {
     @Override
     protected void initChannel(SocketChannel ch) throws Exception {
       channels.add(ch);
-      final ServerConnection connection = new ServerConnection(sslCtx, requestHandler);
+      final ServerConnection connection = new ServerConnection(sslCtx, requestHandler, settings);
       connection.initialize(ch);
     }
   }

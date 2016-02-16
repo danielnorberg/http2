@@ -38,11 +38,10 @@ class BenchmarkServer {
     final RequestHandler requestHandler = (context, request) ->
         context.respond(request.response(OK));
 
-    final Http2Server server = new Http2Server(requestHandler, 4711);
+    final Http2Server server = Http2Server.create(requestHandler);
+    final int port = server.bind(4711).get().getPort();
 
-    server.bindFuture().get();
-
-    System.out.println("Server listening on 0.0.0.0:" + server.port());
+    System.out.println("Server listening on 0.0.0.0:" + port);
   }
 
   private static ByteBuf payload() {

@@ -47,9 +47,8 @@ public class Http2ClientServerTest {
             OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8)));
 
     // Start server
-    final Http2Server server = autoClosing(new Http2Server(requestHandler));
-    server.bindFuture().syncUninterruptibly();
-    final int port = server.port();
+    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final int port = server.bind(0).get().getPort();
 
     // Start client
     final Http2Client client = autoClosing(Http2Client.of("127.0.0.1", port));
@@ -81,8 +80,7 @@ public class Http2ClientServerTest {
 
     // Start server
     final Http2Server server = autoClosing(new Http2Server(requestHandler));
-    server.bindFuture().syncUninterruptibly();
-    final int port = server.port();
+    final int port = server.bind(0).get().getPort();
 
     // Start client
     final Http2Client client = autoClosing(Http2Client.of("127.0.0.1", port));
@@ -103,9 +101,8 @@ public class Http2ClientServerTest {
             OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server
-    final Http2Server server1 = autoClosing(new Http2Server(requestHandler));
-    server1.bindFuture().syncUninterruptibly();
-    final int port = server1.port();
+    final Http2Server server1 = autoClosing(Http2Server.create(requestHandler));
+    final int port = server1.bind(0).get().getPort();
 
     // Make a successful request
     final Http2Client client = autoClosing(
@@ -131,8 +128,8 @@ public class Http2ClientServerTest {
     }
 
     // Start server again
-    final Http2Server server2 = autoClosing(new Http2Server(requestHandler, port));
-    server2.bindFuture().syncUninterruptibly();
+    final Http2Server server2 = autoClosing(Http2Server.create(requestHandler));
+    server2.bind(port).get();
     verify(listener, timeout(30000).times(2)).connectionEstablished(client);
 
     // Make another successful request after client reconnects

@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -57,21 +59,23 @@ class ServerConnection {
 
   private static final Logger log = LoggerFactory.getLogger(ServerConnection.class);
 
-  private static final int MAX_CONTENT_LENGTH = Integer.MAX_VALUE;
-
   private final SslContext sslContext;
   private final RequestHandler requestHandler;
 
-  private volatile int initialLocalWindow = Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
-
-  private int localMaxFrameSize = DEFAULT_MAX_FRAME_SIZE;
   private int remoteMaxFrameSize = DEFAULT_MAX_FRAME_SIZE;
   private long remoteMaxConcurrentStreams = Long.MAX_VALUE;
-  private long localMaxConcurrentStreams = 100;
 
-  public ServerConnection(final SslContext sslContext, final RequestHandler requestHandler) {
-    this.sslContext = sslContext;
-    this.requestHandler = requestHandler;
+  private final Http2Settings localSettings;
+
+  // TODO: allow for this to change during the connection lifetime
+  private volatile int localInitialWindowSize;
+
+  public ServerConnection(final SslContext sslContext, final RequestHandler requestHandler,
+                          final Http2Settings localSettings) {
+    this.sslContext = Objects.requireNonNull(sslContext, "sslContext");
+    this.requestHandler = Objects.requireNonNull(requestHandler, "requestHandler");
+    this.localSettings = Objects.requireNonNull(localSettings, "localSettings");
+    this.localInitialWindowSize = Optional.ofNullable(localSettings.initialWindowSize()).orElse(DEFAULT_WINDOW_SIZE);
   }
 
   public void initialize(final SocketChannel ch) {
@@ -239,8 +243,8 @@ class ServerConnection {
 
     private ChannelHandlerContext ctx;
 
-    private int localWindowUpdateThreshold = initialLocalWindow / 2;
-    private int localWindow = initialLocalWindow;
+    private int localWindowUpdateThreshold = localInitialWindowSize / 2;
+    private int localWindow = localInitialWindowSize;
 
     /**
      * Stream that headers are currently being read for.
@@ -267,7 +271,7 @@ class ServerConnection {
       super.channelActive(ctx);
 
       // Update channel window size
-      final int sizeIncrement = initialLocalWindow - DEFAULT_WINDOW_SIZE;
+      final int sizeIncrement = localInitialWindowSize - DEFAULT_WINDOW_SIZE;
       if (sizeIncrement > 0) {
         final ByteBuf buf = ctx.alloc().buffer(WINDOW_UPDATE_FRAME_LENGTH);
         writeWindowUpdate(buf, 0, sizeIncrement);
@@ -310,13 +314,13 @@ class ServerConnection {
                             (updateStreamWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0);
         final ByteBuf buf = ctx.alloc().buffer(bufSize);
         if (updateChannelWindow) {
-          final int sizeIncrement = initialLocalWindow - localWindow;
-          localWindow = initialLocalWindow;
+          final int sizeIncrement = localInitialWindowSize - localWindow;
+          localWindow = localInitialWindowSize;
           writeWindowUpdate(buf, 0, sizeIncrement);
         }
         if (updateStreamWindow) {
-          final int sizeIncrement = initialLocalWindow - stream.localWindow;
-          stream.localWindow = initialLocalWindow;
+          final int sizeIncrement = localInitialWindowSize - stream.localWindow;
+          stream.localWindow = localInitialWindowSize;
           writeWindowUpdate(buf, streamId, sizeIncrement);
         }
         ctx.write(buf);
@@ -553,7 +557,7 @@ class ServerConnection {
     private ServerStream newOrExistingStream(final int id) {
       ServerStream stream = streamController.stream(id);
       if (stream == null) {
-        stream = new ServerStream(id, this, initialLocalWindow);
+        stream = new ServerStream(id, this, localInitialWindowSize);
         streamController.addStream(stream);
       }
       return stream;
@@ -599,10 +603,6 @@ class ServerConnection {
     }
 
     private void writeSettings(final ChannelHandlerContext ctx) {
-      final Http2Settings settings = new Http2Settings();
-      settings.initialWindowSize(initialLocalWindow);
-      settings.maxConcurrentStreams(localMaxConcurrentStreams);
-      settings.maxFrameSize(localMaxFrameSize);
       final int length = SETTING_ENTRY_LENGTH * settings.size();
       final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH + length);
       writeFrameHeader(buf, 0, length, SETTINGS, 0, 0);
