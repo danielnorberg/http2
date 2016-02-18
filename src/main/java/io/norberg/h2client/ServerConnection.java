@@ -1,7 +1,5 @@
 package io.norberg.h2client;
 
-import com.spotify.netty4.util.BatchFlusher;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -267,7 +265,7 @@ class ServerConnection {
       this.streamController = streamController;
       this.reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE), this);
       this.settings = settings;
-      this.flusher = new BatchFlusher(channel);
+      this.flusher = new BatchFlusher(channel, channel.eventLoop());
       this.flowController = flowController;
     }
 

@@ -164,9 +164,9 @@ public class Http2Client implements ClientConnection.Listener {
       return;
     }
 
-    ClientConnection pendingConnection = ClientConnection.builder()
+    final ClientConnection pendingConnection = ClientConnection.builder()
         .address(address)
-        .workerGroup(workerGroup)
+        .worker(workerGroup.next())
         .sslContext(sslContext)
         .listener(this)
         .maxConcurrentStreams(localMaxConcurrentStreams)
@@ -174,7 +174,7 @@ public class Http2Client implements ClientConnection.Listener {
         .initialWindowSize(localInitialWindowSize)
         .build();
 
-    pendingConnection.connectFuture().whenComplete((c, ex) -> {
+    pendingConnection.connect().whenComplete((c, ex) -> {
       if (ex != null) {
         // Fail outstanding requests
         while (true) {

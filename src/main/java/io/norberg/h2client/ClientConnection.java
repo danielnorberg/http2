@@ -1,7 +1,5 @@
 package io.norberg.h2client;
 
-import com.spotify.netty4.util.BatchFlusher;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +22,7 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
-import io.netty.channel.EventLoopGroup;
+import io.netty.channel.EventLoop;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.ByteToMessageDecoder;
@@ -79,6 +77,9 @@ class ClientConnection {
   private final StreamController<ClientStream> streamController = new StreamController<>();
   private final FlowController<ChannelHandlerContext, ClientStream> flowController = new FlowController<>();
 
+  private final InetSocketAddress address;
+  private final SslContext sslContext;
+  private final EventLoop worker;
   private final Channel channel;
   private final BatchFlusher flusher;
   private final Listener listener;
@@ -111,14 +112,21 @@ class ClientConnection {
       localSettings.maxFrameSize(builder.maxFrameSize);
     }
 
-    // TODO: unsafe publication, move this out of constructor
-    // Connect
+    this.address = requireNonNull(builder.address, "address");
+    this.sslContext = requireNonNull(builder.sslContext, "sslContext");
+    this.worker = requireNonNull(builder.worker, "worker");
+    this.channel = new NioSocketChannel();
+    this.flusher = new BatchFlusher(channel, worker);
+  }
+
+  CompletableFuture<ClientConnection> connect() {
+
     final Bootstrap b = new Bootstrap()
-        .group(requireNonNull(builder.workerGroup, "workerGroup"))
-        .channel(NioSocketChannel.class)
+        .group(worker)
+        .channelFactory(() -> channel)
         .option(ChannelOption.SO_KEEPALIVE, true)
-        .remoteAddress(requireNonNull(builder.address, "address"))
-        .handler(new Initializer(requireNonNull(builder.sslContext, "sslContext"), Integer.MAX_VALUE))
+        .remoteAddress(address)
+        .handler(new Initializer(sslContext, Integer.MAX_VALUE))
         .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000);
 
     final ChannelFuture future = b.connect();
@@ -130,8 +138,7 @@ class ClientConnection {
       }
     });
 
-    this.channel = future.channel();
-    this.flusher = new BatchFlusher(channel);
+    return connectFuture;
   }
 
 
@@ -184,7 +191,7 @@ class ClientConnection {
 
       ch.pipeline().addLast(
           sslHandler,
-          new ConnectionHandler(ch),
+          new ConnectionHandler(),
           new WriteHandler(),
           new ExceptionHandler());
     }
@@ -203,14 +210,11 @@ class ClientConnection {
 
     private final Http2FrameReader reader;
 
-    private BatchFlusher flusher;
-
     // Stream currently being read
     private ClientStream stream;
 
-    private ConnectionHandler(final Channel channel) {
+    ConnectionHandler() {
       this.reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE), this);
-      this.flusher = new BatchFlusher(channel);
     }
 
     @Override
@@ -721,7 +725,7 @@ class ClientConnection {
     private InetSocketAddress address;
     private Listener listener;
     private SslContext sslContext;
-    private EventLoopGroup workerGroup;
+    private EventLoop worker;
 
     private Integer maxConcurrentStreams;
     private Integer maxFrameSize;
@@ -737,8 +741,8 @@ class ClientConnection {
       return this;
     }
 
-    public Builder workerGroup(final EventLoopGroup workerGroup) {
-      this.workerGroup = workerGroup;
+    public Builder worker(final EventLoop worker) {
+      this.worker = worker;
       return this;
     }
 
