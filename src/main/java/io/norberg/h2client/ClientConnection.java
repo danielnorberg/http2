@@ -1,5 +1,7 @@
 package io.norberg.h2client;
 
+import com.spotify.netty.util.BatchFlusher;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -116,7 +118,7 @@ class ClientConnection {
     this.sslContext = requireNonNull(builder.sslContext, "sslContext");
     this.worker = requireNonNull(builder.worker, "worker");
     this.channel = new NioSocketChannel();
-    this.flusher = new BatchFlusher(channel, worker);
+    this.flusher = BatchFlusher.of(channel, worker);
   }
 
   CompletableFuture<ClientConnection> connect() {
