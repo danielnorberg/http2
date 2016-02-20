@@ -476,7 +476,7 @@ class ServerConnection {
         remoteMaxConcurrentStreams = settings.maxConcurrentStreams();
       }
       if (settings.initialWindowSize() != null) {
-        flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize());
+        flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize(), streamController);
         flusher.flush();
       }
       sendSettingsAck(ctx);

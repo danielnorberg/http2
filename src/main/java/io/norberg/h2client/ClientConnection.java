@@ -410,7 +410,7 @@ class ClientConnection {
         remoteMaxConcurrentStreams = settings.maxConcurrentStreams().intValue();
       }
       if (settings.initialWindowSize() != null) {
-        flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize());
+        flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize(), streamController);
         flusher.flush();
       }
       if (settings.maxHeaderListSize() != null) {

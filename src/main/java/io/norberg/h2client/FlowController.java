@@ -295,6 +295,7 @@ class FlowController<CTX, STREAM extends Stream> {
   }
 
   void start(final STREAM stream) {
+    stream.started = true;
     stream.pending = true;
     stream.remoteWindow = remoteInitialStreamWindow;
     newStreams.add(stream);
@@ -315,9 +316,13 @@ class FlowController<CTX, STREAM extends Stream> {
     remoteConnectionWindowUpdated = true;
   }
 
-  void remoteInitialStreamWindowSizeUpdate(final int size) throws Http2Exception {
-    // TODO: apply delta to stream windows
+  void remoteInitialStreamWindowSizeUpdate(final int size, final Iterable<STREAM> streams) throws Http2Exception {
     final int delta = size - remoteInitialStreamWindow;
+    for (final STREAM stream : streams) {
+      if (stream.started) {
+        remoteStreamWindowUpdate0(stream, delta);
+      }
+    }
     remoteInitialStreamWindow = size;
   }
 
@@ -325,11 +330,15 @@ class FlowController<CTX, STREAM extends Stream> {
     if (windowSizeIncrement <= 0) {
       throw connectionError(PROTOCOL_ERROR, "Illegal window size increment: %d", windowSizeIncrement);
     }
-    stream.remoteWindow += windowSizeIncrement;
+    remoteStreamWindowUpdate0(stream, windowSizeIncrement);
+  }
+
+  private void remoteStreamWindowUpdate0(final STREAM stream, final int delta) {
+    stream.remoteWindow += delta;
     if (stream.data == null || !stream.data.isReadable()) {
       return;
     }
-    if (!stream.pending) {
+    if (stream.remoteWindow > 0 && !stream.pending) {
       stream.pending = true;
       streamWindowUpdatedStreams.add(stream);
     }

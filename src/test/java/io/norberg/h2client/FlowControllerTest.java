@@ -24,6 +24,7 @@ import static io.norberg.h2client.FlowControllerTest.FlushOp.Flags.END_OF_STREAM
 import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.h2client.TestUtil.randomByteBuf;
 import static java.util.Arrays.asList;
+import static java.util.Collections.emptyList;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -66,6 +67,14 @@ public class FlowControllerTest {
   }
 
   @Test
+  public void testStart() throws Exception {
+    final Stream stream = new Stream(1, randomByteBuf(4711));
+    assertThat(stream.started, is(false));
+    controller.start(stream);
+    assertThat(stream.started, is(true));
+  }
+
+  @Test
   public void testRemoteInitialStreamWindow() throws Exception {
     final int remoteInitialStreamWindow = controller.remoteInitialStreamWindow();
 
@@ -76,6 +85,88 @@ public class FlowControllerTest {
 
     // Verify that the stream remote window is applied when it is started
     assertThat(stream.remoteWindow, is(remoteInitialStreamWindow));
+  }
+
+  @Test
+  public void testRemoteInitialStreamWindowUpdateIncrease() throws Exception {
+    final int remoteInitialStreamWindow = controller.remoteInitialStreamWindow();
+    final Stream stream = new Stream(17, randomByteBuf(4711));
+
+    controller.start(stream);
+    controller.remoteInitialStreamWindowSizeUpdate(remoteInitialStreamWindow + 47, asList(stream));
+
+    // Verify that the stream remote window was updated
+    assertThat(stream.remoteWindow, is(remoteInitialStreamWindow + 47));
+  }
+
+  @Test
+  public void testRemoteInitialStreamWindowUpdateDecrease() throws Exception {
+    final int remoteInitialStreamWindow = controller.remoteInitialStreamWindow();
+    final Stream stream = new Stream(17, randomByteBuf(4711));
+
+    controller.start(stream);
+    controller.remoteInitialStreamWindowSizeUpdate(remoteInitialStreamWindow - 47, asList(stream));
+
+    // Verify that the stream remote window was updated
+    assertThat(stream.remoteWindow, is(remoteInitialStreamWindow - 47));
+  }
+
+  @Test
+  public void testRemoteInitialStreamWindowDecreaseAfterWriteToNegativeStreamWindow() throws Exception {
+    final int remoteConnectionWindow = 10;
+    final int remoteInitialStreamWindow = 20;
+    controller = new FlowController<>(remoteConnectionWindow, remoteInitialStreamWindow);
+
+    final Stream stream = new Stream(17, randomByteBuf(4711));
+
+    // Consume 10 octets of the stream window, leaving 10 octets
+    controller.start(stream);
+    verifyFlush(stream(stream).headers().estimate(10).write(10).pending(true));
+    assertThat(stream.remoteWindow, is(10));
+
+    // Lower the initial stream window by 15
+    controller.remoteInitialStreamWindowSizeUpdate(remoteInitialStreamWindow - 15, asList(stream));
+
+    // Verify that the stream remote window is now negative
+    assertThat(stream.remoteWindow, is(-5));
+
+    // Verify that a flush causes no writes
+    verifyFlush();
+  }
+
+  @Test
+  public void testRemoteInitialStreamWindowIncreaseAfterWriteToPositiveStreamWindow() throws Exception {
+    final int remoteConnectionWindow = 20;
+    final int remoteInitialStreamWindow = 10;
+    controller = new FlowController<>(remoteConnectionWindow, remoteInitialStreamWindow);
+
+    final Stream stream = new Stream(17, randomByteBuf(4711));
+
+    // Consume 10 octets of the stream window, leaving 0 octets
+    controller.start(stream);
+    verifyFlush(stream(stream).headers().estimate(10).write(10).pending(false));
+    assertThat(stream.remoteWindow, is(0));
+
+    // Increase the initial stream window by 5
+    controller.remoteInitialStreamWindowSizeUpdate(remoteInitialStreamWindow + 5, asList(stream));
+
+    // Verify that the stream remote window is now positive
+    assertThat(stream.remoteWindow, is(5));
+
+    // Verify that a flush causes 5 octets to be written
+    verifyFlush(stream(stream).estimate(5).write(5).pending(false));
+  }
+
+  @Test
+  public void testRemoteInitialStreamWindowZero() throws Exception {
+    final int remoteInitialStreamWindow = controller.remoteInitialStreamWindow();
+    final Stream stream = new Stream(17, randomByteBuf(4711));
+
+    controller.start(stream);
+    controller.remoteInitialStreamWindowSizeUpdate(0, asList(stream));
+
+    // Verify that the stream remote window was updated
+    assertThat(stream.remoteWindow, is(0));
   }
 
   @Test
@@ -130,7 +221,7 @@ public class FlowControllerTest {
   @Test
   public void testStreamWindowExhaustionSingleStream() throws Exception {
 
-    controller.remoteInitialStreamWindowSizeUpdate(3);
+    controller.remoteInitialStreamWindowSizeUpdate(3, emptyList());
 
     // Three frames:
     // Operation  | Data | Stream Window
@@ -156,7 +247,7 @@ public class FlowControllerTest {
   @Test
   public void testOneStreamWindowExhaustedStreamWithTwoHappyStreams() throws Exception {
 
-    controller.remoteInitialStreamWindowSizeUpdate(10);
+    controller.remoteInitialStreamWindowSizeUpdate(10, emptyList());
 
     final Stream exhausted = startStream(1, 20);
     verifyFlush(stream(exhausted).headers().estimate(10).write(10).pending(false));
@@ -170,7 +261,7 @@ public class FlowControllerTest {
   @Test
   public void testTwoStreamWindowExhaustedStreamsWithOneHappyStream() throws Exception {
 
-    controller.remoteInitialStreamWindowSizeUpdate(10);
+    controller.remoteInitialStreamWindowSizeUpdate(10, emptyList());
 
     final Stream exhausted1 = startStream(1, 20);
     final Stream happy = startStream(3, 5);

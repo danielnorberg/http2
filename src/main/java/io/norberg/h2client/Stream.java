@@ -31,6 +31,11 @@ class Stream {
    */
   boolean pending;
 
+  /**
+   * Has this stream started sending?
+   */
+  boolean started;
+
   Stream(final int id) {
     this(id, null);
   }
