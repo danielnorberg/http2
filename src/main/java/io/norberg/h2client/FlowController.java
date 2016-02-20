@@ -17,7 +17,7 @@ import static io.norberg.h2client.Util.connectionError;
 
 class FlowController<CTX, STREAM extends Stream> {
 
-  private final List<STREAM> startedStreams = new ArrayList<>();
+  private final List<STREAM> newStreams = new ArrayList<>();
   private final Deque<STREAM> connectionWindowBlockedStreams = new ArrayDeque<>();
   private final List<STREAM> streamWindowUpdatedStreams = new ArrayList<>();
 
@@ -95,104 +95,54 @@ class FlowController<CTX, STREAM extends Stream> {
   }
 
   void flush(final CTX ctx, final StreamWriter<CTX, STREAM> writer) throws Http2Exception {
-    int bufferSize = 0;
 
-    // Prepare data frames for all streams that had window updates
-    for (int i = 0; i < streamWindowUpdatedStreams.size(); i++) {
-      final STREAM stream = streamWindowUpdatedStreams.get(i);
-      bufferSize += prepareDataFrames(writer, stream, ctx);
+    // Prepare frames
+    final int bufferSize = prepare(ctx, writer);
+
+    // Write frames if there's any that can be written
+    if (bufferSize > 0) {
+      writeFrames(ctx, writer, bufferSize);
     }
 
-    // Prepare data frames for all streams that were blocking on a connection window update
-    if (remoteConnectionWindowUpdated) {
-      for (final STREAM stream : connectionWindowBlockedStreams) {
-        final int n = prepareDataFrames(writer, stream, ctx);
-        if (n == 0) {
-          break;
-        }
-        bufferSize += n;
-      }
-    }
+    streamWindowUpdatedStreams.clear();
+    newStreams.clear();
+  }
 
-    // Prepare headers and data frames for new outgoing streams
-    for (int i = 0; i < startedStreams.size(); i++) {
-      final STREAM stream = startedStreams.get(i);
-      bufferSize += writer.estimateInitialHeadersFrameSize(ctx, stream);
-      bufferSize += prepareDataFrames(writer, stream, ctx);
-    }
+  private void writeFrames(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final int bufferSize)
+      throws Http2Exception {
 
-    // Was the remote connection window exhausted?
-    final boolean remoteConnectionWindowExhausted = (remoteConnectionWindow == 0);
-
-    // Start write if there's something to write
-    final ByteBuf buf = bufferSize == 0 ? null : writer.writeStart(ctx, bufferSize);
+    assert bufferSize != 0;
+    final ByteBuf buf = writer.writeStart(ctx, bufferSize);
 
     // Write data frames for streams that had window updates
-    for (int i = 0; i < streamWindowUpdatedStreams.size(); i++) {
-      final STREAM stream = streamWindowUpdatedStreams.get(i);
-
-      assert stream.data != null && stream.data.isReadable();
-
-      // Write data frames
-      final int size = stream.fragmentSize;
-      final boolean endOfStream = (stream.data.readableBytes() == size);
-      if (size > 0) {
-        writeDataFrames(writer, ctx, buf, stream, size, endOfStream);
-        if (endOfStream) {
-          writer.streamEnd(stream);
-        }
-      }
-
-      // Check if the stream was blocked on an exhausted connection window.
-      if (remoteConnectionWindowExhausted &&
-          stream.data.readableBytes() > 0 &&
-          stream.remoteWindow > 0) {
-        connectionWindowBlockedStreams.add(stream);
-      }
+    if (!streamWindowUpdatedStreams.isEmpty()) {
+      writeWindowUpdatedStreams(ctx, writer, buf);
     }
 
     // Write data frames for streams that were blocking on a connection window update
     if (remoteConnectionWindowUpdated) {
-      while (true) {
-        final STREAM stream = connectionWindowBlockedStreams.peekFirst();
-        if (stream == null) {
-          break;
-        }
-
-        assert stream.data != null && stream.data.isReadable();
-
-        // Bail if the connection window was exhausted before this stream could get any quota.
-        // All following streams in the queue will still be blocked on the connection window.
-        final int size = stream.fragmentSize;
-        if (size == 0) {
-          break;
-        }
-
-        // Write data
-        final boolean endOfStream = (stream.data.readableBytes() == size);
-        writeDataFrames(writer, ctx, buf, stream, size, endOfStream);
-        if (endOfStream) {
-          writer.streamEnd(stream);
-        }
-
-        // Bail if the connection window was exhausted by this stream.
-        // All following streams in the queue will still be blocked on the connection window.
-        if (remoteConnectionWindowExhausted &&
-            stream.data.readableBytes() > 0 &&
-            stream.remoteWindow > 0) {
-          break;
-        }
-
-        // This stream is no longer blocking on the connection window. Remove it from the queue.
-        connectionWindowBlockedStreams.removeFirst();
-      }
-
-      remoteConnectionWindowUpdated = false;
+      writeConnectionWindowBlockedStreams(ctx, writer, buf);
     }
 
     // Write headers and data frames for new outgoing streams
-    for (int i = 0; i < startedStreams.size(); i++) {
-      final STREAM stream = startedStreams.get(i);
+    if (!newStreams.isEmpty()) {
+      writeNewStreams(ctx, writer, buf);
+    }
+
+    // Finish write if there was anything to write
+    if (buf != null) {
+      writer.writeEnd(ctx, buf);
+    }
+  }
+
+  private void writeNewStreams(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final ByteBuf buf)
+      throws Http2Exception {
+
+    // Was the remote connection window exhausted?
+    final boolean remoteConnectionWindowExhausted = (remoteConnectionWindow == 0);
+
+    for (int i = 0; i < newStreams.size(); i++) {
+      final STREAM stream = newStreams.get(i);
       final boolean hasContent = stream.data != null && stream.data.isReadable();
 
       // Write headers
@@ -221,14 +171,109 @@ class FlowController<CTX, STREAM extends Stream> {
         connectionWindowBlockedStreams.add(stream);
       }
     }
+  }
 
-    streamWindowUpdatedStreams.clear();
-    startedStreams.clear();
+  private void writeConnectionWindowBlockedStreams(final CTX ctx, final StreamWriter<CTX, STREAM> writer,
+                                                   final ByteBuf buf) throws Http2Exception {
 
-    // Finish write if there was anything to write
-    if (buf != null) {
-      writer.writeEnd(ctx, buf);
+    // Was the remote connection window exhausted?
+    final boolean remoteConnectionWindowExhausted = (remoteConnectionWindow == 0);
+
+    while (true) {
+      final STREAM stream = connectionWindowBlockedStreams.peekFirst();
+      if (stream == null) {
+        break;
+      }
+
+      assert stream.data != null && stream.data.isReadable();
+
+      // Bail if the connection window was exhausted before this stream could get any quota.
+      // All following streams in the queue will still be blocked on the connection window.
+      final int size = stream.fragmentSize;
+      if (size == 0) {
+        break;
+      }
+
+      // Write data
+      final boolean endOfStream = (stream.data.readableBytes() == size);
+      writeDataFrames(writer, ctx, buf, stream, size, endOfStream);
+      if (endOfStream) {
+        writer.streamEnd(stream);
+      }
+
+      // Bail if the connection window was exhausted by this stream.
+      // All following streams in the queue will still be blocked on the connection window.
+      if (remoteConnectionWindowExhausted &&
+          stream.data.readableBytes() > 0 &&
+          stream.remoteWindow > 0) {
+        break;
+      }
+
+      // This stream is no longer blocking on the connection window. Remove it from the queue.
+      connectionWindowBlockedStreams.removeFirst();
     }
+
+    remoteConnectionWindowUpdated = false;
+  }
+
+  private void writeWindowUpdatedStreams(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final ByteBuf buf)
+      throws Http2Exception {
+
+    // Was the remote connection window exhausted?
+    final boolean remoteConnectionWindowExhausted = (remoteConnectionWindow == 0);
+
+    for (int i = 0; i < streamWindowUpdatedStreams.size(); i++) {
+      final STREAM stream = streamWindowUpdatedStreams.get(i);
+
+      assert stream.data != null && stream.data.isReadable();
+
+      // Write data frames
+      final int size = stream.fragmentSize;
+      final boolean endOfStream = (stream.data.readableBytes() == size);
+      if (size > 0) {
+        writeDataFrames(writer, ctx, buf, stream, size, endOfStream);
+        if (endOfStream) {
+          writer.streamEnd(stream);
+        }
+      }
+
+      // Check if the stream was blocked on an exhausted connection window.
+      if (remoteConnectionWindowExhausted &&
+          stream.data.readableBytes() > 0 &&
+          stream.remoteWindow > 0) {
+        connectionWindowBlockedStreams.add(stream);
+      }
+    }
+  }
+
+  private int prepare(final CTX ctx, final StreamWriter<CTX, STREAM> writer) throws Http2Exception {
+    int size = 0;
+
+    // Prepare data frames for all streams that had window updates
+    for (int i = 0; i < streamWindowUpdatedStreams.size(); i++) {
+      final STREAM stream = streamWindowUpdatedStreams.get(i);
+      size += prepareDataFrames(writer, stream, ctx);
+    }
+
+    // Prepare data frames for all streams that were blocking on a connection window update
+    if (remoteConnectionWindowUpdated) {
+      for (final STREAM stream : connectionWindowBlockedStreams) {
+        final int n = prepareDataFrames(writer, stream, ctx);
+        if (n == 0) {
+          break;
+        }
+        size += n;
+      }
+    }
+
+    // Prepare headers and data frames for new outgoing streams
+    for (int i = 0; i < newStreams.size(); i++) {
+      final STREAM stream = newStreams.get(i);
+      size += writer.estimateInitialHeadersFrameSize(ctx, stream);
+      size += prepareDataFrames(writer, stream, ctx);
+    }
+
+    return size;
   }
 
   private void writeDataFrames(final StreamWriter<CTX, STREAM> writer, final CTX ctx, final ByteBuf buf,
@@ -246,12 +291,12 @@ class FlowController<CTX, STREAM extends Stream> {
 
   void start(final STREAM stream) {
     stream.remoteWindow = remoteInitialStreamWindow;
-    startedStreams.add(stream);
+    newStreams.add(stream);
   }
 
   public void stop(final STREAM stream) {
     final Set<STREAM> s = Collections.singleton(stream);
-    startedStreams.removeAll(s);
+    newStreams.removeAll(s);
     connectionWindowBlockedStreams.removeAll(s);
     streamWindowUpdatedStreams.removeAll(s);
   }
