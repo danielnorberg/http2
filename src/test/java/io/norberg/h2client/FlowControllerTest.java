@@ -143,13 +143,13 @@ public class FlowControllerTest {
     // Write:  1  | 0    | 2
 
     final Stream stream = startStream(1, 6);
-    verifyFlush(stream(stream).headers().estimate(3).write(3));
+    verifyFlush(stream(stream).headers().estimate(3).write(3).pending(false));
     assertThat(stream.remoteWindow, is(0));
     verifyRemoteStreamWindowUpdate(2, stream);
-    verifyFlush(stream(stream).estimate(2).write(2));
+    verifyFlush(stream(stream).estimate(2).write(2).pending(false));
     assertThat(stream.remoteWindow, is(0));
     verifyRemoteStreamWindowUpdate(3, stream);
-    verifyFlush(stream(stream).estimate(1).write(1, END_OF_STREAM));
+    verifyFlush(stream(stream).estimate(1).write(1, END_OF_STREAM).pending(false));
     assertThat(stream.remoteWindow, is(2));
   }
 
@@ -159,12 +159,12 @@ public class FlowControllerTest {
     controller.remoteInitialStreamWindowSizeUpdate(10);
 
     final Stream exhausted = startStream(1, 20);
-    verifyFlush(stream(exhausted).headers().estimate(10).write(10));
+    verifyFlush(stream(exhausted).headers().estimate(10).write(10).pending(false));
     final Stream happy1 = startStream(3, 5);
     final Stream happy2 = startStream(5, 10);
     verifyFlush(
-        stream(happy1).headers().estimate(5).write(5, END_OF_STREAM),
-        stream(happy2).headers().estimate(10).write(10, END_OF_STREAM));
+        stream(happy1).headers().estimate(5).write(5, END_OF_STREAM).pending(false),
+        stream(happy2).headers().estimate(10).write(10, END_OF_STREAM).pending(false));
   }
 
   @Test
@@ -176,9 +176,9 @@ public class FlowControllerTest {
     final Stream happy = startStream(3, 5);
     final Stream exhausted2 = startStream(5, 30);
     verifyFlush(
-        stream(exhausted1).headers().estimate(10).write(10),
-        stream(happy).headers().estimate(5).write(5, END_OF_STREAM),
-        stream(exhausted2).headers().estimate(10).write(10));
+        stream(exhausted1).headers().estimate(10).write(10).pending(false),
+        stream(happy).headers().estimate(5).write(5, END_OF_STREAM).pending(false),
+        stream(exhausted2).headers().estimate(10).write(10).pending(false));
   }
 
   @Test
@@ -192,8 +192,8 @@ public class FlowControllerTest {
     final Stream streamWindowExhausted1 = startStream(1, 20);
     final Stream streamWindowExhausted2 = startStream(3, 20);
     verifyFlush(
-        stream(streamWindowExhausted1).headers().estimate(10).write(10),
-        stream(streamWindowExhausted2).headers().estimate(10).write(10));
+        stream(streamWindowExhausted1).headers().estimate(10).write(10).pending(false),
+        stream(streamWindowExhausted2).headers().estimate(10).write(10).pending(false));
     assertThat(controller.remoteConnectionWindow(), is(0));
 
     // Update the connection window with enough for the first stream to complete
@@ -204,12 +204,12 @@ public class FlowControllerTest {
 
     // Feed stream windows
     verifyRemoteStreamWindowUpdate(5, streamWindowExhausted1);
-    verifyFlush(stream(streamWindowExhausted1).estimate(5).write(5));
+    verifyFlush(stream(streamWindowExhausted1).estimate(5).write(5).pending(false));
     verifyRemoteStreamWindowUpdate(5, streamWindowExhausted2);
     verifyRemoteStreamWindowUpdate(5, streamWindowExhausted1);
     verifyFlush(
-        stream(streamWindowExhausted2).estimate(5).write(5),
-        stream(streamWindowExhausted1).estimate(5).write(5, END_OF_STREAM));
+        stream(streamWindowExhausted2).estimate(5).write(5).pending(false),
+        stream(streamWindowExhausted1).estimate(5).write(5, END_OF_STREAM).pending(false));
 
     assertThat(controller.remoteConnectionWindow(), is(0));
     assertThat(streamWindowExhausted2.remoteWindow, is(0));
@@ -225,7 +225,7 @@ public class FlowControllerTest {
 
     // Feed stream window and finish stream
     verifyRemoteStreamWindowUpdate(10, streamWindowExhausted2);
-    verifyFlush(stream(streamWindowExhausted2).estimate(5).write(5, END_OF_STREAM));
+    verifyFlush(stream(streamWindowExhausted2).estimate(5).write(5, END_OF_STREAM).pending(false));
   }
 
   @Test
@@ -244,11 +244,57 @@ public class FlowControllerTest {
     // Write:  1  | 0    | 2
 
     final Stream stream = startStream(1, 6);
-    verifyFlush(stream(stream).headers().estimate(3).write(3));
+    verifyFlush(stream(stream).headers().estimate(3).write(3).pending(true));
     verifyRemoteConnectionWindowUpdate(2, stream);
-    verifyFlush(stream(stream).estimate(2).write(2));
+    verifyFlush(stream(stream).estimate(2).write(2).pending(true));
     verifyRemoteConnectionWindowUpdate(3, stream);
-    verifyFlush(stream(stream).estimate(1).write(1, END_OF_STREAM));
+    verifyFlush(stream(stream).estimate(1).write(1, END_OF_STREAM).pending(false));
+  }
+
+  @Test
+  public void testMultipleRemoteStreamWindowUpdates() throws Exception {
+    controller = new FlowController<>(DEFAULT_INITIAL_WINDOW_SIZE, 7);
+
+    final Stream stream = startStream(1, 17);
+
+    // Exhaust stream window
+    verifyFlush(stream(stream).headers().estimate(7).write(7).pending(false));
+
+    // Replenish stream window, twice
+    verifyRemoteStreamWindowUpdate(3, stream);
+    verifyRemoteStreamWindowUpdate(1024, stream);
+
+    // Verify that stream is written once
+    verifyFlush(stream(stream).estimate(10).write(10, END_OF_STREAM).pending(false));
+  }
+
+  @Test
+  public void testRemoteStreamWindowUpdateBeforeFirstFlush() throws Exception {
+    final Stream stream = startStream(1, 17);
+    verifyRemoteStreamWindowUpdate(3, stream);
+    verifyFlush(stream(stream).headers().estimate(17).write(17, END_OF_STREAM).pending(false));
+  }
+
+  @Test
+  public void testRemoteStreamWindowUpdateAndConnectionWindowUpdate() throws Exception {
+    controller = new FlowController<>(7, DEFAULT_INITIAL_WINDOW_SIZE);
+
+    final Stream stream = startStream(1, 17);
+
+    // Exhaust connection window
+    verifyFlush(stream(stream).headers().estimate(7).write(7).pending(true));
+    assertThat(controller.remoteConnectionWindow(), is(0));
+
+    // Replenish stream window
+    verifyRemoteStreamWindowUpdate(1024, stream);
+    assertThat(stream.pending, is(true));
+
+    // Replenish connection window
+    verifyRemoteConnectionWindowUpdate(1024, stream);
+    assertThat(stream.pending, is(true));
+
+    // Verify that the stream is written once
+    verifyFlush(stream(stream).estimate(10).write(10, END_OF_STREAM).pending(false));
   }
 
   private Stream startStream(final int id, final int size) {
@@ -263,6 +309,7 @@ public class FlowControllerTest {
     final int expectedRemoteWindow = currentRemoteWindow + windowIncrease;
     controller.remoteStreamWindowUpdate(stream, windowIncrease);
     assertThat(stream.remoteWindow, is(expectedRemoteWindow));
+    assertThat(stream.pending, is(true));
   }
 
   private void verifyRemoteConnectionWindowUpdate(final int bytes, final Stream... streams) throws Http2Exception {
@@ -273,8 +320,10 @@ public class FlowControllerTest {
     // Record window sizes before update
     final int remoteConnectionWindowPre = controller.remoteConnectionWindow();
     final IdentityHashMap<Stream, Integer> remoteStreamWindowsPre = new IdentityHashMap<>();
+    final IdentityHashMap<Stream, Boolean> pendingPre = new IdentityHashMap<>();
     for (final Stream stream : streams) {
       remoteStreamWindowsPre.put(stream, stream.remoteWindow);
+      pendingPre.put(stream, stream.pending);
     }
 
     // Update the connection window
@@ -283,9 +332,10 @@ public class FlowControllerTest {
     // Verify that the remote connection window was updated
     assertThat(controller.remoteConnectionWindow(), is(remoteConnectionWindowPre + bytes));
 
-    // Verify that stream windows are unchanged
+    // Verify that stream windows and pending status are unchanged
     for (final Stream stream : streams) {
       assertThat(stream.remoteWindow, is(remoteStreamWindowsPre.get(stream)));
+      assertThat(stream.pending, is(pendingPre.get(stream)));
     }
   }
 
@@ -393,6 +443,14 @@ public class FlowControllerTest {
       assertThat(op.stream.remoteWindow, is(expectedStreamWindow));
     }
 
+    // Verify expected pending status of streams
+    for (final FlushOp op : ops) {
+      if (op.pending != null) {
+        assertThat("unexpected stream " + op.stream.id + " pending status",
+                   op.stream.pending, is(op.pending));
+      }
+    }
+
     // Attempt to flush again, should not cause any writes
     controller.flush(ctx, writer);
     verifyNoMoreInteractions(writer);
@@ -421,9 +479,9 @@ public class FlowControllerTest {
     private Set<Flags> headerFlags;
     private List<Integer> estimates = new ArrayList<>();
     private List<Write> writes = new ArrayList<>();
+    private Boolean pending;
 
     FlushOp(final Stream stream) {
-
       this.stream = stream;
     }
 
@@ -449,6 +507,11 @@ public class FlowControllerTest {
 
     FlushOp write(final int bytes, final Flags... flags) {
       this.writes.add(new Write(bytes, 1, ImmutableSet.copyOf(flags)));
+      return this;
+    }
+
+    FlushOp pending(boolean pending) {
+      this.pending = pending;
       return this;
     }
 

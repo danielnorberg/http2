@@ -168,6 +168,7 @@ class FlowController<CTX, STREAM extends Stream> {
       if (remoteConnectionWindowExhausted &&
           stream.data.readableBytes() > 0 &&
           stream.remoteWindow > 0) {
+        stream.pending = true;
         connectionWindowBlockedStreams.add(stream);
       }
     }
@@ -210,6 +211,7 @@ class FlowController<CTX, STREAM extends Stream> {
       }
 
       // This stream is no longer blocking on the connection window. Remove it from the queue.
+      stream.pending = false;
       connectionWindowBlockedStreams.removeFirst();
     }
 
@@ -241,6 +243,7 @@ class FlowController<CTX, STREAM extends Stream> {
       if (remoteConnectionWindowExhausted &&
           stream.data.readableBytes() > 0 &&
           stream.remoteWindow > 0) {
+        stream.pending = true;
         connectionWindowBlockedStreams.add(stream);
       }
     }
@@ -252,6 +255,7 @@ class FlowController<CTX, STREAM extends Stream> {
     // Prepare data frames for all streams that had window updates
     for (int i = 0; i < streamWindowUpdatedStreams.size(); i++) {
       final STREAM stream = streamWindowUpdatedStreams.get(i);
+      stream.pending = false;
       size += prepareDataFrames(writer, stream, ctx);
     }
 
@@ -269,6 +273,7 @@ class FlowController<CTX, STREAM extends Stream> {
     // Prepare headers and data frames for new outgoing streams
     for (int i = 0; i < newStreams.size(); i++) {
       final STREAM stream = newStreams.get(i);
+      stream.pending = false;
       size += writer.estimateInitialHeadersFrameSize(ctx, stream);
       size += prepareDataFrames(writer, stream, ctx);
     }
@@ -290,6 +295,7 @@ class FlowController<CTX, STREAM extends Stream> {
   }
 
   void start(final STREAM stream) {
+    stream.pending = true;
     stream.remoteWindow = remoteInitialStreamWindow;
     newStreams.add(stream);
   }
@@ -323,8 +329,10 @@ class FlowController<CTX, STREAM extends Stream> {
     if (stream.data == null || !stream.data.isReadable()) {
       return;
     }
-    // TODO: handle multiple updates
-    streamWindowUpdatedStreams.add(stream);
+    if (!stream.pending) {
+      stream.pending = true;
+      streamWindowUpdatedStreams.add(stream);
+    }
   }
 
   void remoteMaxFrameSize(final int remoteMaxFrameSize) {

@@ -26,6 +26,11 @@ class Stream {
    */
   int frames;
 
+  /**
+   * Is this stream already pending processing at the next flush?
+   */
+  boolean pending;
+
   Stream(final int id) {
     this(id, null);
   }
