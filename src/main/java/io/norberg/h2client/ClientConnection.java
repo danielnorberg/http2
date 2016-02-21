@@ -95,8 +95,10 @@ class ClientConnection {
 
   private final int localInitialStreamWindow;
   private final int localMaxConnectionWindow;
+
   private final int localConnectionWindowUpdateThreshold;
   private final int localStreamWindowUpdateThreshold;
+
   private int localConnectionWindow;
 
   ClientConnection(final Builder builder) {
@@ -281,9 +283,6 @@ class ClientConnection {
       final ClientStream stream = streamController.existingStream(streamId);
       final int length = data.readableBytes();
 
-      stream.localWindow -= length;
-      localConnectionWindow -= length;
-
       // TODO: allow user to provide codec that can be used to parse payload directly without copying it
 
       ByteBuf content = stream.response.content();
@@ -294,6 +293,9 @@ class ClientConnection {
       }
       content.writeBytes(data);
       maybeDispatch(ctx, endOfStream, stream);
+
+      stream.localWindow -= length;
+      localConnectionWindow -= length;
 
       final boolean updateConnectionWindow = localConnectionWindow < localConnectionWindowUpdateThreshold;
       final boolean updateStreamWindow = !endOfStream && stream.localWindow < localStreamWindowUpdateThreshold;

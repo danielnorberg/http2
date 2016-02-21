@@ -40,7 +40,7 @@ class BenchmarkServer {
 
     final Http2Server server = Http2Server.builder()
         .requestHandler(requestHandler)
-        .initialWindowSize(1024 * 1024)
+        .connectionWindow(1024 * 1024)
         .build();
     final int port = server.bind(4711).get().getPort();
 

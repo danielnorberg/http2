@@ -18,8 +18,6 @@ import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.codec.http2.Http2Settings;
-import io.netty.handler.ssl.SslContext;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
 import static io.norberg.h2client.Util.completableFuture;
@@ -30,24 +28,19 @@ public class Http2Server {
 
   private final ChannelGroup channels = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE, true);
 
-  private final RequestHandler requestHandler;
-
   private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
-  private final SslContext sslCtx;
-  private final Http2Settings settings;
   private final EventLoopGroup group;
 
+  private final ServerConnection.Builder connectionBuilder;
+
   private Http2Server(final Builder builder) {
-    this.requestHandler = Objects.requireNonNull(builder.requestHandler, "requestHandler");
-    this.sslCtx = Util.defaultServerSslContext();
     this.group = Util.defaultEventLoopGroup();
-    this.settings = new Http2Settings();
-    if (builder.maxConcurrentStreams != null) {
-      settings.maxConcurrentStreams(builder.maxConcurrentStreams);
-    }
-    if (builder.initialWindowSize != null) {
-      settings.initialWindowSize(builder.initialWindowSize);
-    }
+    this.connectionBuilder = ServerConnection.builder()
+        .requestHandler(Objects.requireNonNull(builder.requestHandler, "requestHandler"))
+        .sslContext(Util.defaultServerSslContext())
+        .maxConcurrentStreams(builder.maxConcurrentStreams)
+        .connectionWindowSize(builder.connectionWindow)
+        .initialStreamWindowSize(builder.streamWindow);
   }
 
   public CompletableFuture<InetSocketAddress> bind(final int port) {
@@ -91,7 +84,8 @@ public class Http2Server {
     private Integer maxConcurrentStreams;
     private List<InetSocketAddress> bind;
     private RequestHandler requestHandler;
-    private Integer initialWindowSize;
+    private Integer connectionWindow;
+    private Integer streamWindow;
 
     private Builder() {
     }
@@ -119,9 +113,13 @@ public class Http2Server {
       return this;
     }
 
-    public Builder initialWindowSize(final Integer initialWindowSize) {
-      // TODO: separate connection and stream window configuration
-      this.initialWindowSize = initialWindowSize;
+    public Builder connectionWindow(final Integer connectionWindow) {
+      this.connectionWindow = connectionWindow;
+      return this;
+    }
+
+    public Builder streamWindow(final Integer streamWindow) {
+      this.streamWindow = streamWindow;
       return this;
     }
 
@@ -135,8 +133,7 @@ public class Http2Server {
     @Override
     protected void initChannel(SocketChannel ch) throws Exception {
       channels.add(ch);
-      final ServerConnection connection = new ServerConnection(sslCtx, requestHandler, settings);
-      ch.attr(ServerConnection.ATTR_KEY).set(connection);
+      final ServerConnection connection = connectionBuilder.build();
       connection.initialize(ch);
     }
   }

@@ -28,7 +28,6 @@ import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.util.AsciiString;
-import io.netty.util.AttributeKey;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
@@ -54,32 +53,48 @@ import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
 import static io.norberg.h2client.Http2Protocol.CLIENT_PREFACE;
+import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
+import static java.lang.Integer.max;
 
 class ServerConnection {
 
   private static final Logger log = LoggerFactory.getLogger(ServerConnection.class);
 
-  static final AttributeKey<ServerConnection> ATTR_KEY = AttributeKey.newInstance("h2-server-connection");
-
   private final SslContext sslContext;
   private final RequestHandler requestHandler;
 
   private int remoteMaxFrameSize = DEFAULT_MAX_FRAME_SIZE;
-  private long remoteMaxConcurrentStreams = Long.MAX_VALUE;
 
-  private final Http2Settings localSettings;
+  private final Http2Settings localSettings = new Http2Settings();
 
-  // TODO: allow for this to change during the connection lifetime
-  private volatile int localInitialWindowSize;
+  private final int localInitialStreamWindow;
+  private final int localMaxConnectionWindow;
+  private final int localConnectionWindowUpdateThreshold;
+  private final int localStreamWindowUpdateThreshold;
 
-  public ServerConnection(final SslContext sslContext, final RequestHandler requestHandler,
-                          final Http2Settings localSettings) {
-    this.sslContext = Objects.requireNonNull(sslContext, "sslContext");
-    this.requestHandler = Objects.requireNonNull(requestHandler, "requestHandler");
-    this.localSettings = Objects.requireNonNull(localSettings, "localSettings");
-    this.localInitialWindowSize = Optional.ofNullable(localSettings.initialWindowSize()).orElse(DEFAULT_WINDOW_SIZE);
+  private ServerConnection(final Builder builder) {
+    this.sslContext = Objects.requireNonNull(builder.sslContext, "sslContext");
+    this.requestHandler = Objects.requireNonNull(builder.requestHandler, "requestHandler");
+
+    this.localInitialStreamWindow = Optional.ofNullable(builder.initialStreamWindowSize)
+        .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
+    this.localMaxConnectionWindow = Optional.ofNullable(builder.connectionWindowSize)
+        .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
+
+    this.localStreamWindowUpdateThreshold = (localInitialStreamWindow + 1) / 2;
+    this.localConnectionWindowUpdateThreshold = (localMaxConnectionWindow + 1) / 2;
+
+    if (builder.initialStreamWindowSize != null) {
+      localSettings.initialWindowSize(builder.initialStreamWindowSize);
+    }
+    if (builder.maxConcurrentStreams != null) {
+      localSettings.maxConcurrentStreams(builder.maxConcurrentStreams);
+    }
+    if (builder.maxFrameSize != null) {
+      localSettings.maxFrameSize(builder.maxFrameSize);
+    }
   }
 
   public void initialize(final SocketChannel ch) {
@@ -253,13 +268,17 @@ class ServerConnection {
 
     private ChannelHandlerContext ctx;
 
-    private int localWindowUpdateThreshold = (localInitialWindowSize + 1) / 2;
-    private int localWindow = localInitialWindowSize;
-
     /**
      * Stream that headers are currently being read for.
      */
     private ServerStream stream;
+
+    private final int localInitialStreamWindow = ServerConnection.this.localInitialStreamWindow;
+    private final int localMaxConnectionWindow = ServerConnection.this.localMaxConnectionWindow;
+    private final int localConnectionWindowUpdateThreshold = ServerConnection.this.localConnectionWindowUpdateThreshold;
+    private final int localStreamWindowUpdateThreshold = ServerConnection.this.localStreamWindowUpdateThreshold;
+
+    private int localConnectionWindow;
 
     public ConnectionHandler(final Http2Settings settings, final Channel channel,
                              final StreamController<ServerStream> streamController,
@@ -269,6 +288,8 @@ class ServerConnection {
       this.settings = settings;
       this.flusher = BatchFlusher.of(channel);
       this.flowController = flowController;
+
+      this.localConnectionWindow = max(localMaxConnectionWindow, DEFAULT_INITIAL_WINDOW_SIZE);
     }
 
     @Override
@@ -280,8 +301,8 @@ class ServerConnection {
     public void channelActive(final ChannelHandlerContext ctx) throws Exception {
       super.channelActive(ctx);
 
-      // Update channel window size
-      final int sizeIncrement = localInitialWindowSize - DEFAULT_WINDOW_SIZE;
+      // Update connection window size
+      final int sizeIncrement = localMaxConnectionWindow - DEFAULT_WINDOW_SIZE;
       if (sizeIncrement > 0) {
         final ByteBuf buf = ctx.alloc().buffer(WINDOW_UPDATE_FRAME_LENGTH);
         writeWindowUpdate(buf, 0, sizeIncrement);
@@ -305,8 +326,7 @@ class ServerConnection {
       }
       final ServerStream stream = streamController.existingStream(streamId);
       final int length = data.readableBytes();
-      stream.localWindow -= length;
-      localWindow -= length;
+
       final Http2Request request = stream.request;
       ByteBuf content = request.content();
       if (content == null) {
@@ -317,26 +337,28 @@ class ServerConnection {
       content.writeBytes(data);
       maybeDispatch(ctx, endOfStream, stream);
 
-      final boolean updateChannelWindow = localWindow < localWindowUpdateThreshold;
-      final boolean updateStreamWindow = !endOfStream && stream.localWindow < localWindowUpdateThreshold;
-      if (updateChannelWindow || updateStreamWindow) {
-        final int bufSize = (updateChannelWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0) +
+      stream.localWindow -= length;
+      localConnectionWindow -= length;
+
+      final boolean updateConnectionWindow = localConnectionWindow < localConnectionWindowUpdateThreshold;
+      final boolean updateStreamWindow = !endOfStream && stream.localWindow < localStreamWindowUpdateThreshold;
+      if (updateConnectionWindow || updateStreamWindow) {
+        final int bufSize = (updateConnectionWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0) +
                             (updateStreamWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0);
         final ByteBuf buf = ctx.alloc().buffer(bufSize);
-        if (updateChannelWindow) {
-          final int sizeIncrement = localInitialWindowSize - localWindow;
-          localWindow = localInitialWindowSize;
+        if (updateConnectionWindow) {
+          final int sizeIncrement = localMaxConnectionWindow - localConnectionWindow;
+          localConnectionWindow = localMaxConnectionWindow;
           writeWindowUpdate(buf, 0, sizeIncrement);
         }
         if (updateStreamWindow) {
-          final int sizeIncrement = localInitialWindowSize - stream.localWindow;
-          stream.localWindow = localInitialWindowSize;
+          final int sizeIncrement = localInitialStreamWindow - stream.localWindow;
+          stream.localWindow = localInitialStreamWindow;
           writeWindowUpdate(buf, streamId, sizeIncrement);
         }
         ctx.write(buf);
         flusher.flush();
       }
-
       return length + padding;
     }
 
@@ -472,9 +494,6 @@ class ServerConnection {
         Http2Protocol.validateMaxFrameSize(remoteMaxFrameSize);
         flowController.remoteMaxFrameSize(remoteMaxFrameSize);
       }
-      if (settings.maxConcurrentStreams() != null) {
-        remoteMaxConcurrentStreams = settings.maxConcurrentStreams();
-      }
       if (settings.initialWindowSize() != null) {
         flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize(), streamController);
         flusher.flush();
@@ -571,7 +590,7 @@ class ServerConnection {
     private ServerStream newOrExistingStream(final int id) {
       ServerStream stream = streamController.stream(id);
       if (stream == null) {
-        stream = new ServerStream(id, localInitialWindowSize, this);
+        stream = new ServerStream(id, localInitialStreamWindow, this);
         streamController.addStream(stream);
       }
       return stream;
@@ -673,13 +692,61 @@ class ServerConnection {
     void sendResponse(Http2Response response, ServerStream streamId);
   }
 
-  public static class ResponsePromise extends DefaultChannelPromise {
+  private static class ResponsePromise extends DefaultChannelPromise {
 
     final ServerStream stream;
 
     public ResponsePromise(final Channel channel, final ServerStream stream) {
       super(channel);
       this.stream = stream;
+    }
+  }
+
+  public static Builder builder() {
+    return new Builder();
+  }
+
+  public static final class Builder {
+
+    private RequestHandler requestHandler;
+    private SslContext sslContext;
+    private Integer maxConcurrentStreams;
+    private Integer maxFrameSize;
+    private Integer connectionWindowSize;
+    private Integer initialStreamWindowSize;
+
+    public Builder sslContext(final SslContext sslContext) {
+      this.sslContext = sslContext;
+      return this;
+    }
+
+    public Builder requestHandler(final RequestHandler requestHandler) {
+      this.requestHandler = requestHandler;
+      return this;
+    }
+
+    public Builder maxConcurrentStreams(final Integer maxConcurrentStreams) {
+      this.maxConcurrentStreams = maxConcurrentStreams;
+      return this;
+    }
+
+    public Builder maxFrameSize(final Integer maxFrameSize) {
+      this.maxFrameSize = maxFrameSize;
+      return this;
+    }
+
+    public Builder connectionWindowSize(final Integer connectionWindowSize) {
+      this.connectionWindowSize = connectionWindowSize;
+      return this;
+    }
+
+    public Builder initialStreamWindowSize(final Integer initialWindowSize) {
+      this.initialStreamWindowSize = initialWindowSize;
+      return this;
+    }
+
+    public ServerConnection build() {
+      return new ServerConnection(this);
     }
   }
 }

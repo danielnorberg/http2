@@ -41,24 +41,19 @@ public class Http2Client implements ClientConnection.Listener {
   private final InetSocketAddress address;
   private final EventLoopGroup workerGroup;
   private final AsciiString authority;
-  private final SslContext sslContext;
 
   private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
   private final Listener listener;
-
-  private final Integer localConnectionWindowSize;
-  private final Integer localInitialStreamWindowSize;
-  private final Integer localMaxConcurrentStreams;
-  private final Integer localMaxFrameSize;
 
   private volatile int remoteMaxConcurrentStreams = Integer.MAX_VALUE;
 
   private volatile ClientConnection pendingConnection;
   private volatile ClientConnection connection;
   private volatile boolean closed;
+  private ClientConnection.Builder connectionBuilder;
 
   private Http2Client(final Builder builder) {
-    InetSocketAddress address = Objects.requireNonNull(builder.address, "address");
+    final InetSocketAddress address = Objects.requireNonNull(builder.address, "address");
     if (address.getPort() == 0) {
       this.address = InetSocketAddress.createUnresolved(address.getHostString(), DEFAULT_PORT);
       this.authority = new AsciiString(address.getHostString());
@@ -66,16 +61,24 @@ public class Http2Client implements ClientConnection.Listener {
       this.address = address;
       this.authority = new AsciiString(address.getHostString() + ":" + address.getPort());
     }
+
     if (builder.maxConcurrentStreams != null && builder.maxConcurrentStreams < 0) {
       throw new IllegalArgumentException("Invalid maxConcurrentStreams: " + builder.maxConcurrentStreams);
     }
-    this.localMaxConcurrentStreams = builder.maxConcurrentStreams;
-    this.localMaxFrameSize = builder.maxFrameSize;
-    this.localConnectionWindowSize = builder.connectionWindow;
-    this.localInitialStreamWindowSize = builder.streamWindow;
-    this.sslContext = Optional.ofNullable(builder.sslContext).orElseGet(Util::defaultClientSslContext);
+
     this.workerGroup = Util.defaultEventLoopGroup();
     this.listener = Optional.ofNullable(builder.listener).orElse(new ListenerAdapter());
+
+    this.connectionBuilder = ClientConnection.builder()
+        .address(address)
+        .worker(workerGroup.next())
+        .sslContext(Optional.ofNullable(builder.sslContext).orElseGet(Util::defaultClientSslContext))
+        .listener(this)
+        .maxConcurrentStreams(builder.maxConcurrentStreams)
+        .maxFrameSize(builder.maxFrameSize)
+        .connectionWindowSize(builder.connectionWindow)
+        .initialStreamWindowSize(builder.streamWindow);
+
     connect();
   }
 
@@ -166,16 +169,7 @@ public class Http2Client implements ClientConnection.Listener {
       return;
     }
 
-    final ClientConnection pendingConnection = ClientConnection.builder()
-        .address(address)
-        .worker(workerGroup.next())
-        .sslContext(sslContext)
-        .listener(this)
-        .maxConcurrentStreams(localMaxConcurrentStreams)
-        .maxFrameSize(localMaxFrameSize)
-        .connectionWindowSize(localConnectionWindowSize)
-        .initialStreamWindowSize(localInitialStreamWindowSize)
-        .build();
+    final ClientConnection pendingConnection = connectionBuilder.build();
 
     pendingConnection.connect().whenComplete((c, ex) -> {
       if (ex != null) {

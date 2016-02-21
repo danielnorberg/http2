@@ -49,6 +49,8 @@ public class Http2ClientServerTest {
 
   @Theory
   public void testReqRep(
+      @TestedOn(ints = {1, 17, 4711, 65_535}) final int serverConnectionWindow,
+      @TestedOn(ints = {1, 17, 4711, 65_535}) final int serverStreamWindow,
       @TestedOn(ints = {1, 17, 4711, 65_535}) final int clientConnectionWindow,
       @TestedOn(ints = {1, 17, 4711, 65_535}) final int clientStreamWindow) throws Exception {
 
@@ -57,7 +59,12 @@ public class Http2ClientServerTest {
             OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8)));
 
     // Start server
-    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server = autoClosing(
+        Http2Server.builder()
+            .requestHandler(requestHandler)
+            .connectionWindow(serverConnectionWindow)
+            .streamWindow(serverStreamWindow)
+            .build());
     final int port = server.bind(0).get().getPort();
 
     // Start client
@@ -97,7 +104,8 @@ public class Http2ClientServerTest {
     final Http2Server server = autoClosing(
         Http2Server.builder()
             .requestHandler(requestHandler)
-            .initialWindowSize(256 * 1024)
+            .connectionWindow(1024 * 1024)
+            .streamWindow(256 * 1024)
             .build());
     final int port = server.bind(0).get().getPort();
 
