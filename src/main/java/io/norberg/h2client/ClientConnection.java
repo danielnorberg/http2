@@ -280,6 +280,7 @@ class ClientConnection {
       }
       final ClientStream stream = streamController.existingStream(streamId);
       final int length = data.readableBytes();
+
       stream.localWindow -= length;
       localConnectionWindow -= length;
 
@@ -576,10 +577,8 @@ class ClientConnection {
     private final RequestPromise requestPromise;
     private final Http2Response response = new Http2Response();
 
-    private int localWindow;
-
-    public ClientStream(final int id, final Http2Request request, final RequestPromise requestPromise,
-                        final int localWindow) {
+    public ClientStream(final int id, final int localWindow, final Http2Request request,
+                        final RequestPromise requestPromise) {
       super(id, request.content());
       this.request = request;
       this.requestPromise = requestPromise;
@@ -629,7 +628,7 @@ class ClientConnection {
 
       // Generate ID and store response future in stream map to correlate with responses
       final int streamId = nextStreamId();
-      final ClientStream stream = new ClientStream(streamId, request, requestPromise, localInitialStreamWindow);
+      final ClientStream stream = new ClientStream(streamId, localInitialStreamWindow, request, requestPromise);
       streamController.addStream(stream);
       flowController.start(stream);
     }

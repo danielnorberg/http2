@@ -571,7 +571,7 @@ class ServerConnection {
     private ServerStream newOrExistingStream(final int id) {
       ServerStream stream = streamController.stream(id);
       if (stream == null) {
-        stream = new ServerStream(id, this, localInitialWindowSize);
+        stream = new ServerStream(id, localInitialWindowSize, this);
         streamController.addStream(stream);
       }
       return stream;
@@ -652,9 +652,7 @@ class ServerConnection {
     private final ResponseChannel channel;
     private Http2Response response;
 
-    private int localWindow;
-
-    public ServerStream(final int id, final ResponseChannel channel, final int localWindow) {
+    public ServerStream(final int id, final int localWindow, final ResponseChannel channel) {
       super(id);
       this.channel = channel;
       this.localWindow = localWindow;

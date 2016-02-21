@@ -2,9 +2,16 @@ package io.norberg.h2client;
 
 import io.netty.buffer.ByteBuf;
 
+/**
+ * A flow controlled stream.
+ */
 class Stream {
 
   final int id;
+
+  //================================================================================
+  // Outgoing (remote) flow control
+  //================================================================================
 
   /**
    * Outgoing data buffer.
@@ -35,6 +42,12 @@ class Stream {
    * Has this stream started sending?
    */
   boolean started;
+
+  //================================================================================
+  // Incoming (local) flow control
+  //================================================================================
+
+  int localWindow;
 
   Stream(final int id) {
     this(id, null);
