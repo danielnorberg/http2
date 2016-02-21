@@ -64,6 +64,7 @@ import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.h2client.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
+import static java.lang.Integer.max;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
@@ -105,9 +106,9 @@ class ClientConnection {
         .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
     this.localMaxConnectionWindow = Optional.ofNullable(builder.connectionWindowSize)
         .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
-    this.localConnectionWindow = localMaxConnectionWindow;
-    this.localStreamWindowUpdateThreshold = localInitialStreamWindow / 2;
-    this.localConnectionWindowUpdateThreshold = localMaxConnectionWindow / 2;
+    this.localConnectionWindow = max(localMaxConnectionWindow, DEFAULT_INITIAL_WINDOW_SIZE);
+    this.localStreamWindowUpdateThreshold = (localInitialStreamWindow + 1) / 2;
+    this.localConnectionWindowUpdateThreshold = (localMaxConnectionWindow + 1) / 2;
 
     if (builder.initialStreamWindowSize != null) {
       localSettings.initialWindowSize(builder.initialStreamWindowSize);

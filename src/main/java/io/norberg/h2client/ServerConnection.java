@@ -253,7 +253,7 @@ class ServerConnection {
 
     private ChannelHandlerContext ctx;
 
-    private int localWindowUpdateThreshold = localInitialWindowSize / 2;
+    private int localWindowUpdateThreshold = (localInitialWindowSize + 1) / 2;
     private int localWindow = localInitialWindowSize;
 
     /**
