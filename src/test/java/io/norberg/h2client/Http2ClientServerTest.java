@@ -90,7 +90,8 @@ public class Http2ClientServerTest {
     final Http2Client client = autoClosing(
         Http2Client.builder()
             .address("127.0.0.1", port)
-            .initialWindowSize(256 * 1024)
+            .connectionWindow(256 * 1024)
+            .streamWindow(256 * 1024)
             .build());
 
     // Make a large request

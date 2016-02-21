@@ -92,20 +92,25 @@ class ClientConnection {
   private int remoteMaxConcurrentStreams = Integer.MAX_VALUE;
   private int remoteMaxHeaderListSize = Integer.MAX_VALUE;
 
-  private volatile int initialLocalWindow;
-
-  private int localWindowUpdateThreshold;
-  private int localWindow;
+  private final int localInitialStreamWindow;
+  private final int localMaxConnectionWindow;
+  private final int localConnectionWindowUpdateThreshold;
+  private final int localStreamWindowUpdateThreshold;
+  private int localConnectionWindow;
 
   ClientConnection(final Builder builder) {
     this.listener = requireNonNull(builder.listener, "listener");
 
-    this.initialLocalWindow = Optional.ofNullable(builder.initialWindowSize).orElse(DEFAULT_INITIAL_WINDOW_SIZE);
-    this.localWindowUpdateThreshold = initialLocalWindow / 2;
-    this.localWindow = initialLocalWindow;
+    this.localInitialStreamWindow = Optional.ofNullable(builder.initialStreamWindowSize)
+        .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
+    this.localMaxConnectionWindow = Optional.ofNullable(builder.connectionWindowSize)
+        .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
+    this.localConnectionWindow = localMaxConnectionWindow;
+    this.localStreamWindowUpdateThreshold = localInitialStreamWindow / 2;
+    this.localConnectionWindowUpdateThreshold = localMaxConnectionWindow / 2;
 
-    if (builder.initialWindowSize != null) {
-      localSettings.initialWindowSize(initialLocalWindow);
+    if (builder.initialStreamWindowSize != null) {
+      localSettings.initialWindowSize(builder.initialStreamWindowSize);
     }
     if (builder.maxConcurrentStreams != null) {
       localSettings.maxConcurrentStreams(builder.maxConcurrentStreams);
@@ -227,7 +232,7 @@ class ClientConnection {
       writeSettings(ctx);
 
       // Update channel window size
-      final int sizeIncrement = initialLocalWindow - DEFAULT_WINDOW_SIZE;
+      final int sizeIncrement = localInitialStreamWindow - DEFAULT_WINDOW_SIZE;
       if (sizeIncrement > 0) {
         final ByteBuf buf = ctx.alloc().buffer(WINDOW_UPDATE_FRAME_LENGTH);
         writeWindowUpdate(buf, 0, sizeIncrement);
@@ -275,7 +280,7 @@ class ClientConnection {
       final ClientStream stream = streamController.existingStream(streamId);
       final int length = data.readableBytes();
       stream.localWindow -= length;
-      localWindow -= length;
+      localConnectionWindow -= length;
 
       // TODO: allow user to provide codec that can be used to parse payload directly without copying it
 
@@ -288,20 +293,20 @@ class ClientConnection {
       content.writeBytes(data);
       maybeDispatch(ctx, endOfStream, stream);
 
-      final boolean updateChannelWindow = localWindow < localWindowUpdateThreshold;
-      final boolean updateStreamWindow = !endOfStream && stream.localWindow < localWindowUpdateThreshold;
-      if (updateChannelWindow || updateStreamWindow) {
-        final int bufSize = (updateChannelWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0) +
+      final boolean updateConnectionWindow = localConnectionWindow < localConnectionWindowUpdateThreshold;
+      final boolean updateStreamWindow = !endOfStream && stream.localWindow < localStreamWindowUpdateThreshold;
+      if (updateConnectionWindow || updateStreamWindow) {
+        final int bufSize = (updateConnectionWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0) +
                             (updateStreamWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0);
         final ByteBuf buf = ctx.alloc().buffer(bufSize);
-        if (updateChannelWindow) {
-          final int sizeIncrement = initialLocalWindow - localWindow;
-          localWindow = initialLocalWindow;
+        if (updateConnectionWindow) {
+          final int sizeIncrement = localMaxConnectionWindow - localConnectionWindow;
+          localConnectionWindow = localMaxConnectionWindow;
           writeWindowUpdate(buf, 0, sizeIncrement);
         }
         if (updateStreamWindow) {
-          final int sizeIncrement = initialLocalWindow - stream.localWindow;
-          stream.localWindow = initialLocalWindow;
+          final int sizeIncrement = localInitialStreamWindow - stream.localWindow;
+          stream.localWindow = localInitialStreamWindow;
           writeWindowUpdate(buf, streamId, sizeIncrement);
         }
         ctx.write(buf);
@@ -623,7 +628,7 @@ class ClientConnection {
 
       // Generate ID and store response future in stream map to correlate with responses
       final int streamId = nextStreamId();
-      final ClientStream stream = new ClientStream(streamId, request, requestPromise, initialLocalWindow);
+      final ClientStream stream = new ClientStream(streamId, request, requestPromise, localInitialStreamWindow);
       streamController.addStream(stream);
       flowController.start(stream);
     }
@@ -731,7 +736,8 @@ class ClientConnection {
 
     private Integer maxConcurrentStreams;
     private Integer maxFrameSize;
-    private Integer initialWindowSize;
+    private Integer connectionWindowSize;
+    private Integer initialStreamWindowSize;
 
     public Builder address(final InetSocketAddress address) {
       this.address = address;
@@ -763,8 +769,13 @@ class ClientConnection {
       return this;
     }
 
-    public Builder initialWindowSize(final Integer initialWindowSize) {
-      this.initialWindowSize = initialWindowSize;
+    public Builder connectionWindowSize(final Integer connectionWindowSize) {
+      this.connectionWindowSize = connectionWindowSize;
+      return this;
+    }
+
+    public Builder initialStreamWindowSize(final Integer initialWindowSize) {
+      this.initialStreamWindowSize = initialWindowSize;
       return this;
     }
 

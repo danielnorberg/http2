@@ -46,7 +46,8 @@ public class Http2Client implements ClientConnection.Listener {
   private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
   private final Listener listener;
 
-  private final Integer localInitialWindowSize;
+  private final Integer localConnectionWindowSize;
+  private final Integer localInitialStreamWindowSize;
   private final Integer localMaxConcurrentStreams;
   private final Integer localMaxFrameSize;
 
@@ -70,7 +71,8 @@ public class Http2Client implements ClientConnection.Listener {
     }
     this.localMaxConcurrentStreams = builder.maxConcurrentStreams;
     this.localMaxFrameSize = builder.maxFrameSize;
-    this.localInitialWindowSize = builder.initialWindowSize;
+    this.localConnectionWindowSize = builder.connectionWindow;
+    this.localInitialStreamWindowSize = builder.streamWindow;
     this.sslContext = Optional.ofNullable(builder.sslContext).orElseGet(Util::defaultClientSslContext);
     this.workerGroup = Util.defaultEventLoopGroup();
     this.listener = Optional.ofNullable(builder.listener).orElse(new ListenerAdapter());
@@ -171,7 +173,8 @@ public class Http2Client implements ClientConnection.Listener {
         .listener(this)
         .maxConcurrentStreams(localMaxConcurrentStreams)
         .maxFrameSize(localMaxFrameSize)
-        .initialWindowSize(localInitialWindowSize)
+        .connectionWindowSize(localConnectionWindowSize)
+        .initialStreamWindowSize(localInitialStreamWindowSize)
         .build();
 
     pendingConnection.connect().whenComplete((c, ex) -> {
@@ -296,7 +299,8 @@ public class Http2Client implements ClientConnection.Listener {
 
     private Integer maxConcurrentStreams = DEFAULT_MAX_CONCURRENT_STREAMS;
     private Integer maxFrameSize;
-    private Integer initialWindowSize;
+    private Integer connectionWindow;
+    private Integer streamWindow;
 
     public Builder address(final String host) {
       return address(InetSocketAddress.createUnresolved(host, 0));
@@ -330,9 +334,13 @@ public class Http2Client implements ClientConnection.Listener {
       return this;
     }
 
-    public Builder initialWindowSize(final Integer initialWindowSize) {
-      // TODO: separate connection and stream window configuration
-      this.initialWindowSize = initialWindowSize;
+    public Builder connectionWindow(final Integer connectionWindow) {
+      this.connectionWindow = connectionWindow;
+      return this;
+    }
+
+    public Builder streamWindow(final Integer streamWindow) {
+      this.streamWindow = streamWindow;
       return this;
     }
 
