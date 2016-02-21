@@ -231,8 +231,8 @@ class ClientConnection {
       ctx.write(Unpooled.wrappedBuffer(CLIENT_PREFACE.array()));
       writeSettings(ctx);
 
-      // Update channel window size
-      final int sizeIncrement = localInitialStreamWindow - DEFAULT_WINDOW_SIZE;
+      // Update connection window size
+      final int sizeIncrement = localMaxConnectionWindow - DEFAULT_WINDOW_SIZE;
       if (sizeIncrement > 0) {
         final ByteBuf buf = ctx.alloc().buffer(WINDOW_UPDATE_FRAME_LENGTH);
         writeWindowUpdate(buf, 0, sizeIncrement);
