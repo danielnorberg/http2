@@ -53,12 +53,12 @@ public class Http2Client implements ClientConnection.Listener {
   private ClientConnection.Builder connectionBuilder;
 
   private Http2Client(final Builder builder) {
-    final InetSocketAddress address = Objects.requireNonNull(builder.address, "address");
-    if (address.getPort() == 0) {
-      this.address = InetSocketAddress.createUnresolved(address.getHostString(), DEFAULT_PORT);
+    Objects.requireNonNull(builder.address, "address");
+    if (builder.address.getPort() == 0) {
+      this.address = InetSocketAddress.createUnresolved(builder.address.getHostString(), DEFAULT_PORT);
       this.authority = new AsciiString(address.getHostString());
     } else {
-      this.address = address;
+      this.address = builder.address;
       this.authority = new AsciiString(address.getHostString() + ":" + address.getPort());
     }
 
