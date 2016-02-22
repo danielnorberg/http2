@@ -1,13 +1,16 @@
-package io.norberg.h2client;
+package io.norberg.h2client.integration;
 
 import org.junit.Test;
 
 import java.util.concurrent.CompletableFuture;
 
+import io.norberg.h2client.Http2Client;
+import io.norberg.h2client.Http2Response;
+
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
-public class Http2ClientTest {
+public class Http2ClientIT {
 
   @Test
   public void testGet() throws Exception {

@@ -1,12 +1,10 @@
 package io.norberg.h2client;
 
 import org.junit.After;
-import org.junit.Before;
-import org.junit.experimental.theories.Theories;
-import org.junit.experimental.theories.Theory;
-import org.junit.experimental.theories.suppliers.TestedOn;
+import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.mockito.runners.MockitoJUnitRunner;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,9 +24,8 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
-import static org.mockito.MockitoAnnotations.initMocks;
 
-@RunWith(Theories.class)
+@RunWith(MockitoJUnitRunner.class)
 public class Http2ClientServerTest {
 
   private final List<Http2Server> servers = new ArrayList<>();
@@ -36,44 +33,26 @@ public class Http2ClientServerTest {
 
   @Mock Http2Client.Listener listener;
 
-  @Before
-  public void setUp() throws Exception {
-    initMocks(this);
-  }
-
   @After
   public void tearDown() throws Exception {
     servers.forEach(Http2Server::close);
     clients.forEach(Http2Client::close);
   }
 
-  @Theory
-  public void testReqRep(
-      @TestedOn(ints = {1, 17, 4711, 65_535}) final int serverConnectionWindow,
-      @TestedOn(ints = {1, 17, 4711, 65_535}) final int serverStreamWindow,
-      @TestedOn(ints = {1, 17, 4711, 65_535}) final int clientConnectionWindow,
-      @TestedOn(ints = {1, 17, 4711, 65_535}) final int clientStreamWindow) throws Exception {
+  @Test
+  public void testReqRep() throws Exception {
 
     final RequestHandler requestHandler = (context, request) ->
         context.respond(request.response(
             OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8)));
 
     // Start server
-    final Http2Server server = autoClosing(
-        Http2Server.builder()
-            .requestHandler(requestHandler)
-            .connectionWindow(serverConnectionWindow)
-            .streamWindow(serverStreamWindow)
-            .build());
+    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
     final int port = server.bind(0).get().getPort();
 
     // Start client
     final Http2Client client = autoClosing(
-        Http2Client.builder()
-            .address("127.0.0.1", port)
-            .connectionWindow(clientConnectionWindow)
-            .streamWindow(clientStreamWindow)
-            .build());
+        Http2Client.of("127.0.0.1", port));
 
     // Make a request (queued and sent when the connection is up)
     {
@@ -92,7 +71,7 @@ public class Http2ClientServerTest {
     }
   }
 
-  @Theory
+    @Test
   public void testLargeReqRep() throws Exception {
 
     // Large response
@@ -129,7 +108,7 @@ public class Http2ClientServerTest {
     assertThat(responsePayload, is(expectedResponsePaylod));
   }
 
-  @Theory
+    @Test
   public void testClientReconnects() throws Exception {
     final RequestHandler requestHandler = (context, request) ->
         context.respond(request.response(
