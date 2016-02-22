@@ -55,9 +55,9 @@ Benchmark
 =========
 
 ```
-mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath -Dio.netty.noResourceLeakDetection io.norberg.h2client.benchmarks.BenchmarkServer"
+mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath -Dio.netty.leakDetection.level=disabled io.norberg.h2client.benchmarks.BenchmarkServer"
 ```
 
 ```
-mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath -Dio.netty.noResourceLeakDetection io.norberg.h2client.benchmarks.BenchmarkClient"
+mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath -Dio.netty.leakDetection.level=disabled io.norberg.h2client.benchmarks.BenchmarkClient"
 ```
