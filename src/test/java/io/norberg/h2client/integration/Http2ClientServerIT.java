@@ -1,9 +1,11 @@
 package io.norberg.h2client.integration;
 
 import com.googlecode.junittoolbox.ParallelRunner;
+import com.spotify.logging.LoggingConfigurator;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.experimental.theories.Theory;
 import org.junit.experimental.theories.suppliers.TestedOn;
 import org.junit.runner.RunWith;
@@ -13,12 +15,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
+import ch.qos.logback.classic.BasicConfigurator;
 import io.netty.buffer.Unpooled;
 import io.norberg.h2client.Http2Client;
 import io.norberg.h2client.Http2Response;
 import io.norberg.h2client.Http2Server;
 import io.norberg.h2client.RequestHandler;
 
+import static com.spotify.logging.LoggingConfigurator.Level.INFO;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.util.CharsetUtil.UTF_8;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -33,6 +37,12 @@ public class Http2ClientServerIT {
   private final List<Http2Client> clients = new ArrayList<>();
 
   @Mock Http2Client.Listener listener;
+
+  @BeforeClass
+  public static void configureLogging() {
+    BasicConfigurator.configureDefaultContext();
+    LoggingConfigurator.configureDefaults("test", INFO);
+  }
 
   @Before
   public void setUp() throws Exception {
