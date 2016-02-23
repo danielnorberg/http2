@@ -704,7 +704,7 @@ class ClientConnection {
       buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
       final int size = encodeHeaders(stream.request, buf);
 
-      if (size > remoteMaxConcurrentStreams) {
+      if (size > remoteMaxFrameSize) {
         // TODO: continuation frames
         throw new AssertionError();
       }
