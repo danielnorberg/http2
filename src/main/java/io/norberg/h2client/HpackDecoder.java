@@ -51,7 +51,7 @@ class HpackDecoder {
         // 6.2.2 Literal Header Field without Indexing
         if (b != 0) {
           // Literal Header Field without Indexing — Indexed Name
-          header = readLiteralHeaderFieldIndexedName(b, in, 7, false);
+          header = readLiteralHeaderFieldIndexedName(b, in, 4, false);
         } else {
           // Literal Header Field without Indexing — New Name
           header = readLiteralHeaderFieldNewName(in, false);

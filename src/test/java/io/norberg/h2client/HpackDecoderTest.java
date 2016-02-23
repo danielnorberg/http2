@@ -1,5 +1,7 @@
 package io.norberg.h2client;
 
+import com.google.common.io.BaseEncoding;
+
 import com.twitter.hpack.Encoder;
 
 import org.hamcrest.Matchers;
@@ -27,6 +29,8 @@ public class HpackDecoderTest {
 
   public static final AsciiString FOO = AsciiString.of("foo");
   public static final AsciiString BAR = AsciiString.of("bar");
+  public static final AsciiString BAZ = AsciiString.of("baz");
+  public static final AsciiString QUUX = AsciiString.of("quux");
 
   @Mock HpackDecoder.Listener listener;
 
@@ -44,7 +48,7 @@ public class HpackDecoderTest {
   }
 
   @Test
-  public void testDecodeUnindexed() throws Exception {
+  public void testDecodeUnindexedNewName() throws Exception {
     final Encoder encoder = new Encoder(0);
     final ByteBuf block = Unpooled.buffer();
     final OutputStream os = new ByteBufOutputStream(block);
@@ -57,6 +61,45 @@ public class HpackDecoderTest {
 
     // Verify that the header did not get indexed
     assertThat(decoder.tableLength(), is(0));
+  }
+
+  @Test
+  public void testDecodeSensitiveIndexedName() throws Exception {
+    final Encoder encoder = new Encoder(Integer.MAX_VALUE);
+    final ByteBuf block = Unpooled.buffer();
+    final OutputStream os = new ByteBufOutputStream(block);
+    encoder.encodeHeader(os, FOO.array(), BAR.array(), false);
+    encoder.encodeHeader(os, FOO.array(), BAZ.array(), true);
+
+    final HpackDecoder decoder = new HpackDecoder(Integer.MAX_VALUE);
+    decoder.decode(block, listener);
+
+    verify(listener).header(Http2Header.of(FOO, BAR, false));
+    verify(listener).header(Http2Header.of(FOO, BAZ, true));
+
+    // Verify that only the indexable header got indexed
+    assertThat(decoder.tableLength(), is(1));
+  }
+
+  @Test
+  public void testDecodeLiteralIndexedName() throws Exception {
+    // force "foo: quux" to not be indexed as it will exceed the max header table size
+    final int maxHeaderTableSize = 32 + FOO.length() + BAR.length();
+
+    final Encoder encoder = new Encoder(maxHeaderTableSize);
+    final ByteBuf block = Unpooled.buffer();
+    final OutputStream os = new ByteBufOutputStream(block);
+    encoder.encodeHeader(os, FOO.array(), BAR.array(), false);
+    encoder.encodeHeader(os, FOO.array(), QUUX.array(), false);
+
+    final HpackDecoder decoder = new HpackDecoder(maxHeaderTableSize);
+    decoder.decode(block, listener);
+
+    verify(listener).header(Http2Header.of(FOO, BAR, false));
+    verify(listener).header(Http2Header.of(FOO, QUUX, false));
+
+    // Verify that only the indexable header got indexed
+    assertThat(decoder.tableLength(), is(1));
   }
 
   @Test
@@ -94,5 +137,14 @@ public class HpackDecoderTest {
     decoder.decode(block, listener);
 
     assertThat(decoder.maxTableSize(), is(4711));
+  }
+
+  @Test
+  public void testLiteralIndexedNameHeadersFromTheWild() throws Exception {
+    final HpackDecoder decoder = new HpackDecoder(Integer.MAX_VALUE);
+    final ByteBuf block = Unpooled.wrappedBuffer(BaseEncoding.base16().lowerCase().decode("08033230300f0d03313038"));
+    decoder.decode(block, listener);
+    verify(listener).header(Http2Header.of(":status", AsciiString.of(String.valueOf(200))));
+    verify(listener).header(Http2Header.of("content-length", AsciiString.of(String.valueOf(108))));
   }
 }
