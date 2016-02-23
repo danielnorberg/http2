@@ -700,7 +700,7 @@ class ClientConnection {
                                          final boolean endOfStream) throws Http2Exception {
       final int headerIndex = buf.writerIndex();
 
-      buf.ensureWritable(FRAME_HEADER_LENGTH);
+      assert buf.writableBytes() >= FRAME_HEADER_LENGTH;
       buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
       final int size = encodeHeaders(stream.request, buf);
 
