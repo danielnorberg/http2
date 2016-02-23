@@ -11,7 +11,7 @@
   <url>http://maven.apache.org</url>
 
   <properties>
-    <netty.version>4.1.0.CR1</netty.version>
+    <netty.version>4.1.0.CR3</netty.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
@@ -95,7 +95,7 @@
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-tcnative</artifactId>
-      <version>1.1.33.Fork12</version>
+      <version>1.1.33.Fork14</version>
       <classifier>${os.detected.classifier}</classifier>
       <scope>test</scope>
     </dependency>
