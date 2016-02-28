@@ -110,12 +110,12 @@ class ServerConnection {
     ch.pipeline().addLast(
         sslHandler,
         new PrefaceHandler(localSettings),
-        new WriteHandler(streamController, flowController),
-        new ConnectionHandler(localSettings, ch, streamController, flowController),
+        new OutboundHandler(streamController, flowController),
+        new InboundHandler(localSettings, ch, streamController, flowController),
         new ExceptionHandler());
   }
 
-  private class WriteHandler extends ChannelDuplexHandler
+  private class OutboundHandler extends ChannelDuplexHandler
       implements StreamWriter<ChannelHandlerContext, ServerStream> {
 
     private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
@@ -125,8 +125,8 @@ class ServerConnection {
 
     private boolean inActive;
 
-    public WriteHandler(final StreamController<ServerStream> streamController,
-                        final FlowController<ChannelHandlerContext, ServerStream> flowController) {
+    public OutboundHandler(final StreamController<ServerStream> streamController,
+                           final FlowController<ChannelHandlerContext, ServerStream> flowController) {
       this.streamController = streamController;
       this.flowController = flowController;
     }
@@ -141,13 +141,13 @@ class ServerConnection {
     public void write(final ChannelHandlerContext ctx, final Object msg, final ChannelPromise promise)
         throws Exception {
 
-      if (!(msg instanceof Http2Response)) {
-        super.write(ctx, msg, promise);
+      if (inActive) {
+        promise.tryFailure(new ConnectionClosedException());
         return;
       }
 
-      if (inActive) {
-        promise.tryFailure(new ConnectionClosedException());
+      if (!(msg instanceof Http2Response)) {
+        super.write(ctx, msg, promise);
         return;
       }
 
@@ -157,6 +157,7 @@ class ServerConnection {
       final ServerStream stream = responsePromise.stream;
       stream.response = response;
       stream.data = response.content();
+
       flowController.start(stream);
     }
 
@@ -256,7 +257,7 @@ class ServerConnection {
     }
   }
 
-  private class ConnectionHandler extends ByteToMessageDecoder implements Http2FrameListener, ResponseChannel {
+  private class InboundHandler extends ByteToMessageDecoder implements Http2FrameListener, ResponseChannel {
 
     private final Http2FrameReader reader;
     private final Http2Settings settings;
@@ -280,9 +281,9 @@ class ServerConnection {
 
     private int localConnectionWindow;
 
-    public ConnectionHandler(final Http2Settings settings, final Channel channel,
-                             final StreamController<ServerStream> streamController,
-                             final FlowController<ChannelHandlerContext, ServerStream> flowController) {
+    public InboundHandler(final Http2Settings settings, final Channel channel,
+                          final StreamController<ServerStream> streamController,
+                          final FlowController<ChannelHandlerContext, ServerStream> flowController) {
       this.streamController = streamController;
       this.reader = new Http2FrameReader(new HpackDecoder(DEFAULT_HEADER_TABLE_SIZE), this);
       this.settings = settings;
