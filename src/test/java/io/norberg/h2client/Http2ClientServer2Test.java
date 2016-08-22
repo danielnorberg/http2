@@ -26,17 +26,17 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 @RunWith(MockitoJUnitRunner.class)
-public class Http2ClientServerTest {
+public class Http2ClientServer2Test {
 
-  private final List<Http2Server> servers = new ArrayList<>();
-  private final List<Http2Client> clients = new ArrayList<>();
+  private final List<Http2Server2> servers = new ArrayList<>();
+  private final List<Http2Client2> clients = new ArrayList<>();
 
-  @Mock Http2Client.Listener listener;
+  @Mock Http2Client2.Listener listener;
 
   @After
   public void tearDown() throws Exception {
-    servers.forEach(Http2Server::close);
-    clients.forEach(Http2Client::close);
+    servers.forEach(Http2Server2::close);
+    clients.forEach(Http2Client2::close);
   }
 
   @Test
@@ -47,17 +47,17 @@ public class Http2ClientServerTest {
             OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8)));
 
     // Start server
-    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server2 server = autoClosing(Http2Server2.create(requestHandler));
     final int port = server.bind(0).get().getPort();
 
     // Start client
-    final Http2Client client = autoClosing(
-        Http2Client.of("127.0.0.1", port));
+    final Http2Client2 client = autoClosing(
+        Http2Client2.of("127.0.0.1", port));
 
     // Make a request (queued and sent when the connection is up)
     {
       final CompletableFuture<Http2Response> future = client.get("/world/1");
-      final Http2Response response = future.get(30, SECONDS);
+      final Http2Response response = future.get(3000, SECONDS);
       assertThat(response.status(), is(OK));
       final String payload = response.content().toString(UTF_8);
       assertThat(payload, is("hello: /world/1"));
@@ -82,8 +82,8 @@ public class Http2ClientServerTest {
             OK, Unpooled.copiedBuffer(request.content())));
 
     // Start server
-    final Http2Server server = autoClosing(
-        Http2Server.builder()
+    final Http2Server2 server = autoClosing(
+        Http2Server2.builder()
             .requestHandler(requestHandler)
             .connectionWindow(1024 * 1024)
             .streamWindow(256 * 1024)
@@ -91,8 +91,8 @@ public class Http2ClientServerTest {
     final int port = server.bind(0).get().getPort();
 
     // Start client
-    final Http2Client client = autoClosing(
-        Http2Client.builder()
+    final Http2Client2 client = autoClosing(
+        Http2Client2.builder()
             .address("127.0.0.1", port)
             .connectionWindow(1024 * 1024)
             .streamWindow(256 * 1024)
@@ -117,12 +117,12 @@ public class Http2ClientServerTest {
             OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server
-    final Http2Server server1 = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server2 server1 = autoClosing(Http2Server2.create(requestHandler));
     final int port = server1.bind(0).get().getPort();
 
     // Make a successful request
-    final Http2Client client = autoClosing(
-        Http2Client.builder()
+    final Http2Client2 client = autoClosing(
+        Http2Client2.builder()
             .listener(listener)
             .address("127.0.0.1", port)
             .build());
@@ -144,7 +144,7 @@ public class Http2ClientServerTest {
     }
 
     // Start server again
-    final Http2Server server2 = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server2 server2 = autoClosing(Http2Server2.create(requestHandler));
     server2.bind(port).get();
     verify(listener, timeout(30000).times(2)).connectionEstablished(client);
 
@@ -152,12 +152,12 @@ public class Http2ClientServerTest {
     client.get("/hello2").get(30, SECONDS);
   }
 
-  private Http2Server autoClosing(final Http2Server server) {
+  private Http2Server2 autoClosing(final Http2Server2 server) {
     servers.add(server);
     return server;
   }
 
-  private Http2Client autoClosing(final Http2Client client) {
+  private Http2Client2 autoClosing(final Http2Client2 client) {
     clients.add(client);
     return client;
   }

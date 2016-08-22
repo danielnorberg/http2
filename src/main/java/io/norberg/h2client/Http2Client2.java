@@ -78,10 +78,8 @@ public class Http2Client2 implements ClientConnection2.Listener {
     this.listener = Optional.ofNullable(builder.listener).orElse(new ListenerAdapter());
 
     this.connectionBuilder = ClientConnection2.builder()
-        .address(address)
-        .worker(workerGroup.next())
-        .sslContext(Optional.ofNullable(builder.sslContext).orElseGet(Util::defaultClientSslContext))
         .listener(this)
+        .sslContext(Optional.ofNullable(builder.sslContext).orElseGet(Util::defaultClientSslContext))
         .maxConcurrentStreams(builder.maxConcurrentStreams)
         .maxFrameSize(builder.maxFrameSize)
         .connectionWindowSize(builder.connectionWindow)
@@ -177,7 +175,7 @@ public class Http2Client2 implements ClientConnection2.Listener {
       return;
     }
     final Bootstrap b = new Bootstrap()
-        .group(connectionBuilder.worker())
+        .group(workerGroup)
         .channel(NioSocketChannel.class)
         .option(ChannelOption.SO_KEEPALIVE, true)
         .remoteAddress(address)

@@ -4,6 +4,7 @@ import java.nio.channels.ClosedChannelException;
 import java.util.Map;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -172,6 +173,16 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2, ClientConn
   @Override
   protected void readData(final ClientStream stream, final ByteBuf data, final int padding,
                           final boolean endOfStream) {
+
+    // TODO: allow user to provide codec that can be used to parse payload directly without copying it
+
+    ByteBuf content = stream.response.content();
+    if (content == null) {
+      stream.response.content(Unpooled.copiedBuffer(data));
+    } else {
+      content.writeBytes(data);
+    }
+
     if (endOfStream) {
       dispatchResponse(stream);
     }
@@ -259,6 +270,10 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2, ClientConn
 
     private Listener listener;
 
+    Listener listener() {
+      return listener;
+    }
+
     Builder listener(final Listener listener) {
       this.listener = listener;
       return this;
@@ -308,8 +323,8 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2, ClientConn
     public void channelActive(final ChannelHandlerContext ctx) throws Exception {
       super.channelActive(ctx);
       writePreface(ctx);
-      ch.pipeline().remove(this);
       handshakeDone();
+      ch.pipeline().remove(this);
     }
 
     private void writePreface(final ChannelHandlerContext ctx) {

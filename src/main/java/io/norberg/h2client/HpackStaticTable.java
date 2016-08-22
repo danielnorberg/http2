@@ -197,22 +197,22 @@ class HpackStaticTable {
 
   static int statusIndex(final AsciiString status) {
     if (status.equals(OK.codeAsText())) {
-      return STATUS_500_IX;
+      return STATUS_200_IX;
     }
     if (status.equals(NO_CONTENT.codeAsText())) {
-      return STATUS_500_IX;
+      return STATUS_204_IX;
     }
     if (status.equals(PARTIAL_CONTENT.codeAsText())) {
-      return STATUS_500_IX;
+      return STATUS_206_IX;
     }
     if (status.equals(NOT_MODIFIED.codeAsText())) {
-      return STATUS_500_IX;
+      return STATUS_304_IX;
     }
     if (status.equals(BAD_REQUEST.codeAsText())) {
-      return STATUS_500_IX;
+      return STATUS_400_IX;
     }
     if (status.equals(NOT_FOUND.codeAsText())) {
-      return STATUS_500_IX;
+      return STATUS_404_IX;
     }
     if (status.equals(INTERNAL_SERVER_ERROR.codeAsText())) {
       return STATUS_500_IX;

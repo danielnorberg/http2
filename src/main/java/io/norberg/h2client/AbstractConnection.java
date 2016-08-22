@@ -5,7 +5,6 @@ import com.spotify.netty.util.BatchFlusher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -18,7 +17,6 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
-import io.netty.channel.EventLoop;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.http2.Http2CodecUtil;
 import io.netty.handler.codec.http2.Http2Exception;
@@ -60,9 +58,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
   private final IntObjectHashMap<STREAM> streams = new IntObjectHashMap<STREAM>();
   private final FlowController<ChannelHandlerContext, STREAM> flowController = new FlowController<>();
 
-  private final InetSocketAddress address;
   private final SslContext sslContext;
-  private final EventLoop worker;
   private final Channel channel;
   private final BatchFlusher flusher;
 
@@ -102,11 +98,9 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
       localSettings.maxFrameSize(builder.maxFrameSize);
     }
 
-    this.address = requireNonNull(builder.address, "address");
     this.sslContext = requireNonNull(builder.sslContext, "sslContext");
-    this.worker = requireNonNull(builder.worker, "worker");
     this.channel = requireNonNull(channel, "channel");
-    this.flusher = BatchFlusher.of(channel, worker);
+    this.flusher = BatchFlusher.of(channel, channel.eventLoop());
 
     connect();
   }
@@ -514,32 +508,11 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
   abstract static class Builder<BUILDER extends Builder<BUILDER>> {
 
-    private InetSocketAddress address;
     private SslContext sslContext;
-    private EventLoop worker;
-
     private Integer maxConcurrentStreams;
     private Integer maxFrameSize;
     private Integer connectionWindowSize;
     private Integer initialStreamWindowSize;
-
-    InetSocketAddress address() {
-      return address;
-    }
-
-    BUILDER address(final InetSocketAddress address) {
-      this.address = address;
-      return self();
-    }
-
-    EventLoop worker() {
-      return worker;
-    }
-
-    BUILDER worker(final EventLoop worker) {
-      this.worker = worker;
-      return self();
-    }
 
     SslContext sslContext() {
       return sslContext;

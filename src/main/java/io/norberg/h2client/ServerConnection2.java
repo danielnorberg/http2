@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -111,6 +112,15 @@ class ServerConnection2 extends AbstractConnection<ServerConnection2, ServerConn
   @Override
   protected void readData(final ServerStream stream, final ByteBuf data, final int padding,
                           final boolean endOfStream) throws Http2Exception {
+    // TODO: allow user to provide codec that can be used to parse payload directly without copying it
+
+    ByteBuf content = stream.request.content();
+    if (content == null) {
+      stream.request.content(Unpooled.copiedBuffer(data));
+    } else {
+      content.writeBytes(data);
+    }
+
     if (!endOfStream) {
       return;
     }
@@ -310,8 +320,8 @@ class ServerConnection2 extends AbstractConnection<ServerConnection2, ServerConn
         }
       }
       if (prefaceIndex == Http2Protocol.CLIENT_PREFACE.length()) {
-        ctx.pipeline().remove(this);
         handshakeDone();
+        ctx.pipeline().remove(this);
       }
     }
   }
