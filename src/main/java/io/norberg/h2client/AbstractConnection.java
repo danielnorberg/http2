@@ -6,22 +6,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
-import java.nio.channels.ClosedChannelException;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPromise;
-import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.EventLoop;
-import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.http2.Http2CodecUtil;
 import io.netty.handler.codec.http2.Http2Exception;
@@ -31,13 +28,11 @@ import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.util.AsciiString;
+import io.netty.util.collection.IntObjectHashMap;
 
-import static io.netty.buffer.ByteBufUtil.writeAscii;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
-import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_WINDOW_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.PING_FRAME_PAYLOAD_LENGTH;
-import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
 import static io.netty.handler.codec.http2.Http2Flags.ACK;
@@ -48,22 +43,21 @@ import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
 import static io.netty.handler.codec.http2.Http2FrameTypes.PING;
 import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
 import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
-import static io.norberg.h2client.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
-import static io.norberg.h2client.Http2WireFormat.writeSettings;
 import static io.norberg.h2client.Http2WireFormat.writeWindowUpdate;
+import static io.norberg.h2client.Util.connectionError;
 import static java.lang.Integer.max;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
-abstract class AbstractConnection<STREAM extends Stream> {
+abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTION, STREAM>, STREAM extends Stream> {
 
   private static final Logger log = LoggerFactory.getLogger(AbstractConnection.class);
 
   private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
 
-  private final StreamController<STREAM> streamController = new StreamController<>();
+  private final IntObjectHashMap<STREAM> streams = new IntObjectHashMap<STREAM>();
   private final FlowController<ChannelHandlerContext, STREAM> flowController = new FlowController<>();
 
   private final InetSocketAddress address;
@@ -71,9 +65,11 @@ abstract class AbstractConnection<STREAM extends Stream> {
   private final EventLoop worker;
   private final Channel channel;
   private final BatchFlusher flusher;
-  private final Listener listener;
 
   private final Http2Settings localSettings = new Http2Settings();
+
+  private final CompletableFuture<CONNECTION> connectFuture = new CompletableFuture<>();
+  private final CompletableFuture<CONNECTION> disconnectFuture = new CompletableFuture<>();
 
   private int remoteMaxFrameSize = Http2CodecUtil.DEFAULT_MAX_FRAME_SIZE;
   private int remoteMaxConcurrentStreams = Integer.MAX_VALUE;
@@ -87,9 +83,7 @@ abstract class AbstractConnection<STREAM extends Stream> {
 
   private int localConnectionWindow;
 
-  protected AbstractConnection(final Builder builder) {
-    this.listener = requireNonNull(builder.listener, "listener");
-
+  protected AbstractConnection(final Builder builder, final Channel channel) {
     this.localInitialStreamWindow = Optional.ofNullable(builder.initialStreamWindowSize)
         .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
     this.localMaxConnectionWindow = Optional.ofNullable(builder.connectionWindowSize)
@@ -111,8 +105,30 @@ abstract class AbstractConnection<STREAM extends Stream> {
     this.address = requireNonNull(builder.address, "address");
     this.sslContext = requireNonNull(builder.sslContext, "sslContext");
     this.worker = requireNonNull(builder.worker, "worker");
-    this.channel = new NioSocketChannel();
+    this.channel = requireNonNull(channel, "channel");
     this.flusher = BatchFlusher.of(channel, worker);
+
+    connect();
+  }
+
+  private void connect() {
+    final SslHandler sslHandler = sslContext().newHandler(channel().alloc());
+
+    // XXX: Discard read bytes well before consolidating
+    // https://github.com/netty/netty/commit/c8a941d01e85148c21cc01bae80764bc134b1fdd
+    sslHandler.setDiscardAfterReads(7);
+
+    channel().pipeline().addLast(
+        sslHandler,
+        handshakeHandler());
+  }
+
+  CompletableFuture<CONNECTION> connectFuture() {
+    return connectFuture;
+  }
+
+  CompletableFuture<CONNECTION> disconnectFuture() {
+    return disconnectFuture;
   }
 
   boolean isDisconnected() {
@@ -125,28 +141,6 @@ abstract class AbstractConnection<STREAM extends Stream> {
 
   ChannelFuture closeFuture() {
     return channel.closeFuture();
-  }
-
-  private class Initializer extends ChannelInitializer<SocketChannel> {
-
-    private final SslContext sslCtx;
-
-    public Initializer(SslContext sslCtx) {
-      this.sslCtx = requireNonNull(sslCtx, "sslCtx");
-    }
-
-    @Override
-    public void initChannel(SocketChannel ch) throws Exception {
-      final SslHandler sslHandler = sslCtx.newHandler(ch.alloc());
-
-      // XXX: Discard read bytes well before consolidating
-      // https://github.com/netty/netty/commit/c8a941d01e85148c21cc01bae80764bc134b1fdd
-      sslHandler.setDiscardAfterReads(7);
-
-      ch.pipeline().addLast(
-          sslHandler,
-          new ClientHandshakeHandler(ch));
-    }
   }
 
   private class ExceptionHandler extends ChannelInboundHandlerAdapter {
@@ -173,7 +167,7 @@ abstract class AbstractConnection<STREAM extends Stream> {
     public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
       super.channelInactive(ctx);
       AbstractConnection.this.disconnected();
-      connected();
+      disconnectFuture.complete(self());
     }
 
     @Override
@@ -189,7 +183,7 @@ abstract class AbstractConnection<STREAM extends Stream> {
       if (log.isDebugEnabled()) {
         log.debug("got data: streamId={}, data={}, padding={}, endOfStream={}", streamId, data, padding, endOfStream);
       }
-      final STREAM stream = streamController.existingStream(streamId);
+      final STREAM stream = existingStream(streamId);
       final int length = data.readableBytes();
 
       readData(stream, data, padding, endOfStream);
@@ -228,7 +222,9 @@ abstract class AbstractConnection<STREAM extends Stream> {
         log.debug("got headers: streamId={}, padding={}, endOfStream={}",
                   streamId, padding, endOfStream);
       }
-      this.stream = streamController.existingStream(streamId);
+      if (stream == null) {
+        this.stream = inbound(streamId);
+      }
       startHeaders(stream, endOfStream);
     }
 
@@ -242,7 +238,9 @@ abstract class AbstractConnection<STREAM extends Stream> {
         log.debug("got headers: streamId={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
                   + "endOfStream={}", streamId, streamDependency, weight, exclusive, padding, endOfStream);
       }
-      this.stream = streamController.existingStream(streamId);
+      if (stream == null) {
+        this.stream = inbound(streamId);
+      }
       startHeaders(stream, endOfStream);
     }
 
@@ -304,7 +302,7 @@ abstract class AbstractConnection<STREAM extends Stream> {
         remoteMaxConcurrentStreams = settings.maxConcurrentStreams().intValue();
       }
       if (settings.initialWindowSize() != null) {
-        flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize(), streamController);
+        flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize(), streams.values());
         flusher.flush();
       }
       if (settings.maxHeaderListSize() != null) {
@@ -313,7 +311,7 @@ abstract class AbstractConnection<STREAM extends Stream> {
       // TODO: SETTINGS_HEADER_TABLE_SIZE
       // TODO: SETTINGS_ENABLE_PUSH
 
-      listener.peerSettingsChanged(AbstractConnection.this, settings);
+      peerSettingsChanged(settings);
 
       sendSettingsAck(ctx);
     }
@@ -384,7 +382,7 @@ abstract class AbstractConnection<STREAM extends Stream> {
       if (streamId == 0) {
         flowController.remoteConnectionWindowUpdate(windowSizeIncrement);
       } else {
-        final STREAM stream = streamController.existingStream(streamId);
+        final STREAM stream = existingStream(streamId);
 
         // The stream might already be closed. That's ok.
         if (stream != null) {
@@ -404,46 +402,12 @@ abstract class AbstractConnection<STREAM extends Stream> {
     }
   }
 
-  private void succeed(final Http2ResponseHandler responseHandler, final Http2Response response) {
-    listener.responseReceived(AbstractConnection.this, response);
-    responseHandler.response(response);
-  }
-
-  private void fail(final Http2ResponseHandler responseHandler, final Throwable t) {
-    listener.requestFailed(AbstractConnection.this);
-    responseHandler.failure(t);
-  }
-
-  private class RequestPromise extends DefaultChannelPromise {
-
-    private final Http2ResponseHandler responseHandler;
-
-    public RequestPromise(final Channel channel, final Http2ResponseHandler responseHandler) {
-      super(channel);
-      this.responseHandler = responseHandler;
+  protected final STREAM existingStream(final int streamId) throws Http2Exception {
+    final STREAM stream = stream(streamId);
+    if (stream == null) {
+      throw connectionError(PROTOCOL_ERROR, "Unknown stream id: %d", streamId);
     }
-
-    @Override
-    public ChannelPromise setFailure(final Throwable cause) {
-      super.setFailure(cause);
-      fail(responseHandler, cause);
-      return this;
-    }
-
-    @Override
-    public boolean tryFailure(final Throwable cause) {
-      final boolean set = super.tryFailure(cause);
-      if (set) {
-        final Throwable e;
-        if (cause instanceof ClosedChannelException) {
-          e = new ConnectionClosedException(cause);
-        } else {
-          e = cause;
-        }
-        fail(responseHandler, e);
-      }
-      return set;
-    }
+    return stream;
   }
 
   private class OutboundHandler extends ChannelDuplexHandler
@@ -548,10 +512,9 @@ abstract class AbstractConnection<STREAM extends Stream> {
 
   protected abstract int headersPayloadSize(final STREAM stream);
 
-  abstract static class Builder<BUILDER> {
+  abstract static class Builder<BUILDER extends Builder<BUILDER>> {
 
     private InetSocketAddress address;
-    private Listener listener;
     private SslContext sslContext;
     private EventLoop worker;
 
@@ -560,14 +523,17 @@ abstract class AbstractConnection<STREAM extends Stream> {
     private Integer connectionWindowSize;
     private Integer initialStreamWindowSize;
 
+    InetSocketAddress address() {
+      return address;
+    }
+
     BUILDER address(final InetSocketAddress address) {
       this.address = address;
       return self();
     }
 
-    BUILDER listener(final Listener listener) {
-      this.listener = listener;
-      return self();
+    EventLoop worker() {
+      return worker;
     }
 
     BUILDER worker(final EventLoop worker) {
@@ -575,9 +541,17 @@ abstract class AbstractConnection<STREAM extends Stream> {
       return self();
     }
 
+    SslContext sslContext() {
+      return sslContext;
+    }
+
     BUILDER sslContext(final SslContext sslContext) {
       this.sslContext = sslContext;
       return self();
+    }
+
+    Integer maxConcurrentStreams() {
+      return maxConcurrentStreams;
     }
 
     BUILDER maxConcurrentStreams(final Integer maxConcurrentStreams) {
@@ -585,14 +559,26 @@ abstract class AbstractConnection<STREAM extends Stream> {
       return self();
     }
 
+    Integer maxFrameSize() {
+      return maxFrameSize;
+    }
+
     BUILDER maxFrameSize(final Integer maxFrameSize) {
       this.maxFrameSize = maxFrameSize;
       return self();
     }
 
+    Integer connectionWindowSize() {
+      return connectionWindowSize;
+    }
+
     BUILDER connectionWindowSize(final Integer connectionWindowSize) {
       this.connectionWindowSize = connectionWindowSize;
       return self();
+    }
+
+    Integer initialStreamWindowSize() {
+      return initialStreamWindowSize;
     }
 
     BUILDER initialStreamWindowSize(final Integer initialWindowSize) {
@@ -603,159 +589,82 @@ abstract class AbstractConnection<STREAM extends Stream> {
     protected abstract BUILDER self();
   }
 
-  interface Listener {
-
-    /**
-     * Called when remote peer settings changed.
-     */
-    void peerSettingsChanged(AbstractConnection connection, Http2Settings settings);
-
-    void requestFailed(AbstractConnection connection);
-
-    void responseReceived(AbstractConnection connection, Http2Response response);
-  }
-
-  private class ClientHandshakeHandler extends ChannelInboundHandlerAdapter {
-
-    private final Channel ch;
-
-    public ClientHandshakeHandler(final Channel ch) {
-      this.ch = ch;
-    }
-
-    @Override
-    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
-      super.channelActive(ctx);
-      writePreface(ctx);
-      ch.pipeline().remove(this);
-      start();
-    }
-
-    private void writePreface(final ChannelHandlerContext ctx) {
-      final ByteBuf buf = ctx.alloc().buffer(
-          CLIENT_PREFACE.length() + Http2WireFormat.settingsFrameLength(localSettings) + WINDOW_UPDATE_FRAME_LENGTH);
-
-      writeAscii(buf, CLIENT_PREFACE);
-      writeSettings(buf, localSettings);
-
-      // Update connection window size
-      final int sizeIncrement = localMaxConnectionWindow - DEFAULT_WINDOW_SIZE;
-      if (sizeIncrement > 0) {
-        writeWindowUpdate(buf, 0, sizeIncrement);
-      }
-
-      ctx.writeAndFlush(buf);
-    }
-  }
-
-  private class ServerHandshakeHandler extends ByteToMessageDecoder {
-
-    private final Channel ch;
-    private final Http2Settings settings;
-
-    private int prefaceIndex;
-
-    public ServerHandshakeHandler(final Channel ch, final Http2Settings settings) {
-      this.ch = ch;
-      this.settings = settings;
-    }
-
-    @Override
-    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
-      writeSettings(ctx);
-      ctx.flush();
-      super.channelActive(ctx);
-    }
-
-    private void writeSettings(final ChannelHandlerContext ctx) {
-      final int length = SETTING_ENTRY_LENGTH * settings.size();
-      final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH + length);
-      writeFrameHeader(buf, 0, length, SETTINGS, 0, 0);
-      buf.writerIndex(FRAME_HEADER_LENGTH);
-      for (final char identifier : settings.keySet()) {
-        final int value = settings.getIntValue(identifier);
-        buf.writeShort(identifier);
-        buf.writeInt(value);
-      }
-      ctx.write(buf);
-    }
-
-    @Override
-    protected void decode(final ChannelHandlerContext ctx, final ByteBuf in, final List<Object> out)
-        throws Exception {
-      final int prefaceRemaining = Http2Protocol.CLIENT_PREFACE.length() - prefaceIndex;
-      assert prefaceRemaining > 0;
-      final int n = Math.min(in.readableBytes(), prefaceRemaining);
-      for (int i = 0; i < n; i++, prefaceIndex++) {
-        if (in.readByte() != Http2Protocol.CLIENT_PREFACE.byteAt(prefaceIndex)) {
-          throw new Http2Exception(PROTOCOL_ERROR, "bad preface");
-        }
-      }
-      if (prefaceIndex == Http2Protocol.CLIENT_PREFACE.length()) {
-        ctx.pipeline().remove(this);
-        start();
-      }
-    }
-  }
-
-  void send(final Object request, final ChannelPromise promise) {
-    channel.write(request, promise);
+  void send(final Object message, final ChannelPromise promise) {
+    channel.write(message, promise);
     flusher.flush();
   }
 
-  protected Channel channel() {
+  protected final SslContext sslContext() {
+    return sslContext;
+  }
+
+  protected final Channel channel() {
     return channel;
   }
 
-  protected void start() {
+  protected final void handshakeDone() {
     channel.pipeline().addLast(new InboundHandler(),
                                new OutboundHandler(),
                                new ExceptionHandler());
-
     connected();
+    connectFuture.complete(self());
   }
 
-  protected void registerStream(STREAM stream) {
-    streamController.addStream(stream);
+  protected final STREAM stream(int id) {
+    return streams.get(id);
   }
 
-  protected STREAM deregisterStream(int id) {
-    return streamController.removeStream(id);
+  protected final void registerStream(STREAM stream) {
+    streams.put(stream.id, stream);
   }
 
+  protected final STREAM deregisterStream(int id) {
+    return streams.remove(id);
+  }
 
+  protected final Http2Settings localSettings() {
+    return localSettings;
+  }
 
-  protected int remoteMaxFrameSize() {
+  protected final int remoteMaxFrameSize() {
     return remoteMaxFrameSize;
   }
 
-  protected int remoteMaxConcurrentStreams() {
+  protected final int remoteMaxConcurrentStreams() {
     return remoteMaxConcurrentStreams;
   }
 
-  protected int remoteMaxHeaderListSize() {
+  protected final int remoteMaxHeaderListSize() {
     return remoteMaxHeaderListSize;
   }
 
-  protected int localInitialStreamWindow() {
+  protected final int localInitialStreamWindow() {
     return localInitialStreamWindow;
   }
 
-  protected int localMaxConnectionWindow() {
+  protected final int localMaxConnectionWindow() {
     return localMaxConnectionWindow;
   }
 
-  protected int activeStreams() {
-    return streamController.streams();
+  protected final int activeStreams() {
+    return streams.size();
   }
+
+  protected abstract CONNECTION self();
+
+  protected abstract ChannelHandler handshakeHandler();
 
   protected abstract void connected();
 
   protected abstract void disconnected();
 
+  protected abstract void peerSettingsChanged(final Http2Settings settings);
+
   protected abstract void readData(final STREAM stream, final ByteBuf data, final int padding,
                                    final boolean endOfStream)
       throws Http2Exception;
+
+  protected abstract STREAM inbound(final int streamId) throws Http2Exception;
 
   protected abstract boolean handlesOutbound(final Object msg, final ChannelPromise promise);
 

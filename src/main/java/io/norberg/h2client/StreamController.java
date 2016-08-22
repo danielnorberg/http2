@@ -14,8 +14,9 @@ public class StreamController<STREAM extends Stream> implements Iterable<STREAM>
 
   private final IntObjectHashMap<STREAM> streams = new IntObjectHashMap<>();
 
-  void addStream(final STREAM stream) {
+  STREAM addStream(final STREAM stream) {
     streams.put(stream.id, stream);
+    return stream;
   }
 
   STREAM removeStream(final int id) {
@@ -45,6 +46,7 @@ public class StreamController<STREAM extends Stream> implements Iterable<STREAM>
     return streams.values().spliterator();
   }
 
+  @Deprecated
   STREAM existingStream(final int streamId) throws Http2Exception {
     final STREAM stream = stream(streamId);
     if (stream == null) {

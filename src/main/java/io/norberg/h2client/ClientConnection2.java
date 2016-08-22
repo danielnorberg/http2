@@ -1,71 +1,54 @@
-/**
- * Copyright (C) 2016 Spotify AB
- */
-
 package io.norberg.h2client;
 
-import com.spotify.netty.util.BatchFlusher;
-
-import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
-import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelOption;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
-import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2Headers;
+import io.netty.handler.codec.http2.Http2Settings;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslHandler;
 import io.netty.util.AsciiString;
 
+import static io.netty.buffer.ByteBufUtil.writeAscii;
+import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_WINDOW_SIZE;
+import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
+import static io.norberg.h2client.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
+import static io.norberg.h2client.Http2WireFormat.writeSettings;
+import static io.norberg.h2client.Http2WireFormat.writeWindowUpdate;
 import static java.util.Objects.requireNonNull;
 
-class ClientConnection2 extends AbstractConnection<ClientConnection2.ClientStream> {
-
-  private final CompletableFuture<ClientConnection2> connectFuture = new CompletableFuture<>();
-  private final CompletableFuture<ClientConnection2> disconnectFuture = new CompletableFuture<>();
-
-  private final InetSocketAddress address;
+class ClientConnection2 extends AbstractConnection<ClientConnection2, ClientConnection2.ClientStream> {
 
   private final Listener listener;
 
   private int streamId = 1;
 
-  private ClientConnection2(final Builder builder) {
-    super(builder);
-
-    this.address = requireNonNull(builder.address, "address");
-    this.sslContext = requireNonNull(builder.sslContext, "sslContext");
-    this.worker = requireNonNull(builder.worker, "worker");
-
-    this.listener = builder.listener;
+  private ClientConnection2(final Builder builder, final Channel channel) {
+    super(builder, channel);
+    this.listener = requireNonNull(builder.listener, "listener");
   }
 
   void send(final Http2Request request, final Http2ResponseHandler responseHandler) {
     final RequestPromise promise = new RequestPromise(channel(), responseHandler);
     send(request, promise);
   }
-
-  CompletableFuture<ClientConnection2> connectFuture() {
-    return connectFuture;
-  }
-
-  CompletableFuture<ClientConnection2> disconnectFuture() {
-    return disconnectFuture;
-  }
-
 
   private void dispatchResponse(final ClientStream stream) {
     stream.close();
@@ -79,13 +62,27 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2.ClientStrea
   }
 
   @Override
+  protected ClientConnection2 self() {
+    return this;
+  }
+
+  @Override
+  protected ChannelHandler handshakeHandler() {
+    return new HandshakeHandler(channel());
+  }
+
+  @Override
   protected void connected() {
-    connectFuture.complete(this);
   }
 
   @Override
   protected void disconnected() {
-    disconnectFuture.complete(this);
+  }
+
+  @Override
+  protected void peerSettingsChanged(final Http2Settings settings) {
+    listener.peerSettingsChanged(this, settings);
+    // TODO
   }
 
   @Override
@@ -180,6 +177,11 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2.ClientStrea
     }
   }
 
+  @Override
+  protected ClientStream inbound(final int streamId) throws Http2Exception {
+    return existingStream(streamId);
+  }
+
   protected static class ClientStream extends Stream {
 
     private final Http2Request request;
@@ -241,6 +243,18 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2.ClientStrea
     return new Builder();
   }
 
+  interface Listener {
+
+    /**
+     * Called when remote peer settings changed.
+     */
+    void peerSettingsChanged(ClientConnection2 connection, Http2Settings settings);
+
+    void requestFailed(ClientConnection2 connection);
+
+    void responseReceived(ClientConnection2 connection, Http2Response response);
+  }
+
   static class Builder extends AbstractConnection.Builder<Builder> {
 
     private Listener listener;
@@ -255,31 +269,63 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2.ClientStrea
       return this;
     }
 
-    public CompletableFuture<ClientConnection2> connect() {
-      final ClientConnection2 connection = new ClientConnection2(this);
-      return connection.connect();
-
+    public ClientConnection2 build(Channel channel) {
+      return new ClientConnection2(this, channel);
     }
   }
 
-  private CompletableFuture<ClientConnection2> connect() {
-    final Bootstrap b = new Bootstrap()
-        .group(worker)
-        .channelFactory(() -> channel)
-        .option(ChannelOption.SO_KEEPALIVE, true)
-        .remoteAddress(address)
-        .handler(new Initializer(sslContext))
-        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000);
+  private class Initializer extends ChannelInitializer<SocketChannel> {
 
-    final ChannelFuture future = b.connect();
+    private final SslContext sslCtx;
 
-    // Propagate connection failure
-    future.addListener(f -> {
-      if (!future.isSuccess()) {
-        connectFuture.completeExceptionally(new ConnectionClosedException(future.cause()));
+    public Initializer(SslContext sslCtx) {
+      this.sslCtx = requireNonNull(sslCtx, "sslCtx");
+    }
+
+    @Override
+    public void initChannel(SocketChannel ch) throws Exception {
+      final SslHandler sslHandler = sslCtx.newHandler(ch.alloc());
+
+      // XXX: Discard read bytes well before consolidating
+      // https://github.com/netty/netty/commit/c8a941d01e85148c21cc01bae80764bc134b1fdd
+      sslHandler.setDiscardAfterReads(7);
+
+      ch.pipeline().addLast(
+          sslHandler,
+          new HandshakeHandler(ch));
+    }
+  }
+
+  private class HandshakeHandler extends ChannelInboundHandlerAdapter {
+
+    private final Channel ch;
+
+    public HandshakeHandler(final Channel ch) {
+      this.ch = ch;
+    }
+
+    @Override
+    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
+      super.channelActive(ctx);
+      writePreface(ctx);
+      ch.pipeline().remove(this);
+      handshakeDone();
+    }
+
+    private void writePreface(final ChannelHandlerContext ctx) {
+      final ByteBuf buf = ctx.alloc().buffer(
+          CLIENT_PREFACE.length() + Http2WireFormat.settingsFrameLength(localSettings()) + WINDOW_UPDATE_FRAME_LENGTH);
+
+      writeAscii(buf, CLIENT_PREFACE);
+      writeSettings(buf, localSettings());
+
+      // Update connection window size
+      final int sizeIncrement = localMaxConnectionWindow() - DEFAULT_WINDOW_SIZE;
+      if (sizeIncrement > 0) {
+        writeWindowUpdate(buf, 0, sizeIncrement);
       }
-    });
 
-    return connectFuture;
+      ctx.writeAndFlush(buf);
+    }
   }
 }
