@@ -14,6 +14,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.util.AsciiString;
@@ -23,11 +24,15 @@ import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
 import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
 import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
 
-public class ServerConnection2 extends AbstractConnection<ServerConnection2, ServerConnection2.ServerStream> {
+class ServerConnection2 extends AbstractConnection<ServerConnection2, ServerConnection2.ServerStream> {
 
   private static final Logger log = LoggerFactory.getLogger(ServerConnection2.class);
 
@@ -85,7 +90,7 @@ public class ServerConnection2 extends AbstractConnection<ServerConnection2, Ser
 
   @Override
   protected ChannelHandler handshakeHandler() {
-    return new HandshakeHandler(channel(), localSettings());
+    return new HandshakeHandler(localSettings());
   }
 
   @Override
@@ -157,19 +162,53 @@ public class ServerConnection2 extends AbstractConnection<ServerConnection2, Ser
   @Override
   protected void startHeaders(final ServerStream stream, final boolean endOfStream)
       throws Http2Exception {
-
   }
 
   @Override
   protected void readHeader(final ServerStream stream, final AsciiString name,
                             final AsciiString value) throws Http2Exception {
-
+    stream.request.header(name, value);
   }
 
   @Override
   protected void readPseudoHeader(final ServerStream stream, final AsciiString name,
                                   final AsciiString value) throws Http2Exception {
-
+    if (name.length() < 5) {
+      throw new IllegalArgumentException();
+    }
+    final byte b1 = name.byteAt(1);
+    switch (b1) {
+      case 'm': {
+        if (!name.equals(METHOD.value())) {
+          throw new Http2Exception(PROTOCOL_ERROR);
+        }
+        stream.request.method(HttpMethod.valueOf(value.toString()));
+        return;
+      }
+      case 's': {
+        if (!name.equals(SCHEME.value())) {
+          throw new Http2Exception(PROTOCOL_ERROR);
+        }
+        stream.request.scheme(value);
+        return;
+      }
+      case 'a': {
+        if (!name.equals(AUTHORITY.value())) {
+          throw new Http2Exception(PROTOCOL_ERROR);
+        }
+        stream.request.authority(value);
+        return;
+      }
+      case 'p': {
+        if (!name.equals(PATH.value())) {
+          throw new Http2Exception(PROTOCOL_ERROR);
+        }
+        stream.request.path(value);
+        return;
+      }
+      default:
+        throw new Http2Exception(PROTOCOL_ERROR);
+    }
   }
 
   class ServerStream extends Stream implements Http2RequestContext {
@@ -231,13 +270,11 @@ public class ServerConnection2 extends AbstractConnection<ServerConnection2, Ser
 
   private class HandshakeHandler extends ByteToMessageDecoder {
 
-    private final Channel ch;
     private final Http2Settings settings;
 
     private int prefaceIndex;
 
-    public HandshakeHandler(final Channel ch, final Http2Settings settings) {
-      this.ch = ch;
+    private HandshakeHandler(final Http2Settings settings) {
       this.settings = settings;
     }
 
