@@ -61,12 +61,6 @@ class Stream {
     this.data = data;
   }
 
-  void close() {
-    if (data != null) {
-      data.release();
-    }
-  }
-
   @Override
   public boolean equals(final Object o) {
     if (this == o) {

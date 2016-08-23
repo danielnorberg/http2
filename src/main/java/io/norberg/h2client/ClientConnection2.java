@@ -1,5 +1,8 @@
 package io.norberg.h2client;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.channels.ClosedChannelException;
 import java.util.Map;
 
@@ -22,7 +25,6 @@ import io.netty.handler.ssl.SslHandler;
 import io.netty.util.AsciiString;
 
 import static io.netty.buffer.ByteBufUtil.writeAscii;
-import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_WINDOW_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
@@ -32,17 +34,18 @@ import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.norberg.h2client.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.h2client.Http2WireFormat.writeSettings;
-import static io.norberg.h2client.Http2WireFormat.writeWindowUpdate;
 import static java.util.Objects.requireNonNull;
 
 class ClientConnection2 extends AbstractConnection<ClientConnection2, ClientConnection2.ClientStream> {
+
+  private static final Logger log = LoggerFactory.getLogger(ClientConnection2.class);
 
   private final Listener listener;
 
   private int streamId = 1;
 
   private ClientConnection2(final Builder builder, final Channel channel) {
-    super(builder, channel);
+    super(builder, channel, log);
     this.listener = requireNonNull(builder.listener, "listener");
   }
 
@@ -52,7 +55,6 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2, ClientConn
   }
 
   private void dispatchResponse(final ClientStream stream) {
-    stream.close();
     deregisterStream(stream.id);
     succeed(stream.requestPromise.responseHandler, stream.response);
   }
@@ -112,6 +114,11 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2, ClientConn
   }
 
   @Override
+  protected void outboundEnd(final ClientStream stream) {
+    stream.request.release();
+  }
+
+  @Override
   protected int headersPayloadSize(final ClientStream stream) {
     final Http2Request request = stream.request;
     return FRAME_HEADER_SIZE +
@@ -165,9 +172,6 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2, ClientConn
 
   @Override
   protected void endHeaders(final ClientStream stream, final boolean endOfStream) {
-    if (endOfStream) {
-      dispatchResponse(stream);
-    }
   }
 
   @Override
@@ -182,15 +186,16 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2, ClientConn
     } else {
       content.writeBytes(data);
     }
-
-    if (endOfStream) {
-      dispatchResponse(stream);
-    }
   }
 
   @Override
   protected ClientStream inbound(final int streamId) throws Http2Exception {
     return existingStream(streamId);
+  }
+
+  @Override
+  protected void inboundEnd(final ClientStream stream) throws Http2Exception {
+    dispatchResponse(stream);
   }
 
   protected static class ClientStream extends Stream {
@@ -330,16 +335,8 @@ class ClientConnection2 extends AbstractConnection<ClientConnection2, ClientConn
     private void writePreface(final ChannelHandlerContext ctx) {
       final ByteBuf buf = ctx.alloc().buffer(
           CLIENT_PREFACE.length() + Http2WireFormat.settingsFrameLength(localSettings()) + WINDOW_UPDATE_FRAME_LENGTH);
-
       writeAscii(buf, CLIENT_PREFACE);
       writeSettings(buf, localSettings());
-
-      // Update connection window size
-      final int sizeIncrement = localMaxConnectionWindow() - DEFAULT_WINDOW_SIZE;
-      if (sizeIncrement > 0) {
-        writeWindowUpdate(buf, 0, sizeIncrement);
-      }
-
       ctx.writeAndFlush(buf);
     }
   }

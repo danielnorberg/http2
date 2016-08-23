@@ -40,22 +40,8 @@ class ServerConnection2 extends AbstractConnection<ServerConnection2, ServerConn
   private final RequestHandler requestHandler;
 
   private ServerConnection2(final Builder builder, final Channel ch) {
-    super(builder, ch);
+    super(builder, ch, log);
     this.requestHandler = Objects.requireNonNull(builder.requestHandler(), "requestHandler");
-  }
-
-  private void maybeDispatch(final boolean endOfStream, final ServerStream stream) {
-    if (!endOfStream) {
-      return;
-    }
-
-    // Hand off request to request handler
-    try {
-      requestHandler.handleRequest(stream, stream.request);
-    } catch (Exception e) {
-      log.error("Request handler threw exception", e);
-      stream.fail();
-    }
   }
 
   @Override
@@ -120,18 +106,6 @@ class ServerConnection2 extends AbstractConnection<ServerConnection2, ServerConn
     } else {
       content.writeBytes(data);
     }
-
-    if (!endOfStream) {
-      return;
-    }
-
-    // Hand off request to request handler
-    try {
-      requestHandler.handleRequest(stream, stream.request);
-    } catch (Exception e) {
-      log.error("Request handler threw exception", e);
-      stream.fail();
-    }
   }
 
   @Override
@@ -143,6 +117,17 @@ class ServerConnection2 extends AbstractConnection<ServerConnection2, ServerConn
       return newStream;
     }
     return stream;
+  }
+
+  @Override
+  protected void inboundEnd(final ServerStream stream) throws Http2Exception {
+    // Hand off request to request handler
+    try {
+      requestHandler.handleRequest(stream, stream.request);
+    } catch (Exception e) {
+      log.error("Request handler threw exception", e);
+      stream.fail();
+    }
   }
 
 
@@ -164,9 +149,14 @@ class ServerConnection2 extends AbstractConnection<ServerConnection2, ServerConn
   }
 
   @Override
+  protected void outboundEnd(final ServerStream stream) {
+    stream.response.release();
+    deregisterStream(stream.id);
+  }
+
+  @Override
   protected void endHeaders(final ServerStream stream, final boolean endOfStream)
       throws Http2Exception {
-    maybeDispatch(endOfStream, stream);
   }
 
   @Override
@@ -288,13 +278,6 @@ class ServerConnection2 extends AbstractConnection<ServerConnection2, ServerConn
       this.settings = settings;
     }
 
-    @Override
-    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
-      writeSettings(ctx);
-      ctx.flush();
-      super.channelActive(ctx);
-    }
-
     private void writeSettings(final ChannelHandlerContext ctx) {
       final int length = SETTING_ENTRY_LENGTH * settings.size();
       final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH + length);
@@ -320,6 +303,8 @@ class ServerConnection2 extends AbstractConnection<ServerConnection2, ServerConn
         }
       }
       if (prefaceIndex == Http2Protocol.CLIENT_PREFACE.length()) {
+        writeSettings(ctx);
+        ctx.flush();
         handshakeDone();
         ctx.pipeline().remove(this);
       }

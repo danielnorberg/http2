@@ -56,18 +56,18 @@ public class Http2Response {
     return content;
   }
 
+  public void release() {
+    if (hasContent()) {
+      content.release();
+    }
+  }
+
   @Override
   public String toString() {
     return "Http2Response{" +
            ", content=" + content +
            ", headers=" + headers +
            '}';
-  }
-
-  public void release() {
-    if (hasContent()) {
-      content.release();
-    }
   }
 
   public void header(final AsciiString name, final AsciiString value) {

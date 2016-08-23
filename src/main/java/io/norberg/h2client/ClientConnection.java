@@ -475,7 +475,7 @@ class ClientConnection {
       }
 
       streamController.removeStream(stream.id);
-      stream.close();
+      stream.request.release();
 
       succeed(stream.requestPromise.responseHandler, stream.response);
     }

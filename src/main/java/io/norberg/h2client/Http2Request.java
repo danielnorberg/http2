@@ -93,6 +93,12 @@ public class Http2Request {
     return new Http2Response(status);
   }
 
+  public void release() {
+    if (hasContent()) {
+      content.release();
+    }
+  }
+
   @Override
   public String toString() {
     return "Http2Request{" +

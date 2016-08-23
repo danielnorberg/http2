@@ -3,7 +3,6 @@ package io.norberg.h2client;
 import com.spotify.netty.util.BatchFlusher;
 
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Optional;
@@ -29,6 +28,7 @@ import io.netty.util.AsciiString;
 import io.netty.util.collection.IntObjectHashMap;
 
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
+import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_WINDOW_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.PING_FRAME_PAYLOAD_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
@@ -51,7 +51,7 @@ import static java.util.Objects.requireNonNull;
 
 abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTION, STREAM>, STREAM extends Stream> {
 
-  private static final Logger log = LoggerFactory.getLogger(AbstractConnection.class);
+  private final Logger log;
 
   private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
 
@@ -79,11 +79,12 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
   private int localConnectionWindow;
 
-  protected AbstractConnection(final Builder builder, final Channel channel) {
+  protected AbstractConnection(final Builder builder, final Channel channel, final Logger log) {
     this.localInitialStreamWindow = Optional.ofNullable(builder.initialStreamWindowSize)
         .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
     this.localMaxConnectionWindow = Optional.ofNullable(builder.connectionWindowSize)
         .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
+    this.log = log;
     this.localConnectionWindow = max(localMaxConnectionWindow, DEFAULT_INITIAL_WINDOW_SIZE);
     this.localStreamWindowUpdateThreshold = (localInitialStreamWindow + 1) / 2;
     this.localConnectionWindowUpdateThreshold = (localMaxConnectionWindow + 1) / 2;
@@ -158,6 +159,17 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     }
 
     @Override
+    public void handlerAdded(final ChannelHandlerContext ctx) throws Exception {
+      // Update connection window size
+      final int sizeIncrement = localMaxConnectionWindow - DEFAULT_WINDOW_SIZE;
+      if (sizeIncrement > 0) {
+        final ByteBuf buf = ctx.alloc().buffer(WINDOW_UPDATE_FRAME_LENGTH);
+        writeWindowUpdate(buf, 0, sizeIncrement);
+        ctx.writeAndFlush(buf);
+      }
+    }
+
+    @Override
     public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
       super.channelInactive(ctx);
       AbstractConnection.this.disconnected();
@@ -182,8 +194,14 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
       readData(stream, data, padding, endOfStream);
 
+      if (endOfStream) {
+        inboundEnd(stream);
+      }
+
       stream.localWindow -= length;
       localConnectionWindow -= length;
+
+      // TODO: eagerly replenish windows even when idle?
 
       final boolean updateConnectionWindow = localConnectionWindow < localConnectionWindowUpdateThreshold;
       final boolean updateStreamWindow = !endOfStream && stream.localWindow < localStreamWindowUpdateThreshold;
@@ -255,6 +273,9 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
         throws Http2Exception {
       assert stream != null;
       endHeaders(stream, endOfStream);
+      if (endOfStream) {
+        inboundEnd(stream);
+      }
       stream = null;
     }
 
@@ -376,7 +397,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
       if (streamId == 0) {
         flowController.remoteConnectionWindowUpdate(windowSizeIncrement);
       } else {
-        final STREAM stream = existingStream(streamId);
+        final STREAM stream = stream(streamId);
 
         // The stream might already be closed. That's ok.
         if (stream != null) {
@@ -498,6 +519,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public void streamEnd(final STREAM stream) {
+      outboundEnd(stream);
     }
   }
 
@@ -639,10 +661,14 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
   protected abstract STREAM inbound(final int streamId) throws Http2Exception;
 
+  protected abstract void inboundEnd(final STREAM stream) throws Http2Exception;
+
   protected abstract boolean handlesOutbound(final Object msg, final ChannelPromise promise);
 
   protected abstract STREAM outbound(final Object msg, final ChannelPromise promise)
       throws Http2Exception;
+
+  protected abstract void outboundEnd(final STREAM stream);
 
   protected abstract void endHeaders(final STREAM stream, final boolean endOfStream)
       throws Http2Exception;

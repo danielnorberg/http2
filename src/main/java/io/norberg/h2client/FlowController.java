@@ -99,10 +99,8 @@ class FlowController<CTX, STREAM extends Stream> {
     // Prepare frames
     final int bufferSize = prepare(ctx, writer);
 
-    // Write frames if there's any that can be written
-    if (bufferSize > 0) {
-      writeFrames(ctx, writer, bufferSize);
-    }
+    // Write frames
+    writeFrames(ctx, writer, bufferSize);
 
     streamWindowUpdatedStreams.clear();
     newStreams.clear();
@@ -111,8 +109,9 @@ class FlowController<CTX, STREAM extends Stream> {
   private void writeFrames(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final int bufferSize)
       throws Http2Exception {
 
-    assert bufferSize != 0;
-    final ByteBuf buf = writer.writeStart(ctx, bufferSize);
+    final ByteBuf buf = bufferSize == 0
+                        ? null
+                        : writer.writeStart(ctx, bufferSize);
 
     // Write data frames for streams that had window updates
     if (!streamWindowUpdatedStreams.isEmpty()) {

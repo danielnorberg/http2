@@ -388,6 +388,42 @@ public class FlowControllerTest {
     verifyFlush(stream(stream).estimate(10).write(10, END_OF_STREAM).pending(false));
   }
 
+  @Test
+  public void testConnectionWindowExhaustedDuringStreamWindowBlock() throws Exception {
+    final int remoteConnectionWindow = 30;
+    final int remoteInitialStreamWindow = 20;
+    controller = new FlowController<>(remoteConnectionWindow, remoteInitialStreamWindow);
+
+    // Exhaust the window of the first stream
+    final Stream stream1 = startStream(1, 40);
+    verifyFlush(
+        stream(stream1).headers().estimate(20).write(20).pending(false));
+
+    // Then exhaust the connection window using a second stream
+    final Stream stream2 = startStream(3, 20);
+    verifyFlush(
+        stream(stream2).headers().estimate(10).write(10).pending(true));
+
+    assertThat(controller.remoteConnectionWindow(), is(0));
+
+    // Replenish the stream window of the first stream
+    verifyRemoteStreamWindowUpdate(20, stream1);
+
+    // Connection window is still exhausted
+    verifyFlush();
+
+    // And the first stream should still be pending
+    assertThat(stream1.pending, is(true));
+
+    // Replenish the connection window
+    verifyRemoteConnectionWindowUpdate(40, stream1, stream2);
+
+    // Now both streams should complete
+    verifyFlush(
+        stream(stream2).estimate(10).write(10, END_OF_STREAM).pending(false),
+        stream(stream1).estimate(20).write(20, END_OF_STREAM).pending(false));
+  }
+
   private Stream startStream(final int id, final int size) {
     final ByteBuf data = randomByteBuf(size);
     final Stream stream = new Stream(id, data);

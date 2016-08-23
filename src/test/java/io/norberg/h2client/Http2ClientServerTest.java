@@ -73,7 +73,7 @@ public class Http2ClientServerTest {
     }
   }
 
-    @Test
+  @Test
   public void testLargeReqRep() throws Exception {
 
     // Large response
@@ -105,12 +105,12 @@ public class Http2ClientServerTest {
     while (!future.isDone()) {
       Thread.sleep(1000);
     }
-    final Http2Response response = future.get(10000, SECONDS);
+    final Http2Response response = future.get();
     final ByteBuf responsePayload = response.content();
     assertThat(responsePayload, is(expectedResponsePaylod));
   }
 
-    @Test
+  @Test
   public void testClientReconnects() throws Exception {
     final RequestHandler requestHandler = (context, request) ->
         context.respond(request.response(
