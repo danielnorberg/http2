@@ -12,13 +12,13 @@ Maven
 ```
 
 
-OpenSSL
-=======
+BoringSSL / OpenSSL
+===================
 
-To use OpenSSL, add appropriate netty-tcnative dependencies to the application project. Multiple dependencies can be
-added to produce an artifact that can run unchanged on multiple platforms.
+To use BoringSSL or OpenSSL, add appropriate netty-tcnative dependencies to the application project. Multiple
+dependencies can be added to produce an artifact that can run unchanged on multiple platforms.
 
-Note that OpenSSL >= 1.0.2 is required.
+Note: OpenSSL >= 1.0.2 is required for ALPN support.
 
 Available classifiers:
 
