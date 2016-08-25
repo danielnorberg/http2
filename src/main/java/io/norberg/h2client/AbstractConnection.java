@@ -115,7 +115,8 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     channel().pipeline().addLast(
         sslHandler,
-        handshakeHandler());
+        handshakeHandler(),
+        new ExceptionHandler());
   }
 
   CompletableFuture<CONNECTION> connectFuture() {
@@ -142,7 +143,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause) throws Exception {
-      log.error("caught exception, closing connection", cause);
+      log.error("Connection caught exception, closing channel: {}", ctx.channel(), cause);
       ctx.close();
     }
   }
@@ -598,6 +599,8 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
   }
 
   protected final void handshakeDone() {
+    // TODO: more robust pipeline setup
+    channel.pipeline().remove(ExceptionHandler.class);
     channel.pipeline().addLast(new InboundHandler(),
                                new OutboundHandler(),
                                new ExceptionHandler());

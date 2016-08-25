@@ -6,6 +6,7 @@ import com.spotify.logging.LoggingConfigurator;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.experimental.theories.Theory;
 import org.junit.experimental.theories.suppliers.TestedOn;
 import org.junit.runner.RunWith;
@@ -30,6 +31,7 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.mockito.MockitoAnnotations.initMocks;
 
+@Ignore
 @RunWith(ParallelRunner.class)
 public class Http2ClientServerIT {
 

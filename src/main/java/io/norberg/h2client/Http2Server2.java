@@ -11,6 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelOption;
@@ -129,11 +130,12 @@ public class Http2Server2 {
     }
   }
 
+  @ChannelHandler.Sharable
   private class ConnectionInitializer extends ChannelInboundHandlerAdapter {
 
     @Override
-    public void channelRegistered(final ChannelHandlerContext ctx) throws Exception {
-      super.channelRegistered(ctx);
+    public void handlerAdded(final ChannelHandlerContext ctx) throws Exception {
+      super.handlerAdded(ctx);
       channels.add(ctx.channel());
     }
 
@@ -144,6 +146,12 @@ public class Http2Server2 {
       final ServerConnection2 connection = connectionBuilder.build(ctx.channel());
       ctx.channel().attr(AttributeKey.valueOf(Http2Server2.class, ServerConnection2.class.getSimpleName()))
           .set(connection);
+    }
+
+    @Override
+    public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause) throws Exception {
+      log.error("Connection initializer caught exception, closing: {}", ctx.channel(), cause);
+      ctx.channel().close();
     }
   }
 }
