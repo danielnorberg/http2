@@ -9,16 +9,24 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.atomic.LongAdder;
 
+import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.AsciiString;
+import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.DefaultThreadFactory;
 
 import static io.netty.handler.codec.http.HttpMethod.GET;
@@ -70,10 +78,8 @@ public class Http2Client implements ClientConnection.Listener {
     this.listener = Optional.ofNullable(builder.listener).orElse(new ListenerAdapter());
 
     this.connectionBuilder = ClientConnection.builder()
-        .address(address)
-        .worker(workerGroup.next())
-        .sslContext(Optional.ofNullable(builder.sslContext).orElseGet(Util::defaultClientSslContext))
         .listener(this)
+        .sslContext(Optional.ofNullable(builder.sslContext).orElseGet(Util::defaultClientSslContext))
         .maxConcurrentStreams(builder.maxConcurrentStreams)
         .maxFrameSize(builder.maxFrameSize)
         .connectionWindowSize(builder.connectionWindow)
@@ -168,54 +174,43 @@ public class Http2Client implements ClientConnection.Listener {
     if (closed) {
       return;
     }
+    final Bootstrap b = new Bootstrap()
+        .group(workerGroup)
+        .channel(NioSocketChannel.class)
+        .option(ChannelOption.SO_KEEPALIVE, true)
+        .remoteAddress(address)
+        .handler(new ConnectionInitializer())
+        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000);
 
-    final ClientConnection pendingConnection = connectionBuilder.build();
+    final ChannelFuture future = b.connect();
 
-    pendingConnection.connect().whenComplete((c, ex) -> {
-      if (ex != null) {
-        // Fail outstanding requests
-        while (true) {
-          final QueuedRequest request = queue.poll();
-          if (request == null) {
-            break;
-          }
-          outstanding.decrement();
-          request.responseHandler.failure(ex);
-        }
-
-        // Retry
-        // TODO: exponential backoff
-        scheduler.schedule(this::connect, 1, SECONDS);
+    future.addListener(f -> {
+      if (!f.isSuccess()) {
+        connectFailed(f.cause());
         return;
       }
-
-      // Reconnect on disconnect
-      c.disconnectFuture().whenComplete((dc, dex) -> {
-
-        // Notify listener that the connection was closed
-        listener.connectionClosed(Http2Client.this);
-
-        // TODO: backoff
-        connect();
-      });
-
-      // Publish new connection
-      connection = c;
-
-      // Bail if we were closed while connecting
-      if (closed) {
-        c.close();
-        return;
-      }
-
-      // Notify listener that the connection was established
-      listener.connectionEstablished(Http2Client.this);
-
-      // Send queued requests
-      pump();
     });
+  }
 
-    this.pendingConnection = pendingConnection;
+  private void connectFailed(final Throwable cause) {
+    // Fail outstanding requests
+    // TODO: let requests time out instead?
+    while (true) {
+      final QueuedRequest request = queue.poll();
+      if (request == null) {
+        break;
+      }
+      outstanding.decrement();
+      request.responseHandler.failure(cause);
+    }
+
+    // Retry
+    try {
+      // TODO: exponential backoff
+      scheduler.schedule(this::connect, 1, SECONDS);
+    } catch (RejectedExecutionException ignore) {
+      // Client is closed, ignore
+    }
   }
 
   private void pump() {
@@ -376,6 +371,54 @@ public class Http2Client implements ClientConnection.Listener {
     @Override
     public void connectionClosed(final Http2Client client) {
 
+    }
+  }
+
+  private class ConnectionInitializer extends ChannelInboundHandlerAdapter {
+
+    @Override
+    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
+
+      final ClientConnection pendingConnection = connectionBuilder.build(ctx.channel());
+      Http2Client.this.pendingConnection = pendingConnection;
+      ctx.channel().attr(AttributeKey.valueOf(Http2Client.class, ClientConnection.class.getSimpleName()))
+          .set(pendingConnection);
+
+      pendingConnection.connectFuture().whenComplete((c, ex) -> {
+        // TODO: move this to listener?
+        if (ex != null) {
+          connectFailed(ex);
+          return;
+        }
+
+        // Connection and handshake succeeded, publish the new connection
+        connection = c;
+
+        // Bail if we were closed while connecting
+        if (closed) {
+          c.close();
+          return;
+        }
+
+        // Reconnect on disconnect
+        c.disconnectFuture().whenComplete((dc, dex) -> {
+
+          // Notify listener that the connection was closed
+          listener.connectionClosed(Http2Client.this);
+
+          // TODO: backoff
+          connect();
+        });
+
+        // Notify listener that the connection was established
+        listener.connectionEstablished(Http2Client.this);
+
+        // Send queued requests
+        pump();
+      });
+
+      ctx.pipeline().remove(this);
+      ctx.fireChannelActive();
     }
   }
 }

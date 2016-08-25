@@ -1,39 +1,42 @@
 package io.norberg.h2client.integration;
 
-import com.googlecode.junittoolbox.ParallelRunner;
 import com.spotify.logging.LoggingConfigurator;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
+import org.junit.experimental.theories.Theories;
 import org.junit.experimental.theories.Theory;
 import org.junit.experimental.theories.suppliers.TestedOn;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadLocalRandom;
 
 import ch.qos.logback.classic.BasicConfigurator;
 import io.netty.buffer.Unpooled;
+import io.netty.util.ResourceLeakDetector;
 import io.norberg.h2client.Http2Client;
 import io.norberg.h2client.Http2Response;
 import io.norberg.h2client.Http2Server;
-import io.norberg.h2client.RequestHandler;
 
 import static com.spotify.logging.LoggingConfigurator.Level.INFO;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
-import static io.netty.util.CharsetUtil.UTF_8;
-import static java.util.concurrent.TimeUnit.SECONDS;
+import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
+import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.mockito.MockitoAnnotations.initMocks;
 
-@Ignore
-@RunWith(ParallelRunner.class)
+@RunWith(Theories.class)
 public class Http2ClientServerIT {
+
+  private static final Logger log = LoggerFactory.getLogger(Http2ClientServerIT.class);
 
   private final List<Http2Server> servers = new ArrayList<>();
   private final List<Http2Client> clients = new ArrayList<>();
@@ -41,9 +44,10 @@ public class Http2ClientServerIT {
   @Mock Http2Client.Listener listener;
 
   @BeforeClass
-  public static void configureLogging() {
+  public static void configureEnvironment() {
     BasicConfigurator.configureDefaultContext();
     LoggingConfigurator.configureDefaults("test", INFO);
+    ResourceLeakDetector.setLevel(DISABLED);
   }
 
   @Before
@@ -53,8 +57,8 @@ public class Http2ClientServerIT {
 
   @After
   public void tearDown() throws Exception {
-    servers.forEach(Http2Server::close);
     clients.forEach(Http2Client::close);
+    servers.forEach(Http2Server::close);
   }
 
   @Theory
@@ -62,16 +66,21 @@ public class Http2ClientServerIT {
       @TestedOn(ints = {1, 17, 4711, 65_535}) final int serverConnectionWindow,
       @TestedOn(ints = {1, 17, 4711, 65_535}) final int serverStreamWindow,
       @TestedOn(ints = {1, 17, 4711, 65_535}) final int clientConnectionWindow,
-      @TestedOn(ints = {1, 17, 4711, 65_535}) final int clientStreamWindow) throws Exception {
+      @TestedOn(ints = {1, 17, 4711, 65_535}) final int clientStreamWindow,
+      @TestedOn(ints = {1, 17, 4711, 65_535}) final int payloadSize
+  ) throws Exception {
 
-    final RequestHandler requestHandler = (context, request) ->
-        context.respond(request.response(
-            OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8)));
+    log.info("testReqRep: scw={} ssw={} ccw={} csw={} ps={}",
+             serverConnectionWindow, serverStreamWindow, clientConnectionWindow, clientStreamWindow, payloadSize);
+
+    final byte[] payload = new byte[payloadSize];
+    ThreadLocalRandom.current().nextBytes(payload);
 
     // Start server
     final Http2Server server = autoClosing(
         Http2Server.builder()
-            .requestHandler(requestHandler)
+            .requestHandler((context, request) ->
+                context.respond(request.response(OK, Unpooled.wrappedBuffer(payload))))
             .connectionWindow(serverConnectionWindow)
             .streamWindow(serverStreamWindow)
             .build());
@@ -85,10 +94,9 @@ public class Http2ClientServerIT {
             .streamWindow(clientStreamWindow)
             .build());
 
-    final CompletableFuture<Http2Response> future = client.get("/world/1");
-    final Http2Response response = future.get(30, SECONDS);
-    final String payload = response.content().toString(UTF_8);
-    assertThat(payload, is("hello: /world/1"));
+    final CompletableFuture<Http2Response> future = client.post("/hello/world", Unpooled.wrappedBuffer(payload));
+    final Http2Response response = future.get(5, MINUTES);
+    assertThat(response.content(), is(Unpooled.wrappedBuffer(payload)));
   }
 
   private Http2Server autoClosing(final Http2Server server) {

@@ -11,13 +11,15 @@ import java.util.concurrent.CompletableFuture;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
-import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.GlobalEventExecutor;
 
 import static io.norberg.h2client.Util.completableFuture;
@@ -52,7 +54,7 @@ public class Http2Server {
         .option(ChannelOption.SO_BACKLOG, 1024)
         .group(group)
         .channel(NioServerSocketChannel.class)
-        .childHandler(new Initializer());
+        .childHandler(new ConnectionInitializer());
     final ChannelFuture bindFuture = b.bind(address);
     final Channel channel = bindFuture.channel();
     channels.add(channel);
@@ -128,13 +130,28 @@ public class Http2Server {
     }
   }
 
-  private class Initializer extends ChannelInitializer<SocketChannel> {
+  @ChannelHandler.Sharable
+  private class ConnectionInitializer extends ChannelInboundHandlerAdapter {
 
     @Override
-    protected void initChannel(SocketChannel ch) throws Exception {
-      channels.add(ch);
-      final ServerConnection connection = connectionBuilder.build();
-      connection.initialize(ch);
+    public void handlerAdded(final ChannelHandlerContext ctx) throws Exception {
+      super.handlerAdded(ctx);
+      channels.add(ctx.channel());
+    }
+
+    @Override
+    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
+      ctx.pipeline().remove(this);
+      ctx.fireChannelActive();
+      final ServerConnection connection = connectionBuilder.build(ctx.channel());
+      ctx.channel().attr(AttributeKey.valueOf(Http2Server.class, ServerConnection.class.getSimpleName()))
+          .set(connection);
+    }
+
+    @Override
+    public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause) throws Exception {
+      log.error("Connection initializer caught exception, closing: {}", ctx.channel(), cause);
+      ctx.channel().close();
     }
   }
 }
