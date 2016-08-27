@@ -296,6 +296,10 @@ class HpackStaticTable {
     throw new HpackEncodingException();
   }
 
+  static boolean isStaticIndex(final int index) {
+    return index <= TABLE_LENGTH;
+  }
+
   private static class Entry {
 
     private final int index;

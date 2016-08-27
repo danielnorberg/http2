@@ -273,6 +273,7 @@ class FlowController<CTX, STREAM extends Stream> {
     for (int i = 0; i < newStreams.size(); i++) {
       final STREAM stream = newStreams.get(i);
       stream.pending = false;
+      // TODO: handle continuation frames
       size += writer.estimateInitialHeadersFrameSize(ctx, stream);
       size += prepareDataFrames(writer, stream, ctx);
     }

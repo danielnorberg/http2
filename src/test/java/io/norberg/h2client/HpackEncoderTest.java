@@ -67,7 +67,7 @@ public class HpackEncoderTest {
     encoder.encodeHeader(block1, FOO, BAR, false);
     encoder.encodeHeader(block1, BAR, FOO, false);
     encoder.encodeHeader(block1, FOO, BAZ, false);
-    assertThat(encoder.dynamicTableLength(), is(3));
+    assertThat(encoder.tableLength(), is(3));
 
     // Use dynamic table
     encoder.encodeHeader(block2, BAR, FOO, false);

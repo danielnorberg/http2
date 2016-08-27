@@ -8,27 +8,22 @@ import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
+import static io.norberg.h2client.Hpack.writeInteger;
+import static io.norberg.h2client.Hpack.writeString;
 import static io.norberg.h2client.HpackStaticTable.INDEXED_NAME;
 import static io.norberg.h2client.HpackStaticTable.isIndexedField;
 import static io.norberg.h2client.HpackStaticTable.isIndexedName;
 
 class HpackEncoder {
 
-  enum Indexing {
-    INCREMENTAL,
-    NONE,
-    NEVER
-  }
-
   private final HpackDynamicTable dynamicTable = new HpackDynamicTable();
-  private final HpackDynamicTableIndex dynamicTableIndex;
+  private final HpackDynamicTableIndex tableIndex;
   private int tableSize;
   private int maxTableSize;
-  private int headerIndex;
 
-  public HpackEncoder(final int maxTableSize) {
+  HpackEncoder(final int maxTableSize) {
     this.maxTableSize = maxTableSize;
-    this.dynamicTableIndex = new HpackDynamicTableIndex(16);
+    this.tableIndex = new HpackDynamicTableIndex(16);
   }
 
   void encodeRequest(final ByteBuf out, final AsciiString method, final AsciiString scheme, final AsciiString authority,
@@ -72,7 +67,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = dynamicTableIndex.index(METHOD.value(), method);
+    final int dynamicIndex = tableIndex.index(METHOD.value(), method);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -84,7 +79,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = dynamicTableIndex.index(SCHEME.value(), scheme);
+    final int dynamicIndex = tableIndex.index(SCHEME.value(), scheme);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -96,7 +91,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = dynamicTableIndex.index(AUTHORITY.value(), authority);
+    final int dynamicIndex = tableIndex.index(AUTHORITY.value(), authority);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -108,7 +103,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = dynamicTableIndex.index(PATH.value(), path);
+    final int dynamicIndex = tableIndex.index(PATH.value(), path);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -120,7 +115,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = dynamicTableIndex.index(STATUS.value(), status);
+    final int dynamicIndex = tableIndex.index(STATUS.value(), status);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -134,9 +129,11 @@ class HpackEncoder {
       final int mask;
       final int n;
       if (sensitive) {
+        // 6.2.3.  Literal Header Field Never Indexed
         mask = 0b0001_0000;
         n = 4;
       } else {
+        // 6.2.1.  Literal Header Field with Incremental Indexing
         mask = 0b0100_0000;
         n = 6;
         indexHeader(name(nameIndex), value);
@@ -144,16 +141,16 @@ class HpackEncoder {
       writeInteger(out, mask, n, nameIndex);
       writeString(out, value);
     } else {
-      writeInteger(out, 0b1000_0000, 7, index);
+      Hpack.writeIndexedHeaderField(out, index);
     }
   }
 
   private int dynamicHeaderIndex(final AsciiString name, final AsciiString value) {
-    final int headerIndex = dynamicTableIndex.index(name, value);
+    final int headerIndex = tableIndex.index(name, value);
     if (headerIndex != 0) {
       return headerIndex + HpackStaticTable.length();
     }
-    final int nameIndex = dynamicTableIndex.index(name);
+    final int nameIndex = tableIndex.index(name);
     if (nameIndex != 0) {
       return nameIndex + HpackStaticTable.length() | INDEXED_NAME;
     }
@@ -169,19 +166,19 @@ class HpackEncoder {
       if (headerSize > maxTableSize) {
         tableSize = 0;
         dynamicTable.clear();
-        dynamicTableIndex.clear();
+        tableIndex.clear();
         return;
       }
       while (newTableSize > maxTableSize) {
         final int index = dynamicTable.length();
         final Http2Header removed = dynamicTable.removeLast();
-        dynamicTableIndex.remove(removed, index);
+        tableIndex.remove(removed, index);
         newTableSize -= removed.size();
       }
     }
     tableSize = newTableSize;
     dynamicTable.addFirst(header);
-    dynamicTableIndex.add(header);
+    tableIndex.add(header);
   }
 
   private static int nameIndex(final int index) {
@@ -202,8 +199,10 @@ class HpackEncoder {
   private void writeNewHeaderField(final ByteBuf out, final AsciiString name, final AsciiString value,
                                    final boolean sensitive) {
     if (sensitive) {
+      // 6.2.3.  Literal Header Field Never Indexed -- New Name
       out.writeByte(0b0001_0000);
     } else {
+      // 6.2.1.  Literal Header Field with Incremental Indexing -- New Name
       out.writeByte(0b0100_0000);
       indexHeader(name, value);
     }
@@ -234,47 +233,22 @@ class HpackEncoder {
     if (staticIndex != 0) {
       return staticIndex;
     }
-    return dynamicTableIndex.index(name) + HpackStaticTable.length();
+    return tableIndex.index(name) + HpackStaticTable.length();
   }
 
-  private void writeString(final ByteBuf buf, final AsciiString s) {
-    final int encodedLength = Huffman.encodedLength(s);
-    if (encodedLength < s.length()) {
-      writeHuffmanString(buf, s, encodedLength);
-    } else {
-      writeRawString(buf, s);
-    }
-  }
-
-  private void writeRawString(final ByteBuf buf, final AsciiString s) {
-    writeInteger(buf, 0, 7, s.length());
-    buf.writeBytes(s.array(), s.arrayOffset(), s.length());
-  }
-
-  private void writeHuffmanString(final ByteBuf buf, final AsciiString s, final int encodedLength) {
-    writeInteger(buf, 0x80, 7, encodedLength);
-    Huffman.encode(buf, s);
-  }
-
-  private void writeInteger(final ByteBuf buf, final int mask, final int n, int i) {
-    final int maskBits = 8 - n;
-    final int nMask = (0xFF >> maskBits);
-    if (i < nMask) {
-      buf.writeByte(mask | i);
-      return;
-    }
-
-    buf.writeByte(mask | nMask);
-    i = i - nMask;
-    while (i >= 0x80) {
-      buf.writeByte((i & 0x7F) + 0x80);
-      i >>= 7;
-    }
-    buf.writeByte(i);
-  }
-
-  public int dynamicTableLength() {
+  int tableLength() {
     return dynamicTable.length();
   }
 
+  int maxTableSize() {
+    return maxTableSize;
+  }
+
+  void setMaxTableSize(int maxTableSize) {
+    while (tableSize > maxTableSize) {
+      final Http2Header removed = dynamicTable.removeLast();
+      tableSize -= removed.size();
+    }
+    this.maxTableSize = maxTableSize;
+  }
 }

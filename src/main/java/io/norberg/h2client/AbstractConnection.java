@@ -40,6 +40,7 @@ import static io.netty.handler.codec.http2.Http2FrameTypes.DATA;
 import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
 import static io.netty.handler.codec.http2.Http2FrameTypes.PING;
 import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
+import static io.norberg.h2client.Hpack.writeDynamicTableSizeUpdate;
 import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.h2client.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.h2client.Http2WireFormat.writeFrameHeader;
@@ -73,17 +74,23 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
   private final int localInitialStreamWindow;
   private final int localMaxConnectionWindow;
+  private final int maxHeaderEncoderTableSize;
 
   private final int localConnectionWindowUpdateThreshold;
   private final int localStreamWindowUpdateThreshold;
 
   private int localConnectionWindow;
 
+  // TODO: move this state into HpackEncoder
+  private boolean headerTableSizeUpdatePending;
+
   protected AbstractConnection(final Builder builder, final Channel channel, final Logger log) {
     this.localInitialStreamWindow = Optional.ofNullable(builder.initialStreamWindowSize)
         .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
     this.localMaxConnectionWindow = Optional.ofNullable(builder.connectionWindowSize)
         .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
+    this.maxHeaderEncoderTableSize = Optional.ofNullable(builder.maxHeaderEncoderTableSize)
+        .orElse(DEFAULT_HEADER_TABLE_SIZE);
     this.log = log;
     this.localConnectionWindow = max(localMaxConnectionWindow, DEFAULT_INITIAL_WINDOW_SIZE);
     this.localStreamWindowUpdateThreshold = (localInitialStreamWindow + 1) / 2;
@@ -324,7 +331,13 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
       if (settings.maxHeaderListSize() != null) {
         remoteMaxHeaderListSize = settings.maxHeaderListSize();
       }
-      // TODO: SETTINGS_HEADER_TABLE_SIZE
+      if (settings.headerTableSize() != null) {
+        // We can freely choose a table size that's smaller than the signaled size
+        final int headerTableSize = (int) Math.min(maxHeaderEncoderTableSize, settings.headerTableSize());
+        headerTableSizeUpdatePending = true;
+        headerEncoder.setMaxTableSize(headerTableSize);
+      }
+
       // TODO: SETTINGS_ENABLE_PUSH
 
       peerSettingsChanged(settings);
@@ -473,7 +486,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public int estimateInitialHeadersFrameSize(final ChannelHandlerContext ctx, final STREAM stream) {
-      return FRAME_HEADER_SIZE + headersPayloadSize(stream);
+      return FRAME_HEADER_SIZE + dynamicTableSizeUpdateSize() + headersPayloadSize(stream);
     }
 
     @Override
@@ -496,6 +509,12 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     @Override
     public void writeInitialHeadersFrame(final ChannelHandlerContext ctx, final ByteBuf buf, final STREAM stream,
                                          final boolean endOfStream) throws Http2Exception {
+      // Signal header table size update in the beginning of the block, if necessary
+      if (headerTableSizeUpdatePending) {
+        headerTableSizeUpdatePending = false;
+        writeDynamicTableSizeUpdate(buf, headerEncoder.maxTableSize());
+      }
+
       final int headerIndex = buf.writerIndex();
 
       assert buf.writableBytes() >= FRAME_HEADER_LENGTH;
@@ -524,6 +543,14 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     }
   }
 
+  private int dynamicTableSizeUpdateSize() {
+    if (headerTableSizeUpdatePending) {
+      return Hpack.dynamicTableSizeUpdateSize(headerEncoder.maxTableSize());
+    } else {
+      return 0;
+    }
+  }
+
   protected abstract int encodeHeaders(final STREAM stream, final HpackEncoder headerEncoder, final ByteBuf buf)
       throws Http2Exception;
 
@@ -535,6 +562,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     private Integer maxConcurrentStreams;
     private Integer maxFrameSize;
     private Integer connectionWindowSize;
+    private Integer maxHeaderEncoderTableSize;
     private Integer initialStreamWindowSize;
 
     SslContext sslContext() {
@@ -570,6 +598,15 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     BUILDER connectionWindowSize(final Integer connectionWindowSize) {
       this.connectionWindowSize = connectionWindowSize;
+      return self();
+    }
+
+    Integer maxHeaderEncoderTableSize() {
+      return maxHeaderEncoderTableSize;
+    }
+
+    BUILDER maxHeaderEncoderTableSize(final Integer maxHeaderTableSize) {
+      this.maxHeaderEncoderTableSize = connectionWindowSize;
       return self();
     }
 

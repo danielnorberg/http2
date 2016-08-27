@@ -1,9 +1,12 @@
 package io.norberg.h2client;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.util.AsciiString;
+
+import static io.norberg.h2client.Hpack.readAsciiString;
+import static io.norberg.h2client.Hpack.readByteString;
+import static io.norberg.h2client.Hpack.readInteger;
 
 class HpackDecoder {
 
@@ -61,12 +64,12 @@ class HpackDecoder {
     }
   }
 
-  private void setMaxTableSize(final int maxSize) {
-    while (tableSize > maxSize) {
+  private void setMaxTableSize(final int maxTableSize) {
+    while (tableSize > maxTableSize) {
       final Http2Header removed = dynamicTable.removeLast();
       tableSize -= removed.size();
     }
-    maxTableSize = maxSize;
+    this.maxTableSize = maxTableSize;
   }
 
   private void addHeader(final Http2Header header) {
@@ -109,16 +112,12 @@ class HpackDecoder {
     if (index <= 0) {
       throw new HpackDecodingException();
     }
-    if (isStatic(index)) {
+    if (HpackStaticTable.isStaticIndex(index)) {
       header = HpackStaticTable.header(index);
     } else {
       header = dynamicHeader(index);
     }
     return header;
-  }
-
-  private boolean isStatic(final int index) {
-    return index <= HpackStaticTable.length();
   }
 
   private Http2Header dynamicHeader(final int index) throws HpackDecodingException {
@@ -129,87 +128,6 @@ class HpackDecoder {
     }
     header = dynamicTable.header(dynamicIndex);
     return header;
-  }
-
-  private AsciiString readAsciiString(final ByteBuf in) throws HpackDecodingException {
-    final int b = in.readUnsignedByte();
-    final int length = readInteger(b, in, 7);
-    if ((b & 0b1000_0000) != 0) {
-      return readHuffmanAsciiString(in, length);
-    } else {
-      return readAsciiString(in, length);
-    }
-  }
-
-  private AsciiString readByteString(final ByteBuf in) throws HpackDecodingException {
-    final int b = in.readUnsignedByte();
-    final int length = readInteger(b, in, 7);
-    if ((b & 0b1000_0000) != 0) {
-      return readHuffmanByteString(in, length);
-    } else {
-      return readByteString(in, length);
-    }
-  }
-
-  private AsciiString readAsciiString(final ByteBuf in, final int length) throws HpackDecodingException {
-    final byte[] bytes = new byte[length];
-    checkReadable(in, length);
-    in.readBytes(bytes);
-    return new AsciiString(bytes, false);
-  }
-
-  private AsciiString readByteString(final ByteBuf in, final int length) throws HpackDecodingException {
-    final byte[] bytes = new byte[length];
-    checkReadable(in, length);
-    in.readBytes(bytes);
-    return new AsciiString(bytes, false);
-  }
-
-  private AsciiString readHuffmanAsciiString(final ByteBuf in, final int length) throws HpackDecodingException {
-    final ByteBuf buf = Unpooled.buffer(length * 2);
-    checkReadable(in, length);
-    Huffman.decode(in, buf, length);
-    final AsciiString s = new AsciiString(buf.array(), buf.arrayOffset(), buf.readableBytes(), false);
-    return s;
-  }
-
-  private AsciiString readHuffmanByteString(final ByteBuf in, final int length) throws HpackDecodingException {
-    final ByteBuf buf = Unpooled.buffer(length * 2);
-    checkReadable(in, length);
-    Huffman.decode(in, buf, length);
-    final AsciiString s = new AsciiString(buf.array(), buf.arrayOffset(), buf.readableBytes(), false);
-    return s;
-  }
-
-  private int readInteger(int i, final ByteBuf buf, final int n) throws HpackDecodingException {
-    final int maskBits = 8 - n;
-    final int nMask = (0xFF >> maskBits);
-    i &= nMask;
-    if (i < nMask) {
-      return i;
-    }
-
-    int m = 0;
-    int b;
-    do {
-      requireReadable(buf);
-      b = buf.readUnsignedByte();
-      i += (b & 0x7F) << m;
-      m = m + 7;
-    } while ((b & 0x80) == 0x80);
-    return i;
-  }
-
-  private void requireReadable(final ByteBuf buf) throws HpackDecodingException {
-    if (!buf.isReadable()) {
-      throw new HpackDecodingException();
-    }
-  }
-
-  private void checkReadable(final ByteBuf buf, final int length) throws HpackDecodingException {
-    if (buf.readableBytes() < length) {
-      throw new HpackDecodingException();
-    }
   }
 
   public int maxTableSize() {

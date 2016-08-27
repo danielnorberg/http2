@@ -16,6 +16,7 @@ import io.netty.handler.codec.http.HttpMethod;
 import io.netty.util.AsciiString;
 
 import static io.netty.handler.codec.http.HttpMethod.GET;
+import static io.norberg.h2client.Hpack.writeInteger;
 import static java.nio.charset.StandardCharsets.US_ASCII;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -73,7 +74,7 @@ public class HpackTest {
       final int mask = 0xFF << (8 - maskBits);
       final ByteBuf buf = Unpooled.buffer();
       writeInteger(buf, mask, n, i);
-      assertThat(readInteger(buf, n), is(i));
+      assertThat(Hpack.readInteger(buf, n), is(i));
     }
   }
 
@@ -93,66 +94,34 @@ public class HpackTest {
     assertThat(decoded, is(expected));
   }
 
-  /**
-   * if I < 2^N - 1, encode I on N bits
-   * else
-   * encode (2^N - 1) on N bits
-   * I = I - (2^N - 1)
-   * while I >= 128
-   * encode (I % 128 + 128) on 8 bits
-   * I = I / 128
-   * encode I on 8 bits
-   */
-  private void writeInteger(final ByteBuf buf, final int mask, final int n, int i) {
-    final int maskBits = 8 - n;
-    final int nMask = (0xFF >> maskBits);
-    if (i < nMask) {
-      buf.writeByte(mask | i);
-      return;
+  @Test
+  public void testHeaderTableSizeUpdate() throws Exception {
+    for (int i = 0; i < 31; i++) {
+      int size = 1 << i;
+      ByteBuf buf = Unpooled.buffer();
+      Hpack.writeDynamicTableSizeUpdate(buf, size);
+      int updateSize = Hpack.dynamicTableSizeUpdateSize(size);
+      if (buf.readableBytes() != updateSize) {
+        System.out.println("foos");
+      }
+      assertThat(buf.readableBytes(), is(updateSize));
     }
-
-    buf.writeByte(mask | nMask);
-    i = i - nMask;
-    while (i >= 0x80) {
-      buf.writeByte((i & 0x7F) + 0x80);
-      i >>= 7;
-    }
-    buf.writeByte(i);
   }
 
-  /**
-   * decode I from the next N bits
-   * if I < 2^N - 1, return I
-   * else
-   * M = 0
-   * repeat
-   * B = next octet
-   * I = I + (B & 127) * 2^M
-   * M = M + 7
-   * while B & 128 == 128
-   * return I
-   */
-  private int readInteger(final ByteBuf buf, final int n) {
-
-    final int maskBits = 8 - n;
-    final int nMask = (0xFF >> maskBits);
-    int i = buf.readUnsignedByte() & nMask;
-    if (i < nMask) {
-      return i;
+  @Test
+  public void testIntegerSize() throws Exception {
+    for (int n = 1; n <= 8; n++) {
+      for (int i = 0; i < 32; i++) {
+        for (int j = 0; j <= i; j++) {
+          int value = Math.toIntExact((1L << j) - 1);
+          ByteBuf buf = Unpooled.buffer();
+          Hpack.writeInteger(buf, 0, n, value);
+          int calculatedSize = Hpack.integerSize(n, value);
+          final int actualSize = buf.readableBytes();
+          assertThat(actualSize, is(calculatedSize));
+        }
+      }
     }
-
-    int m = 0;
-    int b;
-    do {
-      b = buf.readUnsignedByte();
-      i += (b & 0x7F) << m;
-      m = m + 7;
-    } while ((b & 0x80) == 0x80);
-    return i;
-  }
-
-  private void writeIndexedHeaderField(final ByteBuf buf, final int i) {
-    writeInteger(buf, 0x80, 7, i);
   }
 
   private void writeLiteralHeaderFieldIncrementalIndexingIndexedName(final ByteBuf buf, final int i) {
@@ -162,27 +131,17 @@ public class HpackTest {
   private void writeString(final ByteBuf buf, final AsciiString s) {
     final int encodedLength = Huffman.encodedLength(s);
     if (encodedLength < s.length()) {
-      writeHuffmanString(buf, s, encodedLength);
+      Hpack.writeHuffmanString(buf, s, encodedLength);
     } else {
-      writeRawString(buf, s);
+      Hpack.writeRawString(buf, s);
     }
-  }
-
-  private void writeRawString(final ByteBuf buf, final AsciiString s) {
-    writeInteger(buf, 0, 7, s.length());
-    buf.writeBytes(s.array(), s.arrayOffset(), s.length());
-  }
-
-  private void writeHuffmanString(final ByteBuf buf, final AsciiString s, final int encodedLength) {
-    writeInteger(buf, 0x80, 7, encodedLength);
-    Huffman.encode(buf, s);
   }
 
   private void writeMethod(final ByteBuf buf, final AsciiString method) {
     if (method.equals(HttpMethod.GET.asciiName())) {
-      writeIndexedHeaderField(buf, 2);
+      Hpack.writeIndexedHeaderField(buf, 2);
     } else if (method.equals(HttpMethod.POST.asciiName())) {
-      writeIndexedHeaderField(buf, 3);
+      Hpack.writeIndexedHeaderField(buf, 3);
     } else {
       writeLiteralHeaderFieldIncrementalIndexingIndexedName(buf, 2);
       writeString(buf, method);
@@ -191,9 +150,9 @@ public class HpackTest {
 
   private void writeScheme(final ByteBuf buf, final AsciiString scheme) {
     if (scheme.equals(SCHEME_HTTP)) {
-      writeIndexedHeaderField(buf, 6);
+      Hpack.writeIndexedHeaderField(buf, 6);
     } else if (scheme.equals(SCHEME_HTTPS)) {
-      writeIndexedHeaderField(buf, 7);
+      Hpack.writeIndexedHeaderField(buf, 7);
     } else {
       writeLiteralHeaderFieldIncrementalIndexingIndexedName(buf, 2);
       writeString(buf, scheme);
@@ -207,9 +166,9 @@ public class HpackTest {
 
   private void writePath(final ByteBuf buf, final AsciiString path) {
     if (path.equals(PATH_SLASH)) {
-      writeIndexedHeaderField(buf, 4);
+      Hpack.writeIndexedHeaderField(buf, 4);
     } else if (path.equals(PATH_INDEX_HTML)) {
-      writeIndexedHeaderField(buf, 5);
+      Hpack.writeIndexedHeaderField(buf, 5);
     } else {
       writeLiteralHeaderFieldIncrementalIndexingIndexedName(buf, 4);
       writeString(buf, path);
