@@ -27,38 +27,38 @@ import static io.netty.util.AsciiString.EMPTY_STRING;
 
 class HpackStaticTable {
 
-  static final AsciiString ROOT = AsciiString.of("/");
-  static final AsciiString INDEX = AsciiString.of("/index.html");
+  private static final AsciiString ROOT = AsciiString.of("/");
+  private static final AsciiString INDEX = AsciiString.of("/index.html");
 
-  static final Http2Header AUTHORITY_HEADER = h(AUTHORITY.value(), EMPTY_STRING);
-  static final Http2Header METHOD_GET_HEADER = h(METHOD.value(), GET.asciiName());
-  static final Http2Header METHOD_POST_HEADER = h(METHOD.value(), POST.asciiName());
-  static final Http2Header PATH_ROOT_HEADER = h(PATH.value(), ROOT);
-  static final Http2Header PATH_INDEX_HEADER = h(PATH.value(), INDEX);
-  static final Http2Header SCHEME_HTTP_HEADER = h(SCHEME.value(), HTTP.name());
-  static final Http2Header SCHEME_HTTPS_HEADER = h(SCHEME.value(), HTTPS.name());
-  static final Http2Header STATUS_200_HEADER = h(STATUS.value(), OK.codeAsText());
-  static final Http2Header STATUS_204_HEADER = h(STATUS.value(), NO_CONTENT.codeAsText());
-  static final Http2Header STATUS_206_HEADER = h(STATUS.value(), PARTIAL_CONTENT.codeAsText());
-  static final Http2Header STATUS_304_HEADER = h(STATUS.value(), NOT_MODIFIED.codeAsText());
-  static final Http2Header STATUS_400_HEADER = h(STATUS.value(), BAD_REQUEST.codeAsText());
-  static final Http2Header STATUS_404_HEADER = h(STATUS.value(), NOT_FOUND.codeAsText());
-  static final Http2Header STATUS_500_HEADER = h(STATUS.value(), INTERNAL_SERVER_ERROR.codeAsText());
+  private static final Http2Header AUTHORITY_HEADER = h(AUTHORITY.value(), EMPTY_STRING);
+  private static final Http2Header METHOD_GET_HEADER = h(METHOD.value(), GET.asciiName());
+  private static final Http2Header METHOD_POST_HEADER = h(METHOD.value(), POST.asciiName());
+  private static final Http2Header PATH_ROOT_HEADER = h(PATH.value(), ROOT);
+  private static final Http2Header PATH_INDEX_HEADER = h(PATH.value(), INDEX);
+  private static final Http2Header SCHEME_HTTP_HEADER = h(SCHEME.value(), HTTP.name());
+  private static final Http2Header SCHEME_HTTPS_HEADER = h(SCHEME.value(), HTTPS.name());
+  private static final Http2Header STATUS_200_HEADER = h(STATUS.value(), OK.codeAsText());
+  private static final Http2Header STATUS_204_HEADER = h(STATUS.value(), NO_CONTENT.codeAsText());
+  private static final Http2Header STATUS_206_HEADER = h(STATUS.value(), PARTIAL_CONTENT.codeAsText());
+  private static final Http2Header STATUS_304_HEADER = h(STATUS.value(), NOT_MODIFIED.codeAsText());
+  private static final Http2Header STATUS_400_HEADER = h(STATUS.value(), BAD_REQUEST.codeAsText());
+  private static final Http2Header STATUS_404_HEADER = h(STATUS.value(), NOT_FOUND.codeAsText());
+  private static final Http2Header STATUS_500_HEADER = h(STATUS.value(), INTERNAL_SERVER_ERROR.codeAsText());
 
-  static final int AUTHORITY_IX = 1;
-  static final int METHOD_GET_IX = 2;
-  static final int METHOD_POST_IX = 3;
-  static final int PATH_ROOT_IX = 4;
-  static final int PATH_INDEX_IX = 5;
-  static final int SCHEME_HTTP_IX = 6;
-  static final int SCHEME_HTTPS_IX = 7;
-  static final int STATUS_200_IX = 8;
-  static final int STATUS_204_IX = 9;
-  static final int STATUS_206_IX = 10;
-  static final int STATUS_304_IX = 11;
-  static final int STATUS_400_IX = 12;
-  static final int STATUS_404_IX = 13;
-  static final int STATUS_500_IX = 14;
+  private static final int AUTHORITY_IX = 1;
+  private static final int METHOD_GET_IX = 2;
+  private static final int METHOD_POST_IX = 3;
+  private static final int PATH_ROOT_IX = 4;
+  private static final int PATH_INDEX_IX = 5;
+  private static final int SCHEME_HTTP_IX = 6;
+  private static final int SCHEME_HTTPS_IX = 7;
+  private static final int STATUS_200_IX = 8;
+  private static final int STATUS_204_IX = 9;
+  private static final int STATUS_206_IX = 10;
+  private static final int STATUS_304_IX = 11;
+  private static final int STATUS_400_IX = 12;
+  private static final int STATUS_404_IX = 13;
+  private static final int STATUS_500_IX = 14;
 
   static final int INDEXED_NAME = 0x80000000;
 
@@ -174,24 +174,31 @@ class HpackStaticTable {
   }
 
   static int pseudoHeaderIndex(final AsciiString name, final AsciiString value) throws HpackEncodingException {
-    if (name.equals(AUTHORITY.value())) {
-      return AUTHORITY_IX | INDEXED_NAME;
+    switch (name.byteAt(1)) {
+      case 'a':
+        if (name.equals(AUTHORITY.value())) {
+          return AUTHORITY_IX | INDEXED_NAME;
+        }
+        break;
+      case 'm':
+        if (name.equals(METHOD.value())) {
+          return methodIndex(value);
+        }
+        break;
+      case 'p':
+        if (name.equals(PATH.value())) {
+          return pathIndex(value);
+        }
+        break;
+      case 's':
+        if (name.equals(SCHEME.value())) {
+          return schemeIndex(value);
+        }
+        if (name.equals(STATUS.value())) {
+          return statusIndex(value);
+        }
+        break;
     }
-    if (name.equals(METHOD.value())) {
-      return methodIndex(value);
-    }
-    if (name.equals(PATH.value())) {
-      return pathIndex(value);
-    }
-
-    if (name.equals(SCHEME.value())) {
-      return schemeIndex(value);
-    }
-
-    if (name.equals(STATUS.value())) {
-      return statusIndex(value);
-    }
-
     throw new HpackEncodingException();
   }
 
@@ -199,23 +206,33 @@ class HpackStaticTable {
     if (status.equals(OK.codeAsText())) {
       return STATUS_200_IX;
     }
-    if (status.equals(NO_CONTENT.codeAsText())) {
-      return STATUS_204_IX;
-    }
-    if (status.equals(PARTIAL_CONTENT.codeAsText())) {
-      return STATUS_206_IX;
-    }
-    if (status.equals(NOT_MODIFIED.codeAsText())) {
-      return STATUS_304_IX;
-    }
-    if (status.equals(BAD_REQUEST.codeAsText())) {
-      return STATUS_400_IX;
-    }
-    if (status.equals(NOT_FOUND.codeAsText())) {
-      return STATUS_404_IX;
-    }
-    if (status.equals(INTERNAL_SERVER_ERROR.codeAsText())) {
-      return STATUS_500_IX;
+    switch (status.byteAt(0)) {
+      case 'N':
+        if (status.equals(NOT_FOUND.codeAsText())) {
+          return STATUS_404_IX;
+        }
+        if (status.equals(NOT_MODIFIED.codeAsText())) {
+          return STATUS_304_IX;
+        }
+        if (status.equals(NO_CONTENT.codeAsText())) {
+          return STATUS_204_IX;
+        }
+        break;
+      case 'P':
+        if (status.equals(PARTIAL_CONTENT.codeAsText())) {
+          return STATUS_206_IX;
+        }
+        break;
+      case 'B':
+        if (status.equals(BAD_REQUEST.codeAsText())) {
+          return STATUS_400_IX;
+        }
+        break;
+      case 'I':
+        if (status.equals(INTERNAL_SERVER_ERROR.codeAsText())) {
+          return STATUS_500_IX;
+        }
+        break;
     }
     return STATUS_200_IX | INDEXED_NAME;
   }
@@ -278,20 +295,30 @@ class HpackStaticTable {
   }
 
   static int pseudoNameIndex(final AsciiString name) throws HpackEncodingException {
-    if (name.equals(AUTHORITY.value())) {
-      return AUTHORITY_IX;
-    }
-    if (name.equals(METHOD.value())) {
-      return METHOD_GET_IX;
-    }
-    if (name.equals(PATH.value())) {
-      return PATH_ROOT_IX;
-    }
-    if (name.equals(SCHEME.value())) {
-      return SCHEME_HTTP_IX;
-    }
-    if (name.equals(STATUS.value())) {
-      return STATUS_200_IX;
+    switch (name.byteAt(1)) {
+      case 'A':
+        if (name.equals(AUTHORITY.value())) {
+          return AUTHORITY_IX;
+        }
+        break;
+      case 'M':
+        if (name.equals(METHOD.value())) {
+          return METHOD_GET_IX;
+        }
+        break;
+      case 'P':
+        if (name.equals(PATH.value())) {
+          return PATH_ROOT_IX;
+        }
+        break;
+      case 'S':
+        if (name.equals(SCHEME.value())) {
+          return SCHEME_HTTP_IX;
+        }
+        if (name.equals(STATUS.value())) {
+          return STATUS_200_IX;
+        }
+        break;
     }
     throw new HpackEncodingException();
   }
@@ -305,7 +332,7 @@ class HpackStaticTable {
     private final int index;
     private final AsciiString value;
 
-    public Entry(final int index, final AsciiString value) {
+    Entry(final int index, final AsciiString value) {
       this.index = index;
       this.value = value;
     }
