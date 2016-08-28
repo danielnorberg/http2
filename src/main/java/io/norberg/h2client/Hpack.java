@@ -138,4 +138,72 @@ class Hpack {
     final AsciiString s = new AsciiString(buf.array(), buf.arrayOffset(), buf.readableBytes(), false);
     return s;
   }
+
+  /**
+   * https://tools.ietf.org/html/rfc7541#section-6.2.1
+   *
+   * Figure 6: Literal Header Field with Incremental Indexing -- Indexed Name
+   */
+  static void writeLiteralHeaderFieldIncrementalIndexing(final ByteBuf out, final AsciiString value,
+                                                         final int nameIndex) {
+    writeInteger(out, 0b0100_0000, 6, nameIndex);
+    writeString(out, value);
+  }
+
+  /**
+   * https://tools.ietf.org/html/rfc7541#section-6.2.1
+   *
+   * Figure 7: Literal Header Field with Incremental Indexing -- New Name
+   */
+  static void writeLiteralHeaderFieldIncrementalIndexingNewName(final ByteBuf out, final AsciiString name,
+                                                                 final AsciiString value) {
+    out.writeByte(0b0100_0000);
+    writeString(out, name);
+    writeString(out, value);
+  }
+
+  /**
+   * https://tools.ietf.org/html/rfc7541#section-6.2.2
+   *
+   * Figure 8: Literal Header Field without Indexing -- Indexed Name
+   */
+  static void writeLiteralHeaderFieldWithoutIndexingIndexedName(final ByteBuf out, final int nameIndex,
+                                                                final AsciiString value) {
+    writeInteger(out, 0b0000_0000, 4, nameIndex);
+    writeString(out, value);
+  }
+
+  /**
+   * https://tools.ietf.org/html/rfc7541#section-6.2.2
+   *
+   * Figure 9: Literal Header Field without Indexing -- New Name
+   */
+  static void writeLiteralHeaderFieldWithoutIndexingIndexedName(final ByteBuf out, final AsciiString name,
+                                                                final AsciiString value) {
+    out.writeByte(0);
+    writeString(out, name);
+    writeString(out, value);
+  }
+
+  /**
+   * https://tools.ietf.org/html/rfc7541#section-6.2.3
+   *
+   * Figure 10: Literal Header Field Never Indexed -- Indexed Name
+   */
+  static void writeLiteralHeaderFieldNeverIndexed(final ByteBuf out, final AsciiString value, final int nameIndex) {
+    writeInteger(out, 0b0001_0000, 4, nameIndex);
+    writeString(out, value);
+  }
+
+  /**
+   * https://tools.ietf.org/html/rfc7541#section-6.2.3
+   *
+   * Figure 11: Literal Header Field Never Indexed -- New Name
+   */
+  static void writeLiteralHeaderFieldNeverIndexedNewName(final ByteBuf out, final AsciiString name,
+                                                         final AsciiString value) {
+    out.writeByte(0b0001_0000);
+    writeString(out, name);
+    writeString(out, value);
+  }
 }

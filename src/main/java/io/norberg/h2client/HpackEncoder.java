@@ -8,8 +8,6 @@ import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
-import static io.norberg.h2client.Hpack.writeInteger;
-import static io.norberg.h2client.Hpack.writeString;
 import static io.norberg.h2client.HpackStaticTable.INDEXED_NAME;
 import static io.norberg.h2client.HpackStaticTable.isIndexedField;
 import static io.norberg.h2client.HpackStaticTable.isIndexedName;
@@ -28,37 +26,51 @@ class HpackEncoder {
 
   void encodeRequest(final ByteBuf out, final AsciiString method, final AsciiString scheme, final AsciiString authority,
                      final AsciiString path) {
-    final int methodIndex = methodIndex(method);
-    final int schemeIndex = schemeIndex(scheme);
-    final int authorityIndex = authorityIndex(authority);
-    final int pathIndex = pathIndex(path);
-    writeIndexedHeaderField(out, methodIndex, method, false);
-    writeIndexedHeaderField(out, schemeIndex, scheme, false);
-    writeIndexedHeaderField(out, authorityIndex, authority, false);
-    writeIndexedHeaderField(out, pathIndex, path, false);
+    writeIndexedHeaderField(out, methodIndex(method), method);
+    writeIndexedHeaderField(out, schemeIndex(scheme), scheme);
+    writeIndexedHeaderField(out, authorityIndex(authority), authority);
+    writeIndexedHeaderField(out, pathIndex(path), path);
   }
 
   void encodeResponse(final ByteBuf out, final AsciiString status) {
     final int statusIndex = statusIndex(status);
-    writeIndexedHeaderField(out, statusIndex, status, false);
+    writeIndexedHeaderField(out, statusIndex, status);
   }
 
   void encodeHeader(final ByteBuf out, final AsciiString name, final AsciiString value, final boolean sensitive)
       throws HpackEncodingException {
     if (sensitive) {
-      final int index = nameIndex(name);
-      if (index != 0) {
-        writeIndexedHeaderField(out, index, value, true);
+      encodeSensitiveHeader(out, name, value);
+    } else {
+      encodeHeader(out, name, value);
+    }
+  }
+
+  void encodeHeader(final ByteBuf out, final AsciiString name, final AsciiString value)
+      throws HpackEncodingException {
+    final int index = headerIndex(name, value);
+    if (index != 0) {
+      if (isIndexedName(index)) {
+        final int nameIndex = nameIndex(index);
+        indexHeader(name(nameIndex), value);
+        Hpack.writeLiteralHeaderFieldIncrementalIndexing(out, value, nameIndex);
       } else {
-        writeNewHeaderField(out, name, value, true);
+        Hpack.writeIndexedHeaderField(out, index);
       }
     } else {
-      final int index = headerIndex(name, value);
-      if (index != 0) {
-        writeIndexedHeaderField(out, index, value, false);
-      } else {
-        writeNewHeaderField(out, name, value, false);
-      }
+      indexHeader(name, value);
+      Hpack.writeLiteralHeaderFieldIncrementalIndexingNewName(out, name, value);
+    }
+  }
+
+  void encodeSensitiveHeader(final ByteBuf out, final AsciiString name, final AsciiString value)
+      throws HpackEncodingException {
+    final int index = nameIndex(name);
+    if (index != 0) {
+      final int nameIndex = nameIndex(index);
+      Hpack.writeLiteralHeaderFieldNeverIndexed(out, value, nameIndex);
+    } else {
+      Hpack.writeLiteralHeaderFieldNeverIndexedNewName(out, name, value);
     }
   }
 
@@ -122,24 +134,11 @@ class HpackEncoder {
     return staticIndex;
   }
 
-  private void writeIndexedHeaderField(final ByteBuf out, final int index, final AsciiString value,
-                                       final boolean sensitive) {
-    if (isIndexedName(index) || sensitive) {
+  private void writeIndexedHeaderField(final ByteBuf out, final int index, final AsciiString value) {
+    if (isIndexedName(index)) {
       final int nameIndex = nameIndex(index);
-      final int mask;
-      final int n;
-      if (sensitive) {
-        // 6.2.3.  Literal Header Field Never Indexed
-        mask = 0b0001_0000;
-        n = 4;
-      } else {
-        // 6.2.1.  Literal Header Field with Incremental Indexing
-        mask = 0b0100_0000;
-        n = 6;
-        indexHeader(name(nameIndex), value);
-      }
-      writeInteger(out, mask, n, nameIndex);
-      writeString(out, value);
+      indexHeader(name(nameIndex), value);
+      Hpack.writeLiteralHeaderFieldIncrementalIndexing(out, value, nameIndex);
     } else {
       Hpack.writeIndexedHeaderField(out, index);
     }
@@ -194,20 +193,6 @@ class HpackEncoder {
       return HpackStaticTable.header(index);
     }
     return dynamicTable.header(index - HpackStaticTable.length() - 1);
-  }
-
-  private void writeNewHeaderField(final ByteBuf out, final AsciiString name, final AsciiString value,
-                                   final boolean sensitive) {
-    if (sensitive) {
-      // 6.2.3.  Literal Header Field Never Indexed -- New Name
-      out.writeByte(0b0001_0000);
-    } else {
-      // 6.2.1.  Literal Header Field with Incremental Indexing -- New Name
-      out.writeByte(0b0100_0000);
-      indexHeader(name, value);
-    }
-    writeString(out, name);
-    writeString(out, value);
   }
 
   private int headerIndex(final AsciiString name, final AsciiString value) throws HpackEncodingException {
