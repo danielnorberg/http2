@@ -29,7 +29,7 @@ public final class Http2Header {
   }
 
   int size() {
-    return size(name, value());
+    return size(name, value);
   }
 
   static int size(final CharSequence name, final CharSequence value) {

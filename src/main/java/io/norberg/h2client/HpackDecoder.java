@@ -100,7 +100,7 @@ class HpackDecoder {
     return Http2Header.of(name, value, sensitive);
   }
 
-  private Http2Header readLiteralHeaderFieldNewName(final ByteBuf in, final boolean sensitive)
+  static Http2Header readLiteralHeaderFieldNewName(final ByteBuf in, final boolean sensitive)
       throws HpackDecodingException {
     final AsciiString name = readAsciiString(in);
     final AsciiString value = readByteString(in);

@@ -2,18 +2,12 @@ package io.norberg.h2client;
 
 import com.google.common.io.BaseEncoding;
 
-import com.twitter.hpack.Encoder;
-
-import org.hamcrest.Matchers;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 
-import java.io.OutputStream;
-
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufOutputStream;
 import io.netty.buffer.Unpooled;
 import io.netty.util.AsciiString;
 
@@ -27,19 +21,19 @@ import static org.mockito.Mockito.verify;
 @RunWith(MockitoJUnitRunner.class)
 public class HpackDecoderTest {
 
-  public static final AsciiString FOO = AsciiString.of("foo");
-  public static final AsciiString BAR = AsciiString.of("bar");
-  public static final AsciiString BAZ = AsciiString.of("baz");
-  public static final AsciiString QUUX = AsciiString.of("quux");
+  private static final AsciiString FOO = AsciiString.of("foo");
+  private static final AsciiString BAR = AsciiString.of("bar");
+  private static final AsciiString BAZ = AsciiString.of("baz");
+  private static final AsciiString QUUX = AsciiString.of("quux");
+
+  private static final int DYNAMIC_TABLE_START_IX = HpackStaticTable.length() + 1;
 
   @Mock HpackDecoder.Listener listener;
 
   @Test
   public void testDecodeStatic() throws Exception {
-    final Encoder encoder = new Encoder(0);
     final ByteBuf block = Unpooled.buffer();
-    final OutputStream os = new ByteBufOutputStream(block);
-    encoder.encodeHeader(os, METHOD.value().array(), GET.asciiName().array(), false);
+    Hpack.writeIndexedHeaderField(block, HpackStaticTable.headerIndex(METHOD.value(), GET.asciiName()));
 
     final HpackDecoder decoder = new HpackDecoder(0);
     decoder.decode(block, listener);
@@ -49,10 +43,9 @@ public class HpackDecoderTest {
 
   @Test
   public void testDecodeUnindexedNewName() throws Exception {
-    final Encoder encoder = new Encoder(0);
     final ByteBuf block = Unpooled.buffer();
-    final OutputStream os = new ByteBufOutputStream(block);
-    encoder.encodeHeader(os, FOO.array(), BAR.array(), false);
+
+    Hpack.writeLiteralHeaderFieldWithoutIndexingNewName(block, FOO, BAR);
 
     final HpackDecoder decoder = new HpackDecoder(0);
     decoder.decode(block, listener);
@@ -65,11 +58,10 @@ public class HpackDecoderTest {
 
   @Test
   public void testDecodeSensitiveIndexedName() throws Exception {
-    final Encoder encoder = new Encoder(Integer.MAX_VALUE);
     final ByteBuf block = Unpooled.buffer();
-    final OutputStream os = new ByteBufOutputStream(block);
-    encoder.encodeHeader(os, FOO.array(), BAR.array(), false);
-    encoder.encodeHeader(os, FOO.array(), BAZ.array(), true);
+
+    Hpack.writeLiteralHeaderFieldIncrementalIndexingNewName(block, FOO, BAR);
+    Hpack.writeLiteralHeaderFieldNeverIndexed(block, DYNAMIC_TABLE_START_IX, BAZ);
 
     final HpackDecoder decoder = new HpackDecoder(Integer.MAX_VALUE);
     decoder.decode(block, listener);
@@ -86,11 +78,10 @@ public class HpackDecoderTest {
     // force "foo: quux" to not be indexed as it will exceed the max header table size
     final int maxHeaderTableSize = 32 + FOO.length() + BAR.length();
 
-    final Encoder encoder = new Encoder(maxHeaderTableSize);
     final ByteBuf block = Unpooled.buffer();
-    final OutputStream os = new ByteBufOutputStream(block);
-    encoder.encodeHeader(os, FOO.array(), BAR.array(), false);
-    encoder.encodeHeader(os, FOO.array(), QUUX.array(), false);
+
+    Hpack.writeLiteralHeaderFieldIncrementalIndexingNewName(block, FOO, BAR);
+    Hpack.writeLiteralHeaderFieldWithoutIndexing(block, DYNAMIC_TABLE_START_IX, QUUX);
 
     final HpackDecoder decoder = new HpackDecoder(maxHeaderTableSize);
     decoder.decode(block, listener);
@@ -104,34 +95,27 @@ public class HpackDecoderTest {
 
   @Test
   public void testIndexing() throws Exception {
-    final Encoder encoder = new Encoder(Integer.MAX_VALUE);
     final HpackDecoder decoder = new HpackDecoder(Integer.MAX_VALUE);
 
-    // Encode and decode first block
+    // Encode and decode first block - literal
     final ByteBuf block1 = Unpooled.buffer();
-    encoder.encodeHeader(new ByteBufOutputStream(block1), FOO.array(), BAR.array(), false);
-    final int block1Size = block1.readableBytes();
+    Hpack.writeLiteralHeaderFieldIncrementalIndexingNewName(block1, FOO, BAR);
     decoder.decode(block1, listener);
     verify(listener).header(Http2Header.of(FOO, BAR, false));
     reset(listener);
 
-    // Encode and decode first block - should be indexed
+    // Encode and decode first block - indexed
     final ByteBuf block2 = Unpooled.buffer();
-    encoder.encodeHeader(new ByteBufOutputStream(block2), FOO.array(), BAR.array(), false);
-    final int block2Size = block2.readableBytes();
-    assertThat(block2Size, is(Matchers.lessThan(block1Size)));
+    Hpack.writeIndexedHeaderField(block2, DYNAMIC_TABLE_START_IX);
     decoder.decode(block2, listener);
     verify(listener).header(Http2Header.of(FOO, BAR, false));
   }
 
   @Test
   public void testTableSizeChange() throws Exception {
-    final Encoder encoder = new Encoder(Integer.MAX_VALUE);
     final ByteBuf block = Unpooled.buffer();
-    final OutputStream os = new ByteBufOutputStream(block);
 
-    // Change header table size
-    encoder.setMaxHeaderTableSize(os, 4711);
+    Hpack.writeDynamicTableSizeUpdate(block, 4711);
 
     final HpackDecoder decoder = new HpackDecoder(Integer.MAX_VALUE);
     decoder.decode(block, listener);

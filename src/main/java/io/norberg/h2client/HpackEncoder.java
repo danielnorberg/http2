@@ -53,7 +53,7 @@ class HpackEncoder {
       if (isIndexedName(index)) {
         final int nameIndex = nameIndex(index);
         indexHeader(name(nameIndex), value);
-        Hpack.writeLiteralHeaderFieldIncrementalIndexing(out, value, nameIndex);
+        Hpack.writeLiteralHeaderFieldIncrementalIndexing(out, nameIndex, value);
       } else {
         Hpack.writeIndexedHeaderField(out, index);
       }
@@ -68,7 +68,7 @@ class HpackEncoder {
     final int index = nameIndex(name);
     if (index != 0) {
       final int nameIndex = nameIndex(index);
-      Hpack.writeLiteralHeaderFieldNeverIndexed(out, value, nameIndex);
+      Hpack.writeLiteralHeaderFieldNeverIndexed(out, nameIndex, value);
     } else {
       Hpack.writeLiteralHeaderFieldNeverIndexedNewName(out, name, value);
     }
@@ -138,7 +138,7 @@ class HpackEncoder {
     if (isIndexedName(index)) {
       final int nameIndex = nameIndex(index);
       indexHeader(name(nameIndex), value);
-      Hpack.writeLiteralHeaderFieldIncrementalIndexing(out, value, nameIndex);
+      Hpack.writeLiteralHeaderFieldIncrementalIndexing(out, nameIndex, value);
     } else {
       Hpack.writeIndexedHeaderField(out, index);
     }

@@ -96,14 +96,11 @@ public class HpackTest {
 
   @Test
   public void testHeaderTableSizeUpdate() throws Exception {
-    for (int i = 0; i < 31; i++) {
+    for (int i = 0; i < 32; i++) {
       int size = 1 << i;
       ByteBuf buf = Unpooled.buffer();
       Hpack.writeDynamicTableSizeUpdate(buf, size);
       int updateSize = Hpack.dynamicTableSizeUpdateSize(size);
-      if (buf.readableBytes() != updateSize) {
-        System.out.println("foos");
-      }
       assertThat(buf.readableBytes(), is(updateSize));
     }
   }

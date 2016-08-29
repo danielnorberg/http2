@@ -144,8 +144,8 @@ class Hpack {
    *
    * Figure 6: Literal Header Field with Incremental Indexing -- Indexed Name
    */
-  static void writeLiteralHeaderFieldIncrementalIndexing(final ByteBuf out, final AsciiString value,
-                                                         final int nameIndex) {
+  static void writeLiteralHeaderFieldIncrementalIndexing(final ByteBuf out, final int nameIndex,
+                                                         final AsciiString value) {
     writeInteger(out, 0b0100_0000, 6, nameIndex);
     writeString(out, value);
   }
@@ -156,7 +156,7 @@ class Hpack {
    * Figure 7: Literal Header Field with Incremental Indexing -- New Name
    */
   static void writeLiteralHeaderFieldIncrementalIndexingNewName(final ByteBuf out, final AsciiString name,
-                                                                 final AsciiString value) {
+                                                                final AsciiString value) {
     out.writeByte(0b0100_0000);
     writeString(out, name);
     writeString(out, value);
@@ -167,8 +167,8 @@ class Hpack {
    *
    * Figure 8: Literal Header Field without Indexing -- Indexed Name
    */
-  static void writeLiteralHeaderFieldWithoutIndexingIndexedName(final ByteBuf out, final int nameIndex,
-                                                                final AsciiString value) {
+  static void writeLiteralHeaderFieldWithoutIndexing(final ByteBuf out, final int nameIndex,
+                                                     final AsciiString value) {
     writeInteger(out, 0b0000_0000, 4, nameIndex);
     writeString(out, value);
   }
@@ -178,8 +178,8 @@ class Hpack {
    *
    * Figure 9: Literal Header Field without Indexing -- New Name
    */
-  static void writeLiteralHeaderFieldWithoutIndexingIndexedName(final ByteBuf out, final AsciiString name,
-                                                                final AsciiString value) {
+  static void writeLiteralHeaderFieldWithoutIndexingNewName(final ByteBuf out, final AsciiString name,
+                                                            final AsciiString value) {
     out.writeByte(0);
     writeString(out, name);
     writeString(out, value);
@@ -190,7 +190,8 @@ class Hpack {
    *
    * Figure 10: Literal Header Field Never Indexed -- Indexed Name
    */
-  static void writeLiteralHeaderFieldNeverIndexed(final ByteBuf out, final AsciiString value, final int nameIndex) {
+  static void writeLiteralHeaderFieldNeverIndexed(final ByteBuf out, final int nameIndex,
+                                                  final AsciiString value) {
     writeInteger(out, 0b0001_0000, 4, nameIndex);
     writeString(out, value);
   }
