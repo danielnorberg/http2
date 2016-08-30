@@ -32,12 +32,14 @@ public class Http2Response {
     return status;
   }
 
-  void headers(final Http2Headers headers) {
+  Http2Response headers(final Http2Headers headers) {
     this.headers = headers;
+    return this;
   }
 
-  void content(final ByteBuf content) {
+  Http2Response content(final ByteBuf content) {
     this.content = content;
+    return this;
   }
 
   public boolean hasHeaders() {
@@ -73,8 +75,12 @@ public class Http2Response {
   public void header(final AsciiString name, final AsciiString value) {
     // TODO: cheaper header list data structure
     if (headers == null) {
-      headers = new DefaultHttp2Headers(false);
+      headers = new DefaultHttp2Headers(true);
     }
     headers.add(name, value);
+  }
+
+  public void header(final CharSequence name, final CharSequence value) {
+    header(AsciiString.of(name), AsciiString.of(value));
   }
 }

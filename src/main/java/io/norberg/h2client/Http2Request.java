@@ -19,11 +19,11 @@ public class Http2Request {
   Http2Request() {
   }
 
-  public Http2Request(final HttpMethod method, final CharSequence path) {
+  Http2Request(final HttpMethod method, final CharSequence path) {
     this(method, path, null);
   }
 
-  public Http2Request(final HttpMethod method, final CharSequence path, final ByteBuf content) {
+  Http2Request(final HttpMethod method, final CharSequence path, final ByteBuf content) {
     this.method = method;
     this.path = AsciiString.of(path);
     this.content = content;
@@ -69,8 +69,9 @@ public class Http2Request {
     return headers;
   }
 
-  void headers(final Http2Headers headers) {
+  Http2Request headers(final Http2Headers headers) {
     this.headers = headers;
+    return this;
   }
 
   public boolean hasContent() {
@@ -81,8 +82,9 @@ public class Http2Request {
     return content;
   }
 
-  public void content(final ByteBuf content) {
+  public Http2Request content(final ByteBuf content) {
     this.content = content;
+    return this;
   }
 
   public Http2Response response(final HttpResponseStatus status, final ByteBuf payload) {
@@ -110,8 +112,12 @@ public class Http2Request {
   public void header(final AsciiString name, final AsciiString value) {
     // TODO: cheaper header list data structure
     if (headers == null) {
-      headers = new DefaultHttp2Headers(false);
+      headers = new DefaultHttp2Headers(true);
     }
     headers.add(name, value);
+  }
+
+  public static Http2Request of(final HttpMethod method, final CharSequence path) {
+    return new Http2Request(method, path);
   }
 }

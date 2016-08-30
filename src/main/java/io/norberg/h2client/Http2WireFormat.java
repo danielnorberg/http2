@@ -67,4 +67,17 @@ class Http2WireFormat {
     }
     return size;
   }
+
+  static boolean isValidHeaderName(final AsciiString name) {
+    final int offset = name.arrayOffset();
+    final byte[] bytes = name.array();
+    final int n = name.length() + offset;
+    for (int i = offset; i < n; i++) {
+      final byte c = bytes[i];
+      if (c >= 'A' && c <= 'Z') {
+        return false;
+      }
+    }
+    return true;
+  }
 }

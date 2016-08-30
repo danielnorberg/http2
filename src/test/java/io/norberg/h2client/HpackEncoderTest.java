@@ -1,5 +1,7 @@
 package io.norberg.h2client;
 
+import com.google.common.collect.ImmutableList;
+
 import com.twitter.hpack.Decoder;
 import com.twitter.hpack.HeaderListener;
 
@@ -9,10 +11,14 @@ import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 
 import java.io.InputStream;
+import java.util.List;
+import java.util.Map;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufInputStream;
 import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.http2.DefaultHttp2Headers;
+import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.util.AsciiString;
 
 import static io.netty.handler.codec.http.HttpMethod.GET;
@@ -114,5 +120,26 @@ public class HpackEncoderTest {
     verify(listener).addHeader(AUTHORITY.value().array(), authority.array(), false);
     verify(listener).addHeader(PATH.value().array(), path.array(), false);
     verifyNoMoreInteractions(listener);
+  }
+
+  @Test
+  public void testOverflow() throws Exception {
+
+    // TODO: optimize index
+
+    final int n = 16 * 1024;
+
+    final Http2Headers headers = new DefaultHttp2Headers();
+    for (int i = 0; i < n; i++) {
+      headers.add(AsciiString.of("header" + i), AsciiString.of("value" + i));
+    }
+
+    ByteBuf block = Unpooled.buffer();
+    final HpackEncoder encoder = new HpackEncoder(4096);
+    final List<Map.Entry<CharSequence, CharSequence>> headerList = ImmutableList.copyOf(headers);
+    for (int i = 0; i < headers.size(); i++) {
+      final Map.Entry<CharSequence, CharSequence> header = headerList.get(i);
+      encoder.encodeHeader(block, AsciiString.of(header.getKey()), AsciiString.of(header.getValue()));
+    }
   }
 }

@@ -72,7 +72,7 @@ class BenchmarkClient {
   private static void get(final Http2Client client, final ProgressMeter.Metric requests,
                           final ProgressMeter.Metric errors, final ProgressMeter.Metric data) {
     final long start = System.nanoTime();
-    final Http2Request request = new Http2Request(GET, PATH);
+    final Http2Request request = Http2Request.of(GET, PATH);
     client.send(request, new Http2ResponseHandler() {
       @Override
       public void response(final Http2Response response) {

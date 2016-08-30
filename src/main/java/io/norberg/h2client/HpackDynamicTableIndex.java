@@ -92,15 +92,16 @@ class HpackDynamicTableIndex {
     final int[] values = this.values;
     Object curr;
     int pos;
+    int ix = index0(value);
     if ((curr = keys[pos = hash(k.hashCode()) & mask]) == null) {
     } else if (k.equals(curr)) {
-      if (values[pos] == value) {
+      if (values[pos] == ix) {
         remove0(pos);
       }
     } else {
       while ((curr = keys[pos = pos + 1 & mask]) != null) {
         if (k.equals(curr)) {
-          if (values[pos] == value) {
+          if (values[pos] == ix) {
             remove0(pos);
           }
           return;

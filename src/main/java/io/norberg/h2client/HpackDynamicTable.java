@@ -27,8 +27,8 @@ class HpackDynamicTable {
   Http2Header removeLast() {
     assert length() > 0;
     final Http2Header header = table[tail];
-    tail = (tail + 1) & (table.length - 1);
     table[tail] = null;
+    tail = (tail + 1) & (table.length - 1);
     return header;
   }
 
