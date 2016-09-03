@@ -52,7 +52,7 @@ public final class Http2Header {
   }
 
   static int hashCode(final AsciiString name, final AsciiString value) {
-    return 31 * name.hashCode() + value.hashCode();
+    return (31 * name.hashCode()) ^ value.hashCode();
   }
 
   @Override
