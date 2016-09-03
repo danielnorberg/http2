@@ -7,6 +7,7 @@ import java.util.Random;
 
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.fail;
 
 public class HpackDynamicTableIndex2Test {
 
@@ -50,7 +51,9 @@ public class HpackDynamicTableIndex2Test {
     int t = x;
     t ^= t << 11;
     t ^= t >>> 8;
-    x = y; y = z; z = w;
+    x = y;
+    y = z;
+    z = w;
     w ^= w >>> 19;
     w ^= t;
     return w;
@@ -75,7 +78,6 @@ public class HpackDynamicTableIndex2Test {
 //          header.hashCode(), ix);
 //      hist[ix]++;
 
-
 //      System.out.println(header.name() + ": " + Integer.toHexString(header.name().hashCode());
 //      System.out.println(header.value() + ": " + Integer.toHexString(header.value().hashCode()));
 //      System.out.println(header + ": " + Integer.toHexString(header.hashCode()));
@@ -89,10 +91,15 @@ public class HpackDynamicTableIndex2Test {
 
       for (int j = 0; j < table.length(); j++) {
         Http2Header tableHeader = table.header(j);
-        assertThat(index.lookup(tableHeader), is(j));
+        if (index.lookup(tableHeader) != j) {
+          index.validateInvariants();
+          index.lookup(tableHeader);
+          fail();
+        }
+//        assertThat(index.lookup(tableHeader), is(j));
       }
 
-      System.out.println(Arrays.toString(index.probeDistances()));
+//      System.out.println(Arrays.toString(index.probeDistances()));
     }
 
     System.out.println(Arrays.toString(hist));

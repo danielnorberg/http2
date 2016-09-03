@@ -1,5 +1,8 @@
 package io.norberg.h2client;
 
+import java.util.ArrayList;
+import java.util.List;
+
 final class HpackDynamicTableIndex2 {
 
   private int capacity = 16;
@@ -19,8 +22,30 @@ final class HpackDynamicTableIndex2 {
 
   void insert(Http2Header header) {
     seq++;
-
     insert0(header, seq);
+    validateInvariants();
+  }
+
+  void validateInvariants() {
+    for (int i = 0; i < table.length; i++) {
+      final long entry = table[i];
+      if (entry == 0) {
+        continue;
+      }
+      final int entryHash = entryHash(entry);
+      final int entryDesiredPos = desiredPos(entryHash);
+      final int entryProbeDistance = probeDistance(entryHash, i);
+      // Check that all entries between the entry desiredPos and actual pos has at least the same probe distance from their respective desired positions
+      for (int j = entryDesiredPos; j < i; j = (j + 1) & mask) {
+        final long e = table[i];
+        final int h = entryHash(e);
+        final int dp = desiredPos(h);
+        final int pd = probeDistance(h, i);
+        if (pd < entryProbeDistance) {
+          throw new AssertionError();
+        }
+      }
+    }
   }
 
   private void insert0(Http2Header header, int seq) {
@@ -36,11 +61,11 @@ final class HpackDynamicTableIndex2 {
     // Probe for an empty slot
     while (true) {
 
-      assert dist < capacity;
+      if (dist == capacity) {
+        rehash();
+      }
 
-      assert probeDistance(hash, pos) == dist;
-
-      long entry = table[pos];
+      final long entry = table[pos];
 
       // Is this entry unused?
       if (entry == 0) {
@@ -50,7 +75,7 @@ final class HpackDynamicTableIndex2 {
 
       int entrySeq = entrySeq(entry);
       int entryTableIndex = entryTableIndex(seq, entrySeq);
-      int entryHash = (int) entry;
+      int entryHash = entryHash(entry);
 
       // Is the entry equal to the header we're trying to insert?
       if (hash == entryHash) {
@@ -72,7 +97,6 @@ final class HpackDynamicTableIndex2 {
           table[pos] = entry(seq, hash);
           // Is the entry expired?
           if (expired(entryTableIndex, count)) {
-            System.out.println("expired");
             break;
           }
           // Keep probing for a slot for the displaced entry
@@ -81,8 +105,6 @@ final class HpackDynamicTableIndex2 {
           dist = entryProbeDistance;
         }
       }
-
-      assert probeDistance(hash, pos) == dist;
 
       pos = (pos + 1) & mask;
       dist++;
@@ -96,13 +118,23 @@ final class HpackDynamicTableIndex2 {
       if (entry == 0) {
         continue;
       }
-      distances[i] = probeDistance((int) entry, i);
+      distances[i] = probeDistance(entryHash(entry), i);
     }
     return distances;
   }
 
   private boolean expired(long entryTableIndex, int count) {
     return entryTableIndex >= count;
+  }
+
+  int search(int hash, Http2Header header) {
+    for (int i = 0; i < table.length; i++) {
+      final long entry = table[i];
+      if (entryHash(entry) == hash) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   int lookup(Http2Header header) {
@@ -112,6 +144,8 @@ final class HpackDynamicTableIndex2 {
     int pos = desiredPos(hash);
     int dist = 0;
 
+    int debugPos = search(hash, header);
+
     while (true) {
       final long entry = table[pos];
 
@@ -120,10 +154,11 @@ final class HpackDynamicTableIndex2 {
         return -1;
       }
 
-      final int entryHash = (int) entry;
+      final int entryHash = entryHash(entry);
 
       // Have we searched longer than the probe distance of this entry?
-      if (probeDistance(entryHash, pos) < dist) {
+      final int entryProbeDistance = probeDistance(entryHash, pos);
+      if (entryProbeDistance < dist) {
         return -1;
       }
 
@@ -143,12 +178,15 @@ final class HpackDynamicTableIndex2 {
     }
   }
 
+  private int entryHash(final long entry) {
+    return (int) entry;
+  }
+
   private int rehash() {
     throw new UnsupportedOperationException("TODO");
   }
 
-  static int mix2(int key)
-  {
+  static int mix2(int key) {
     key += ~(key << 15);
     key ^= (key >> 10);
     key += (key << 3);
@@ -170,8 +208,8 @@ final class HpackDynamicTableIndex2 {
 //    final int hash = mix(header.hashCode());
 //    final int hash = mix2(header.name().hashCode()) ^ mix2(header.value().hashCode());
     return (hash == 0)
-        ? 1_190_494_759
-        : hash;
+           ? 1_190_494_759
+           : hash;
   }
 
   private int entryTableIndex(final int seq, final int entrySeq) {
@@ -192,5 +230,42 @@ final class HpackDynamicTableIndex2 {
 
   private int desiredPos(final int hash) {
     return hash & mask;
+  }
+
+  @Override
+  public String toString() {
+    final StringBuilder s = new StringBuilder();
+    for (int i = 0; i < table.length; i++) {
+      long entry = table[i];
+      if (entry == 0) {
+        continue;
+      }
+      final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
+      if (entryTableIndex >= headerTable.length()) {
+        continue;
+      }
+      final Http2Header header = headerTable.header(entryTableIndex);
+      s.append('\'').append(header.name()).append(':').append(header.value()).append("' => ").append(entryTableIndex).append(System.lineSeparator());
+    }
+    return s.toString();
+  }
+
+  public List<String> inspect() {
+    final List<String> entries = new ArrayList<>();
+    for (int i = 0; i < table.length; i++) {
+      long entry = table[i];
+      final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
+      final String hdr;
+      if (entryTableIndex < headerTable.length()) {
+        hdr = headerTable.header(entryTableIndex).toString();
+      } else {
+        hdr = "";
+      }
+      entries.add(String.format(
+          "%d: pd=%03d hash=%08x seq=%08x tix=%03d hdr=%s",
+          i, probeDistance(entryHash(entry), i), entryHash(entry), entrySeq(entry),
+          entryTableIndex, hdr));
+    }
+    return entries;
   }
 }
