@@ -3,17 +3,14 @@ package io.norberg.h2client;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
-import io.netty.handler.codec.http2.DefaultHttp2Headers;
-import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.util.AsciiString;
 
-public class Http2Request {
+public class Http2Request extends Http2Message {
 
   private HttpMethod method;
   private AsciiString scheme;
   private AsciiString authority;
   private AsciiString path;
-  private Http2Headers headers;
   private ByteBuf content;
 
   Http2Request() {
@@ -61,18 +58,14 @@ public class Http2Request {
     this.path = path;
   }
 
-  public boolean hasHeaders() {
-    return headers != null;
-  }
-
-  public Http2Headers headers() {
-    return headers;
-  }
-
-  Http2Request headers(final Http2Headers headers) {
-    this.headers = headers;
-    return this;
-  }
+//  private Http2Headers headers() {
+//    return headers;
+//  }
+//
+//  private Http2Request headers(final Http2Headers headers) {
+//    this.headers = headers;
+//    return this;
+//  }
 
   public boolean hasContent() {
     return content != null;
@@ -104,17 +97,9 @@ public class Http2Request {
   @Override
   public String toString() {
     return "Http2Request{" +
-           ", headers=" + headers +
+           ", headers=" + headersToString() +
            ", content=" + content +
            '}';
-  }
-
-  public void header(final AsciiString name, final AsciiString value) {
-    // TODO: cheaper header list data structure
-    if (headers == null) {
-      headers = new DefaultHttp2Headers(true);
-    }
-    headers.add(name, value);
   }
 
   public static Http2Request of(final HttpMethod method, final CharSequence path) {

@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.channels.ClosedChannelException;
-import java.util.Map;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -126,7 +125,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
            Http2Header.size(AUTHORITY.value(), request.authority()) +
            Http2Header.size(SCHEME.value(), request.scheme()) +
            Http2Header.size(PATH.value(), request.path()) +
-           (request.hasHeaders() ? Http2WireFormat.headersPayloadSize(request.headers()) : 0);
+           Http2WireFormat.headersPayloadSize(request);
   }
 
   @Override
@@ -139,12 +138,8 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
                                 request.scheme(),
                                 request.authority(),
                                 request.path());
-    if (request.hasHeaders()) {
-      for (Map.Entry<CharSequence, CharSequence> header : request.headers()) {
-        final AsciiString name = AsciiString.of(header.getKey());
-        final AsciiString value = AsciiString.of(header.getValue());
-        headerEncoder.encodeHeader(buf, name, value, false);
-      }
+    for (int i = 0; i < request.headers(); i++) {
+      headerEncoder.encodeHeader(buf, request.headerName(i), request.headerValue(i), false);
     }
     return buf.readableBytes() - mark;
   }

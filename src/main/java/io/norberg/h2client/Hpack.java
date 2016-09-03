@@ -103,36 +103,13 @@ class Hpack {
     }
   }
 
-  static AsciiString readByteString(final ByteBuf in) throws HpackDecodingException {
-    final int b = in.readUnsignedByte();
-    final int length = readInteger(b, in, 7);
-    if ((b & 0b1000_0000) != 0) {
-      return readHuffmanByteString(in, length);
-    } else {
-      return readByteString(in, length);
-    }
-  }
-
   static AsciiString readAsciiString(final ByteBuf in, final int length) throws HpackDecodingException {
     final byte[] bytes = new byte[length];
     in.readBytes(bytes);
     return new AsciiString(bytes, false);
   }
 
-  static AsciiString readByteString(final ByteBuf in, final int length) throws HpackDecodingException {
-    final byte[] bytes = new byte[length];
-    in.readBytes(bytes);
-    return new AsciiString(bytes, false);
-  }
-
   static AsciiString readHuffmanAsciiString(final ByteBuf in, final int length) throws HpackDecodingException {
-    final ByteBuf buf = Unpooled.buffer(length * 2);
-    Huffman.decode(in, buf, length);
-    final AsciiString s = new AsciiString(buf.array(), buf.arrayOffset(), buf.readableBytes(), false);
-    return s;
-  }
-
-  static AsciiString readHuffmanByteString(final ByteBuf in, final int length) throws HpackDecodingException {
     final ByteBuf buf = Unpooled.buffer(length * 2);
     Huffman.decode(in, buf, length);
     final AsciiString s = new AsciiString(buf.array(), buf.arrayOffset(), buf.readableBytes(), false);

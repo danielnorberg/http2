@@ -23,7 +23,7 @@ public class Http2ClientIT {
     final long latency1 = end1 - start1;
     System.out.println("INDEX RESPONSE HEADERS:");
     System.out.println(":status: " + indexResponse.status());
-    indexResponse.headers().forEach(System.out::println);
+    indexResponse.forEachHeader((key, value) ->  System.out.println(key + "=" + value));
     System.out.println();
     indexResponse.release();
 
@@ -34,7 +34,7 @@ public class Http2ClientIT {
     final long latency2 = end2 - start2;
     System.out.println("QUERY1 RESPONSE HEADERS:");
     System.out.println(":status: " + indexResponse.status());
-    indexResponse.headers().forEach(System.out::println);
+    indexResponse.forEachHeader((key, value) ->  System.out.println(key + "=" + value));
     System.out.println();
     query1Response.release();
 
@@ -45,7 +45,7 @@ public class Http2ClientIT {
     final long latency3 = end3 - start3;
     System.out.println("QUERY2 RESPONSE HEADERS:");
     System.out.println(":status: " + indexResponse.status());
-    indexResponse.headers().forEach(System.out::println);
+    indexResponse.forEachHeader((key, value) ->  System.out.println(key + "=" + value));
     System.out.println();
     query2Response.release();
 

@@ -2,6 +2,8 @@ package io.norberg.h2client.benchmarks;
 
 import com.spotify.logging.LoggingConfigurator;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -57,12 +59,23 @@ class BenchmarkClient {
     final ProgressMeter.Metric errors = meter.group("throughput").metric("errors", "errors");
     final ProgressMeter.Metric data = meter.group("throughput").metric("data", "bytes");
 
+    final List<AsciiString> headers = new ArrayList<>();
+    final int n = 1024;
+    for (int i = 0; i < n; i++) {
+      final AsciiString name = AsciiString.of("header" + i);
+      final AsciiString value = AsciiString.of("value" + i);
+      name.hashCode();
+      value.hashCode();
+      headers.add(name);
+      headers.add(value);
+    }
+
     // TODO: lower concurrency in response to settings change as well
     int concurrentStreams = 0;
     while (true) {
       if (concurrentStreams < maxConcurrentStreams.get()) {
         concurrentStreams++;
-        get(client, requests, errors, data);
+        get(client, requests, errors, data, headers);
       } else {
         Thread.sleep(1000);
       }
@@ -70,9 +83,13 @@ class BenchmarkClient {
   }
 
   private static void get(final Http2Client client, final ProgressMeter.Metric requests,
-                          final ProgressMeter.Metric errors, final ProgressMeter.Metric data) {
+                          final ProgressMeter.Metric errors, final ProgressMeter.Metric data,
+                          final List<AsciiString> headers) {
     final long start = System.nanoTime();
     final Http2Request request = Http2Request.of(GET, PATH);
+    for (int i = 0; i < headers.size(); i += 2) {
+      request.header(headers.get(i), headers.get(i + 1));
+    }
     client.send(request, new Http2ResponseHandler() {
       @Override
       public void response(final Http2Response response) {
@@ -83,7 +100,7 @@ class BenchmarkClient {
           data.add(response.content().readableBytes(), latency);
         }
         response.release();
-        get(client, requests, errors, data);
+        get(client, requests, errors, data, headers);
       }
 
       @Override
@@ -91,7 +108,7 @@ class BenchmarkClient {
         final long end = System.nanoTime();
         final long latency = end - start;
         errors.inc(latency);
-        scheduler.schedule(() -> get(client, requests, errors, data), 1, SECONDS);
+        scheduler.schedule(() -> get(client, requests, errors, data, headers), 1, SECONDS);
       }
     });
   }

@@ -5,7 +5,6 @@ import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.util.AsciiString;
 
 import static io.norberg.h2client.Hpack.readAsciiString;
-import static io.norberg.h2client.Hpack.readByteString;
 import static io.norberg.h2client.Hpack.readInteger;
 
 class HpackDecoder {
@@ -96,14 +95,14 @@ class HpackDecoder {
     final int index = readInteger(b, in, n);
     final Http2Header template = header(index);
     final AsciiString name = template.name();
-    final AsciiString value = readByteString(in);
+    final AsciiString value = readAsciiString(in);
     return Http2Header.of(name, value, sensitive);
   }
 
   static Http2Header readLiteralHeaderFieldNewName(final ByteBuf in, final boolean sensitive)
       throws HpackDecodingException {
     final AsciiString name = readAsciiString(in);
-    final AsciiString value = readByteString(in);
+    final AsciiString value = readAsciiString(in);
     return Http2Header.of(name, value, sensitive);
   }
 

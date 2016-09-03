@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 import io.netty.buffer.ByteBuf;
@@ -50,12 +49,8 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
     final Http2Response response = stream.response;
     final int mark = buf.readableBytes();
     headerEncoder.encodeResponse(buf, response.status().codeAsText());
-    if (response.hasHeaders()) {
-      for (Map.Entry<CharSequence, CharSequence> header : response.headers()) {
-        final AsciiString name = AsciiString.of(header.getKey());
-        final AsciiString value = AsciiString.of(header.getValue());
-        headerEncoder.encodeHeader(buf, name, value, false);
-      }
+    for (int i = 0; i < response.headers(); i++) {
+      headerEncoder.encodeHeader(buf, response.headerName(i), response.headerValue(i), false);
     }
     final int size = buf.readableBytes() - mark;
     return size;
@@ -66,7 +61,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
     final Http2Response response = stream.response;
     return FRAME_HEADER_SIZE +
            Http2Header.size(STATUS.value(), response.status().codeAsText()) +
-           (response.hasHeaders() ? Http2WireFormat.headersPayloadSize(response.headers()) : 0);
+           Http2WireFormat.headersPayloadSize(response);
 
   }
 

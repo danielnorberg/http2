@@ -68,6 +68,15 @@ class Http2WireFormat {
     return size;
   }
 
+  static int headersPayloadSize(final Http2Message message) {
+    int size = 0;
+    final int n = message.headers();
+    for (int i = 0; i < n; i++) {
+      size += Http2Header.size(message.headerName(i), message.headerValue(i));
+    }
+    return size;
+  }
+
   static boolean isValidHeaderName(final AsciiString name) {
     final int offset = name.arrayOffset();
     final byte[] bytes = name.array();

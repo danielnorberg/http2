@@ -4,11 +4,15 @@ import com.google.common.base.Strings;
 
 import com.spotify.logging.LoggingConfigurator;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.util.AsciiString;
 import io.netty.util.ResourceLeakDetector;
+import io.norberg.h2client.Http2Response;
 import io.norberg.h2client.Http2Server;
 import io.norberg.h2client.RequestHandler;
 
@@ -35,8 +39,24 @@ class BenchmarkServer {
 
   static void run() throws Exception {
 
-    final RequestHandler requestHandler = (context, request) ->
-        context.respond(request.response(OK));
+    final List<AsciiString> headers = new ArrayList<>();
+    final int n = 1024;
+    for (int i = 0; i < n; i++) {
+      final AsciiString name = AsciiString.of("header" + i);
+      final AsciiString value = AsciiString.of("value" + i);
+      name.hashCode();
+      value.hashCode();
+      headers.add(name);
+      headers.add(value);
+    }
+
+    final RequestHandler requestHandler = (context, request) -> {
+      final Http2Response response = request.response(OK);
+      for (int i = 0; i < headers.size(); i += 2) {
+        response.header(headers.get(i), headers.get(i + 1));
+      }
+      context.respond(response);
+    };
 
     final Http2Server server = Http2Server.builder()
         .requestHandler(requestHandler)

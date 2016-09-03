@@ -14,7 +14,7 @@ class HpackDynamicTableIndex {
   private int maxFill;
 
   private int offset;
-  private final float f = 0.75f;
+  private final float f = 0.05f;
 
   HpackDynamicTableIndex(final int expected) {
     this.n = arraySize(expected, f);

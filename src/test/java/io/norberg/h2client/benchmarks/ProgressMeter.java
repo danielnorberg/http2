@@ -43,7 +43,7 @@ import static java.util.Collections.unmodifiableMap;
  * A simple progress meter. Prints average throughput and latencies for a set of metrics created
  * with {@link #group(String)} and {@link MetricGroup#metric(Object, String)}.
  */
-class ProgressMeter {
+public class ProgressMeter {
 
   private static final int AVERAGE_WINDOW = 10;
   public static final int NANOS_PER_S = 1000000000;
