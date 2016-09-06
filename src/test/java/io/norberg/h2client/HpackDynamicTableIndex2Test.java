@@ -23,25 +23,28 @@ public class HpackDynamicTableIndex2Test {
     Http2Header header = Http2Header.of("foo", "bar");
 
     assertThat(index.lookup(header), is(-1));
+    assertThat(index.lookup(header.name()), is(-1));
 
     table.addFirst(header);
     index.insert(header);
     assertThat(index.lookup(header), is(0));
+    assertThat(index.lookup(header.name()), is(0));
 
     table.removeLast();
     assertThat(index.lookup(header), is(-1));
+    assertThat(index.lookup(header.name()), is(-1));
 
     table.addFirst(header);
     index.insert(header);
     assertThat(index.lookup(header), is(0));
+    assertThat(index.lookup(header.name()), is(0));
   }
 
   @Test
   public void headerStream() throws Exception {
     int n = 8;
-    final Random random = new Random(4711);
     for (int i = 0; i < 1024 * 1024; i++) {
-      Http2Header header = randomHeader(random);
+      Http2Header header = Http2Header.of("name-" + i, "value-" + i);
       final Http2Header removed;
       if (table.length() == n) {
         removed = table.removeLast();
@@ -53,16 +56,14 @@ public class HpackDynamicTableIndex2Test {
       index.validate();
       if (removed != null) {
         assertThat(index.lookup(removed), is(-1));
+        assertThat(index.lookup(removed.name()), is(-1));
       }
       for (int j = 0; j < table.length(); j++) {
         final Http2Header h = table.header(j);
         assertThat(index.lookup(h), is(j));
+        assertThat(index.lookup(h.name()), is(j));
       }
     }
-  }
-
-  private Http2Header randomHeader(final Random r) {
-    return Http2Header.of(randomString(r, 4, 16), randomString(r, 4, 32));
   }
 
   @Ignore("this is a benchmark")
@@ -72,17 +73,19 @@ public class HpackDynamicTableIndex2Test {
     final int N = 1024 * 128;
     final int MASK = N - 1;
 
+    final Random r = ThreadLocalRandom.current();
     for (int i = 0; i < N; i++) {
-      headers.add(randomHeader(ThreadLocalRandom.current()));
+      headers.add(Http2Header.of(randomString(r, 4, 16), randomString(r, 4, 32)));
     }
 
-    int n = 8;
+    final int batch = 1024;
+    final int n = 8;
     final ProgressMeter meter = new ProgressMeter();
     final ProgressMeter.Metric headerMetric = meter.group("throughput").metric("headers", "headers");
     int i = 0;
     while (true) {
       final long start = System.nanoTime();
-      for (int j = 0; j < 1024; j++) {
+      for (int j = 0; j < batch; j++) {
         Http2Header header = headers.get(i);
         if (table.length() == n) {
           table.removeLast();
@@ -93,7 +96,7 @@ public class HpackDynamicTableIndex2Test {
       }
       final long end = System.nanoTime();
       final long latency = end - start;
-      headerMetric.add(1024, latency);
+      headerMetric.add(batch, latency);
     }
   }
 

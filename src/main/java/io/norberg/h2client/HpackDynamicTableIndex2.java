@@ -2,13 +2,17 @@ package io.norberg.h2client;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+
+import io.netty.util.AsciiString;
 
 final class HpackDynamicTableIndex2 {
 
-  private int capacity = 16;
+  private int capacity = 64;
   private int mask = capacity - 1;
 
   // header seq | header hash
@@ -24,20 +28,20 @@ final class HpackDynamicTableIndex2 {
 
   void insert(Http2Header header) {
     seq++;
-    insert(table, header, seq, headerTable, false);
+    insert(table, header, hash(header), seq, headerTable, false);
+    insert(table, header.name(), hash(header.name()), seq, headerTable, true);
   }
 
   static long get(final long[] array, final int i) {
     return array[i & (array.length - 1)];
   }
 
-  static void insert(final long[] table, final Object insertValue, final int insertSeq,
+  static void insert(final long[] table, final Object insertValue, final int insertHash, final int insertSeq,
                      final HpackDynamicTable headerTable,
                      boolean name) {
     final int count = headerTable.length();
     final int capacity = table.length;
     final int mask = capacity - 1;
-    final int insertHash = hash(insertValue);
     final int insertIB = ib(insertHash, mask);
 
     boolean insert = true;
@@ -85,9 +89,15 @@ final class HpackDynamicTableIndex2 {
       final int probeDIB = dib(probeIB, probePos, capacity, mask);
 
       // Is the probed entry header identical our entry header?
-      if (value != null) {
-        Http2Header probeHeader = headerTable.header(probeTableIndex);
-        if (value.equals(probeHeader)) {
+      if (hash == probeHash && value != null) {
+        final Object probeValue;
+        final Http2Header probeHeader = headerTable.header(probeTableIndex);
+        if (name) {
+          probeValue = probeHeader.name();
+        } else {
+          probeValue = probeHeader;
+        }
+        if (value.equals(probeValue)) {
           // Keep probing for the stop-bucket
           probePos = next(probePos, mask);
           continue;
@@ -193,6 +203,7 @@ final class HpackDynamicTableIndex2 {
           insertPos = next(insertPos, mask);
           probePos = next(probePos, mask);
           dist++;
+          continue;
         }
       }
     }
@@ -223,9 +234,16 @@ final class HpackDynamicTableIndex2 {
     return entryTableIndex >= entryTableLength;
   }
 
+  int lookup(AsciiString name) {
+    return lookup0(name, hash(name), true);
+  }
+
   int lookup(Http2Header header) {
+    return lookup0(header, hash(header), false);
+  }
+
+  private int lookup0(final Object value, final int hash, final boolean name) {
     final int count = headerTable.length();
-    final int hash = hash(header);
 
     int pos = ib(hash, mask);
     int dist = 0;
@@ -253,7 +271,13 @@ final class HpackDynamicTableIndex2 {
       // Is this the header we're looking for and is it still valid?
       if (hash == entryHash && !entryExpired(entryTableIndex, count)) {
         final Http2Header entryHeader = headerTable.header(entryTableIndex);
-        if (entryHeader.equals(header)) {
+        final Object entryValue;
+        if (name) {
+          entryValue = entryHeader.name();
+        } else {
+          entryValue = entryHeader;
+        }
+        if (entryValue.equals(value)) {
           return entryTableIndex;
         }
       }
@@ -277,8 +301,25 @@ final class HpackDynamicTableIndex2 {
     return key;
   }
 
-  static int hash(Object value) {
-    final int hash = mix(value.hashCode());
+  static final int HEADER = 0x80000000;
+
+  static boolean isHeader(int hash) {
+    return (hash & HEADER) != 0;
+  }
+
+  static boolean isName(int hash) {
+    return !isHeader(hash);
+  }
+
+  static int hash(Http2Header header) {
+    final int hash = mix(header.hashCode()) | HEADER;
+    return (hash == 0)
+           ? 1_190_494_759
+           : hash;
+  }
+
+  static int hash(AsciiString name) {
+    final int hash = mix(name.hashCode()) & ~HEADER;
     return (hash == 0)
            ? 1_190_494_759
            : hash;
@@ -335,6 +376,7 @@ final class HpackDynamicTableIndex2 {
 
   void validate() {
     Set<Http2Header> headers = new HashSet<>();
+    Set<AsciiString> names = new HashSet<>();
     for (int i = 0; i < table.length; i++) {
       final long entry = table[i];
       if (entry == 0) {
@@ -345,12 +387,20 @@ final class HpackDynamicTableIndex2 {
       final int entryProbeDistance = dib(entryIB, i, table.length, mask);
       final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
       final boolean entryExpired = entryExpired(entryTableIndex, headerTable.length());
+      // Check that there's no duplicate entries
       if (!entryExpired) {
         Http2Header header = headerTable.header(entryTableIndex);
-        if (headers.contains(header)) {
-          throw new AssertionError();
+        if (isHeader(entryHash)) {
+          if (headers.contains(header)) {
+            throw new AssertionError();
+          }
+          headers.add(header);
+        } else {
+          if (names.contains(header.name())) {
+            throw new AssertionError();
+          }
+          names.add(header.name());
         }
-        headers.add(header);
       }
       // Check that all entries between the entry desiredPos and actual pos has at least the same probe distance from their respective desired positions
       for (int j = entryIB; j < i; j = (j + 1) & mask) {
@@ -363,9 +413,20 @@ final class HpackDynamicTableIndex2 {
         }
       }
     }
+    // Check that all table headers and header names can be looked up with the correct index
+    final Map<Http2Header, Integer> headerIndices = new HashMap<>();
+    final Map<AsciiString, Integer> nameIndices = new HashMap<>();
     for (int i = 0; i < headerTable.length(); i++) {
       final Http2Header header = headerTable.header(i);
-      if (lookup(header) != i) {
+      headerIndices.putIfAbsent(header, i);
+      nameIndices.putIfAbsent(header.name(), i);
+    }
+    for (int i = 0; i < headerTable.length(); i++) {
+      final Http2Header header = headerTable.header(i);
+      if (lookup(header) != headerIndices.get(header)) {
+        throw new AssertionError();
+      }
+      if (lookup(header.name()) != nameIndices.get(header.name())) {
         throw new AssertionError();
       }
     }
@@ -375,21 +436,27 @@ final class HpackDynamicTableIndex2 {
     final List<String> entries = new ArrayList<>();
     for (int i = 0; i < table.length; i++) {
       long entry = table[i];
-      final String hdr;
-      final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
       if (entry == 0) {
         entries.add(i + ":");
       } else {
+        final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
+        final boolean isHeader = isHeader(entryHash(entry));
+        final String type = isHeader ? "header" : "name";
+        final String value;
         if (entryTableIndex < headerTable.length()) {
-          hdr = headerTable.header(entryTableIndex).toString();
+          final Http2Header header = headerTable.header(entryTableIndex);
+          if (isHeader) {
+            value = header.toString();
+          } else {
+            value = header.name().toString();
+          }
         } else {
-          hdr = "";
+          value = "";
         }
         entries.add(String.format(
-            "%d: ib=%03d pd=%03d hash=%08x seq=%08x tix=%03d hdr=%s",
+            "%d: ib=%03d pd=%03d hash=%08x seq=%08x tix=%03d type=%5s value=%s",
             i, ib(entryHash(entry), mask), dib(entryHash(entry), i, table.length, mask), entryHash(entry),
-            entrySeq(entry),
-            entryTableIndex, hdr));
+            entrySeq(entry), entryTableIndex, type, value));
       }
     }
     return entries;
