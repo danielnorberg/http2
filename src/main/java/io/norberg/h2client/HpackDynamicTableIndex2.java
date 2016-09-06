@@ -25,8 +25,6 @@ final class HpackDynamicTableIndex2 {
   void insert(Http2Header header) {
     seq++;
     insert(table, header, seq, headerTable, false);
-//    insert(table, header.name(), seq, headerTable, true);
-//    validateInvariants();
   }
 
   void validateInvariants() {
