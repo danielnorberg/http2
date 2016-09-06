@@ -12,7 +12,8 @@ import io.netty.util.AsciiString;
 
 final class HpackDynamicTableIndex2 {
 
-  private int capacity = 64;
+  // TODO: load factor - dynamic capacity
+  private int capacity = 256;
   private int mask = capacity - 1;
 
   // header seq | header hash

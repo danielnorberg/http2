@@ -6,6 +6,7 @@ import com.koloboke.collect.hash.HashConfig;
 import com.twitter.hpack.Decoder;
 import com.twitter.hpack.HeaderListener;
 
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -148,6 +149,7 @@ public class HpackEncoderTest {
     }
   }
 
+  @Ignore
   @Test
   public void testIndex() throws Exception {
 
@@ -185,11 +187,47 @@ public class HpackEncoderTest {
     }
   }
 
+  @Ignore
+  @Test
+  public void testIndex3() throws Exception {
+
+    // TODO: optimize index
+
+    final int n = 16 * 1024;
+
+    final List<Http2Header> headers = new ArrayList<>();
+    for (int i = 0; i < n; i++) {
+      headers.add(Http2Header.of(AsciiString.of("header" + i), AsciiString.of("value" + i)));
+    }
+
+    final ProgressMeter meter = new ProgressMeter();
+    final ProgressMeter.Metric messages = meter.group("throughput").metric("headers", "headers");
+
+    final HpackDynamicTable table = new HpackDynamicTable();
+    final HpackDynamicTableIndex2 index = new HpackDynamicTableIndex2(table);
+    for (int i = 0; i < 50; i++) {
+      final Http2Header header = headers.get(i);
+      table.addFirst(header);
+      index.insert(header);
+    }
+    while (true) {
+      long start = System.nanoTime();
+      for (int i = 0; i < headers.size(); i++) {
+        table.removeLast();
+        final Http2Header header = headers.get(i);
+        table.addFirst(header);
+        index.insert(header);
+      }
+      long end = System.nanoTime();
+      messages.add(n, end - start);
+    }
+  }
+
+  @Ignore
   @Test
   public void testIndex2() throws Exception {
 
     // TODO: optimize index
-
 
     final int n = 16 * 1024;
 
