@@ -2,7 +2,9 @@ package io.norberg.h2client;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 final class HpackDynamicTableIndex2 {
 
@@ -24,10 +26,11 @@ final class HpackDynamicTableIndex2 {
   void insert(Http2Header header) {
     seq++;
     insert(table, header, seq, headerTable);
-    validateInvariants();
+//    validateInvariants();
   }
 
   void validateInvariants() {
+    Set<Http2Header> headers = new HashSet<>();
     for (int i = 0; i < table.length; i++) {
       final long entry = table[i];
       if (entry == 0) {
@@ -36,6 +39,15 @@ final class HpackDynamicTableIndex2 {
       final int entryHash = entryHash(entry);
       final int entryDesiredPos = ib(entryHash, mask);
       final int entryProbeDistance = dib(entryHash, i, table.length, mask);
+      final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
+      final boolean entryExpired = entryExpired(entryTableIndex, headerTable.length());
+      if (!entryExpired) {
+        Http2Header header = headerTable.header(entryTableIndex);
+        if (headers.contains(header)) {
+          throw new AssertionError();
+        }
+        headers.add(header);
+      }
       // Check that all entries between the entry desiredPos and actual pos has at least the same probe distance from their respective desired positions
       for (int j = entryDesiredPos; j < i; j = (j + 1) & mask) {
         final long e = table[i];
@@ -73,7 +85,9 @@ final class HpackDynamicTableIndex2 {
     int probePos = desiredPos;
 
     while (true) {
-      assert dist != capacity;
+      if (dist == capacity) {
+        throw new AssertionError();
+      }
 
       final long probeEntry = table[probePos];
 
@@ -143,7 +157,7 @@ final class HpackDynamicTableIndex2 {
         }
       }
 
-      // Can we move the probed entry?
+      // Do we have any empty buckets to fill?
       if (insertPos == probePos) {
         // No. Ok, do we have an entry to insert?
         if (!insert) {
@@ -153,10 +167,11 @@ final class HpackDynamicTableIndex2 {
         // Is the current entry better located than our entry would be?
         if (dist > probeDIB) {
           // Yes, then put our entry in the insertion bucket and look for a new bucket for the displaced entry
+          table[insertPos] = entry(seq, hash);
           header = null;
           seq = probeSeq;
           hash = probeHash;
-          dist = 1;
+          dist = probeDIB + 1;
           probePos = next(probePos, mask);
           insertPos = probePos;
           continue;
@@ -171,32 +186,50 @@ final class HpackDynamicTableIndex2 {
 
       // Is the IB of the probed entry after the insertion bucket?
       if (inRange(probeIB, next(insertPos, mask), probePos)) {
-        // Yes, so put our entry in the insertion bucket and the probed entry in its IB.
+        // Yes, so put our entry in the insertion bucket (if we have one) and the probed entry in its IB.
         // Then keep looking for the stop-bucket.
-        table[insertPos] = entry(seq, hash);
-        clear(table, next(insertPos, mask), next(probePos, mask));
+        clear(table, insertPos, probeIB);
+        if (insert) {
+          table[insertPos] = entry(seq, hash);
+          header = null;
+          insert = false;
+        }
         table[probeIB] = probeEntry;
-        insertPos = next(probePos, mask);
-        probePos = next(insertPos, mask);
-        header = null;
-        insert = false;
+        insertPos = next(probeIB, mask);
+        probePos = next(probePos, mask);
         continue;
       } else {
-        // No, so put our entry in the insertion bucket
-        table[insertPos] = entry(seq, hash);
-        insertPos = next(insertPos, mask);
-        if (insertPos == probePos) {
-          // We're done here.
-          return;
+        // Do we have an entry to insert?
+        if (!insert) {
+          // No, so move the probed entry and then keep looking for the stop bucket
+          table[insertPos] = probeEntry;
+          insertPos = next(insertPos, mask);
+          probePos = next(probePos, mask);
+          continue;
         }
-        // Put the probed entry in the next bucket.
-        // Then keep looking for the stop-bucket.
-        table[insertPos] = probeEntry;
-        insertPos = next(insertPos, mask);
-        probePos = next(probePos, mask);
-        header = null;
-        insert = false;
-        continue;
+        // Would the probed entry be better located in the insertion bucket than our entry?
+        final int probeInsertDIB = dib0(probeIB, insertPos, capacity, mask);
+        if (dist > probeInsertDIB) {
+          // Yes, so put our entry there and the probed entry in the next bucket and keep looking for the stop bucket
+          table[insertPos] = entry(seq, hash);
+          insertPos = next(insertPos, mask);
+          table[insertPos] = probeEntry;
+          if (insertPos == probePos) {
+            // We're done here
+            return;
+          }
+          insertPos = next(insertPos, mask);
+          probePos = next(probePos, mask);
+          insert = false;
+          header = null;
+          continue;
+        } else {
+          // No, so put the probed entry in the insertion bucket and keep looking for the stop bucket
+          table[insertPos] = probeEntry;
+          insertPos = next(insertPos, mask);
+          probePos = next(probePos, mask);
+          dist++;
+        }
       }
     }
   }
@@ -212,7 +245,7 @@ final class HpackDynamicTableIndex2 {
   private static void clear(final long[] table, final int start, final int end) {
     if (end < start) {
       Arrays.fill(table, start, table.length, 0);
-      Arrays.fill(table, 0, start, 0);
+      Arrays.fill(table, 0, end, 0);
     } else {
       Arrays.fill(table, start, end, 0);
     }
@@ -258,8 +291,6 @@ final class HpackDynamicTableIndex2 {
 
     int pos = ib(hash, mask);
     int dist = 0;
-
-    int debugPos = search(hash, header);
 
     while (true) {
       final long entry = table[pos];
