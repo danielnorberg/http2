@@ -50,7 +50,7 @@ public class HpackDynamicTableIndex2Test {
       }
       table.addFirst(header);
       index.insert(header);
-      index.validateInvariants();
+      index.validate();
       if (removed != null) {
         assertThat(index.lookup(removed), is(-1));
       }

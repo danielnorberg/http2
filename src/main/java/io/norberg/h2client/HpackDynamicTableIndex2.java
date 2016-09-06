@@ -27,60 +27,26 @@ final class HpackDynamicTableIndex2 {
     insert(table, header, seq, headerTable, false);
   }
 
-  void validateInvariants() {
-    Set<Http2Header> headers = new HashSet<>();
-    for (int i = 0; i < table.length; i++) {
-      final long entry = table[i];
-      if (entry == 0) {
-        continue;
-      }
-      final int entryHash = entryHash(entry);
-      final int entryDesiredPos = ib(entryHash, mask);
-      final int entryProbeDistance = dib(entryHash, i, table.length, mask);
-      final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
-      final boolean entryExpired = entryExpired(entryTableIndex, headerTable.length());
-      if (!entryExpired) {
-        Http2Header header = headerTable.header(entryTableIndex);
-        if (headers.contains(header)) {
-          throw new AssertionError();
-        }
-        headers.add(header);
-      }
-      // Check that all entries between the entry desiredPos and actual pos has at least the same probe distance from their respective desired positions
-      for (int j = entryDesiredPos; j < i; j = (j + 1) & mask) {
-        final long e = table[i];
-        final int h = entryHash(e);
-        final int dp = ib(h, mask);
-        final int pd = dib(h, i, table.length, mask);
-        if (pd < entryProbeDistance) {
-          throw new AssertionError();
-        }
-      }
-    }
-    for (int i = 0; i < headerTable.length(); i++) {
-      final Http2Header header = headerTable.header(i);
-      if (lookup(header) != i) {
-        throw new AssertionError();
-      }
-    }
-  }
-
   static long get(final long[] array, final int i) {
     return array[i & (array.length - 1)];
   }
 
-  static void insert(final long[] table, final Object value, final int insertSeq, final HpackDynamicTable headerTable, boolean name) {
+  static void insert(final long[] table, final Object insertValue, final int insertSeq,
+                     final HpackDynamicTable headerTable,
+                     boolean name) {
     final int count = headerTable.length();
     final int capacity = table.length;
     final int mask = capacity - 1;
+    final int insertHash = hash(insertValue);
+    final int insertIB = ib(insertHash, mask);
+
     boolean insert = true;
+    Object value = insertValue;
     int seq = insertSeq;
-    Object header = value;
-    int hash = hash(header);
-    int desiredPos = ib(hash, mask);
+    int hash = insertHash;
     int dist = 0;
-    int insertPos = desiredPos;
-    int probePos = desiredPos;
+    int insertPos = insertIB;
+    int probePos = insertIB;
 
     while (true) {
       if (dist == capacity) {
@@ -116,12 +82,12 @@ final class HpackDynamicTableIndex2 {
       }
 
       final int probeIB = ib(probeHash, mask);
-      final int probeDIB = dib0(probeIB, probePos, capacity, mask);
+      final int probeDIB = dib(probeIB, probePos, capacity, mask);
 
       // Is the probed entry header identical our entry header?
-      if (header != null) {
+      if (value != null) {
         Http2Header probeHeader = headerTable.header(probeTableIndex);
-        if (header.equals(probeHeader)) {
+        if (value.equals(probeHeader)) {
           // Keep probing for the stop-bucket
           probePos = next(probePos, mask);
           continue;
@@ -147,7 +113,7 @@ final class HpackDynamicTableIndex2 {
           // Look for a new bucket for the displaced entry
           seq = probeSeq;
           hash = probeHash;
-          header = null;
+          value = null;
           dist = 1;
           probePos = next(probePos, mask);
           insertPos = probePos;
@@ -166,7 +132,7 @@ final class HpackDynamicTableIndex2 {
         if (dist > probeDIB) {
           // Yes, then put our entry in the insertion bucket and look for a new bucket for the displaced entry
           table[insertPos] = entry(seq, hash);
-          header = null;
+          value = null;
           seq = probeSeq;
           hash = probeHash;
           dist = probeDIB + 1;
@@ -189,7 +155,7 @@ final class HpackDynamicTableIndex2 {
         clear(table, insertPos, probeIB);
         if (insert) {
           table[insertPos] = entry(seq, hash);
-          header = null;
+          value = null;
           insert = false;
         }
         table[probeIB] = probeEntry;
@@ -206,7 +172,7 @@ final class HpackDynamicTableIndex2 {
           continue;
         }
         // Would the probed entry be better located in the insertion bucket than our entry?
-        final int probeInsertDIB = dib0(probeIB, insertPos, capacity, mask);
+        final int probeInsertDIB = dib(probeIB, insertPos, capacity, mask);
         if (dist > probeInsertDIB) {
           // Yes, so put our entry there and the probed entry in the next bucket and keep looking for the stop bucket
           table[insertPos] = entry(seq, hash);
@@ -219,7 +185,7 @@ final class HpackDynamicTableIndex2 {
           insertPos = next(insertPos, mask);
           probePos = next(probePos, mask);
           insert = false;
-          header = null;
+          value = null;
           continue;
         } else {
           // No, so put the probed entry in the insertion bucket and keep looking for the stop bucket
@@ -253,34 +219,8 @@ final class HpackDynamicTableIndex2 {
     return (i + 1) & mask;
   }
 
-  static int prev(final int i, final int mask) {
-    return (i - 1) & mask;
-  }
-
-  int[] probeDistances() {
-    int[] distances = new int[table.length];
-    for (int i = 0; i < table.length; i++) {
-      long entry = table[i];
-      if (entry == 0) {
-        continue;
-      }
-      distances[i] = dib(entryHash(entry), i, table.length, mask);
-    }
-    return distances;
-  }
-
   static boolean entryExpired(long entryTableIndex, int entryTableLength) {
     return entryTableIndex >= entryTableLength;
-  }
-
-  int search(int hash, Http2Header header) {
-    for (int i = 0; i < table.length; i++) {
-      final long entry = table[i];
-      if (entryHash(entry) == hash) {
-        return i;
-      }
-    }
-    return -1;
   }
 
   int lookup(Http2Header header) {
@@ -301,7 +241,8 @@ final class HpackDynamicTableIndex2 {
       final int entryHash = entryHash(entry);
 
       // Have we searched longer than the probe distance of this entry?
-      final int entryProbeDistance = dib(entryHash, pos, table.length, mask);
+      final int entryIB = ib(entryHash, mask);
+      final int entryProbeDistance = dib(entryIB, pos, table.length, mask);
       if (entryProbeDistance < dist) {
         return -1;
       }
@@ -322,15 +263,11 @@ final class HpackDynamicTableIndex2 {
     }
   }
 
-  static int entryHash(final long entry) {
-    return (int) entry;
-  }
-
-  private int rehash() {
-    throw new UnsupportedOperationException("TODO");
-  }
-
-  static int mix2(int key) {
+  /**
+   * Thomas Wang's 32 Bit Mix Function
+   * http://web.archive.org/web/20071223173210/http://www.concentric.net/~Ttwang/tech/inthash.htm
+   */
+  static int mix(int key) {
     key += ~(key << 15);
     key ^= (key >> 10);
     key += (key << 3);
@@ -340,44 +277,27 @@ final class HpackDynamicTableIndex2 {
     return key;
   }
 
-  static int mix(int key) {
-    int h = key;
-    return h ^ (h >>> 16);
-//    int h = key * -1640531527;
-//    return h ^ h >> 16;
-  }
-
   static int hash(Object value) {
-    final int hash = mix2(value.hashCode());
-//    final int hash = mix(header.hashCode());
-//    final int hash = mix2(header.name().hashCode()) ^ mix2(header.value().hashCode());
+    final int hash = mix(value.hashCode());
     return (hash == 0)
            ? 1_190_494_759
            : hash;
   }
 
-  static int entryTableIndex(final int seq, final int entrySeq) {
-    return seq - entrySeq;
+  static long entry(final int seq, final int hash) {
+    return ((long) seq) << 32 | (hash & 0xFFFFFFFFL);
   }
 
   static int entrySeq(final long entry) {
     return (int) (entry >>> 32);
   }
 
-  /**
-   * Distance from Initial Bucket (DIB)
-   */
-  static int dib(final int hash, final int pos, final int capacity, final int mask) {
-    final int ib = ib(hash, mask);
-    return dib0(ib, pos, capacity, mask);
+  static int entryHash(final long entry) {
+    return (int) entry;
   }
 
-  static int dib0(final int ib, final int pos, final int capacity, final int mask) {
-    return (pos + capacity - ib) & mask;
-  }
-
-  static long entry(final int seq, final int hash) {
-    return ((long) seq) << 32 | (hash & 0xFFFFFFFFL);
+  static int entryTableIndex(final int insertSeq, final int entrySeq) {
+    return insertSeq - entrySeq;
   }
 
   /**
@@ -385,6 +305,13 @@ final class HpackDynamicTableIndex2 {
    */
   static int ib(final int hash, final int mask) {
     return hash & mask;
+  }
+
+  /**
+   * Distance from Initial Bucket (DIB)
+   */
+  static int dib(final int ib, final int pos, final int capacity, final int mask) {
+    return (pos + capacity - ib) & mask;
   }
 
   @Override
@@ -400,12 +327,51 @@ final class HpackDynamicTableIndex2 {
         continue;
       }
       final Http2Header header = headerTable.header(entryTableIndex);
-      s.append('\'').append(header.name()).append(':').append(header.value()).append("' => ").append(entryTableIndex).append(System.lineSeparator());
+      s.append('\'').append(header.name()).append(':').append(header.value()).append("' => ").append(entryTableIndex)
+          .append(System.lineSeparator());
     }
     return s.toString();
   }
 
-  public List<String> inspect() {
+  void validate() {
+    Set<Http2Header> headers = new HashSet<>();
+    for (int i = 0; i < table.length; i++) {
+      final long entry = table[i];
+      if (entry == 0) {
+        continue;
+      }
+      final int entryHash = entryHash(entry);
+      final int entryIB = ib(entryHash, mask);
+      final int entryProbeDistance = dib(entryIB, i, table.length, mask);
+      final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
+      final boolean entryExpired = entryExpired(entryTableIndex, headerTable.length());
+      if (!entryExpired) {
+        Http2Header header = headerTable.header(entryTableIndex);
+        if (headers.contains(header)) {
+          throw new AssertionError();
+        }
+        headers.add(header);
+      }
+      // Check that all entries between the entry desiredPos and actual pos has at least the same probe distance from their respective desired positions
+      for (int j = entryIB; j < i; j = (j + 1) & mask) {
+        final long e = table[i];
+        final int h = entryHash(e);
+        final int ib = ib(h, mask);
+        final int pd = dib(ib, i, table.length, mask);
+        if (pd < entryProbeDistance) {
+          throw new AssertionError();
+        }
+      }
+    }
+    for (int i = 0; i < headerTable.length(); i++) {
+      final Http2Header header = headerTable.header(i);
+      if (lookup(header) != i) {
+        throw new AssertionError();
+      }
+    }
+  }
+
+  List<String> inspect() {
     final List<String> entries = new ArrayList<>();
     for (int i = 0; i < table.length; i++) {
       long entry = table[i];
@@ -421,7 +387,8 @@ final class HpackDynamicTableIndex2 {
         }
         entries.add(String.format(
             "%d: ib=%03d pd=%03d hash=%08x seq=%08x tix=%03d hdr=%s",
-            i, ib(entryHash(entry), mask), dib(entryHash(entry), i, table.length, mask), entryHash(entry), entrySeq(entry),
+            i, ib(entryHash(entry), mask), dib(entryHash(entry), i, table.length, mask), entryHash(entry),
+            entrySeq(entry),
             entryTableIndex, hdr));
       }
     }
