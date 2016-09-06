@@ -10,7 +10,6 @@ final class HpackDynamicTableIndex2 {
 
   private int capacity = 16;
   private int mask = capacity - 1;
-  private static final int REHASH_MASK = 0x00FFFFFF;
 
   // header seq | header hash
   private long table[] = new long[capacity];
@@ -25,7 +24,8 @@ final class HpackDynamicTableIndex2 {
 
   void insert(Http2Header header) {
     seq++;
-    insert(table, header, seq, headerTable);
+    insert(table, header, seq, headerTable, false);
+//    insert(table, header.name(), seq, headerTable, true);
 //    validateInvariants();
   }
 
@@ -71,13 +71,13 @@ final class HpackDynamicTableIndex2 {
     return array[i & (array.length - 1)];
   }
 
-  static void insert(final long[] table, final Http2Header insertHeader, final int insertSeq, final HpackDynamicTable headerTable) {
+  static void insert(final long[] table, final Object value, final int insertSeq, final HpackDynamicTable headerTable, boolean name) {
     final int count = headerTable.length();
     final int capacity = table.length;
     final int mask = capacity - 1;
     boolean insert = true;
     int seq = insertSeq;
-    Http2Header header = insertHeader;
+    Object header = value;
     int hash = hash(header);
     int desiredPos = ib(hash, mask);
     int dist = 0;
@@ -349,8 +349,8 @@ final class HpackDynamicTableIndex2 {
 //    return h ^ h >> 16;
   }
 
-  static int hash(Http2Header header) {
-    final int hash = mix2(header.hashCode());
+  static int hash(Object value) {
+    final int hash = mix2(value.hashCode());
 //    final int hash = mix(header.hashCode());
 //    final int hash = mix2(header.name().hashCode()) ^ mix2(header.value().hashCode());
     return (hash == 0)

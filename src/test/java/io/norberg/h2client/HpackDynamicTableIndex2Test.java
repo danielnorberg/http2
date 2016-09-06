@@ -22,14 +22,12 @@ public class HpackDynamicTableIndex2Test {
   private final Random random = new Random(4711);
 
   private static final int N = 1024 * 128;
-  private static final int PROGRESS_N = 1024;
-  private static final int PROGRESS_MASK = PROGRESS_N - 1;
   private static final int MASK = N - 1;
 
   @Before
   public void setUp() throws Exception {
     for (int i = 0; i < N; i++) {
-      headers.add(Http2Header.of(randomString(4,16), randomString(4,32)));
+      headers.add(Http2Header.of(randomString(4, 16), randomString(4, 32)));
     }
   }
 
@@ -60,96 +58,25 @@ public class HpackDynamicTableIndex2Test {
   }
 
   @Test
-  public void foo() throws Exception {
-//    System.out.println(HpackDynamicTableIndex2.mix(0xf5a5009c) & 15);
-//    System.out.println(HpackDynamicTableIndex2.mix(0x15a5009c) & 15);
-
-    System.out.printf("%08x%n", HpackDynamicTableIndex2.hash(Http2Header.of("foo0", "bar0")) & 15);
-    System.out.printf("%08x%n", HpackDynamicTableIndex2.hash(Http2Header.of("foo1", "bar1")) & 15);
-    System.out.printf("%08x%n", HpackDynamicTableIndex2.hash(Http2Header.of("foo2", "bar2")) & 15);
-  }
-
-  int x = 17;
-  int y = 4711;
-  int z = 17 * 4711;
-  int w = 31;
-
-  int xorshift128() {
-    int t = x;
-    t ^= t << 11;
-    t ^= t >>> 8;
-    x = y;
-    y = z;
-    z = w;
-    w ^= w >>> 19;
-    w ^= t;
-    return w;
-  }
-
-  @Test
   public void headerStream() throws Exception {
     int n = 8;
-//    int[] hist = new int[16];
-//    for (int i = 0; i < 1024 * 1024 * 1024; i++) {
     final ProgressMeter meter = new ProgressMeter();
     final ProgressMeter.Metric headerMetric = meter.group("throughput").metric("headers", "headers");
     int i = 0;
-    long start = System.nanoTime();
     while (true) {
-
-      Http2Header header = headers.get(i);
-
-//      int s = xorshift128();
-//      int s = i;
-//      String name = "foo" + Integer.toHexString(s);
-//      String value = "bar" + Integer.toHexString(s);
-//      Http2Header header = Http2Header.of(name, value);
-
-
-
-//      int ix = HpackDynamicTableIndex2.hash(header) & 15;
-//      System.out.printf("%6s: %08x %08x, %6s: %08x %08x, %08x (%08x) %n",
-//          header.name(), header.name().hashCode(), header.name().toString().hashCode(),
-//          header.value(), header.value().hashCode(), header.value().toString().hashCode(),
-//          header.hashCode(), ix);
-//      hist[ix]++;
-
-//      System.out.println(header.name() + ": " + Integer.toHexString(header.name().hashCode());
-//      System.out.println(header.value() + ": " + Integer.toHexString(header.value().hashCode()));
-//      System.out.println(header + ": " + Integer.toHexString(header.hashCode()));
-
-//      assertThat(index.lookup(header), is(-1));
-      if (table.length() == n) {
-        table.removeLast();
+      final long start = System.nanoTime();
+      for (int j = 0; j < 1024; j++) {
+        Http2Header header = headers.get(i);
+        if (table.length() == n) {
+          table.removeLast();
+        }
+        table.addFirst(header);
+        index.insert(header);
+        i = (i + 1) & MASK;
       }
-      table.addFirst(header);
-//      if (i == 10) {
-//        System.out.printf("foo!");
-//      }
-      index.insert(header);
-//      index.validateInvariants();
-
-      if ((i & PROGRESS_MASK) == 0) {
-        long end = System.nanoTime();
-        long latency = end - start;
-        start = end;
-        headerMetric.add(PROGRESS_N, latency);
-      }
-      i = (i + 1) & MASK;
-
-//      for (int j = 0; j < table.length(); j++) {
-//        Http2Header tableHeader = table.header(j);
-//        if (index.lookup(tableHeader) != j) {
-//          index.validateInvariants();
-//          index.lookup(tableHeader);
-//          fail();
-//        }
-////        assertThat(index.lookup(tableHeader), is(j));
-//      }
-
-//      System.out.println(Arrays.toString(index.probeDistances()));
+      final long end = System.nanoTime();
+      final long latency = end - start;
+      headerMetric.add(1024, latency);
     }
-
-//    System.out.println(Arrays.toString(hist));
   }
 }
