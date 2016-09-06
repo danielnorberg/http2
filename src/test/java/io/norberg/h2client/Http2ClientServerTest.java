@@ -168,7 +168,7 @@ public class Http2ClientServerTest {
     server1.close().get(30, SECONDS);
 
     // Wait for client to notice that the connection closed
-    verify(listener, timeout(300)).connectionClosed(client);
+    verify(listener, timeout(30_000)).connectionClosed(client);
 
     // Make another request, observe it fail
     final CompletableFuture<Http2Response> failure = client.get("/hello2");
@@ -182,7 +182,7 @@ public class Http2ClientServerTest {
     // Start server again
     final Http2Server server2 = autoClosing(Http2Server.create(requestHandler));
     server2.bind(port).get();
-    verify(listener, timeout(300).times(2)).connectionEstablished(client);
+    verify(listener, timeout(30_000).times(2)).connectionEstablished(client);
 
     // Make another successful request after client reconnects
     client.get("/hello2").get(30, SECONDS);
