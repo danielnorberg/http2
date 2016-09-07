@@ -160,7 +160,8 @@ final class HpackDynamicTableIndex2 {
       }
 
       // Is the IB of the probed entry after the insertion bucket?
-      if (inRange(probeIB, next(insertPos, mask), probePos)) {
+      final int probeInsertDIB = dib(probeIB, insertPos, capacity, mask);
+      if (probeInsertDIB > probeDIB) {
         // Yes, so put our entry in the insertion bucket (if we have one) and the probed entry in its IB.
         // Then keep looking for the stop-bucket.
         clear(table, insertPos, probeIB);
@@ -183,7 +184,6 @@ final class HpackDynamicTableIndex2 {
           continue;
         }
         // Would the probed entry be better located in the insertion bucket than our entry?
-        final int probeInsertDIB = dib(probeIB, insertPos, capacity, mask);
         if (dist > probeInsertDIB) {
           // Yes, so put our entry there and the probed entry in the next bucket and keep looking for the stop bucket
           table[insertPos] = entry(seq, hash);
@@ -442,7 +442,7 @@ final class HpackDynamicTableIndex2 {
       } else {
         final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
         final boolean isHeader = isHeader(entryHash(entry));
-        final String type = isHeader ? "header" : "name";
+        final String type = isHeader ? "hædr" : "name";
         final String value;
         if (entryTableIndex < headerTable.length()) {
           final Http2Header header = headerTable.header(entryTableIndex);
@@ -455,7 +455,7 @@ final class HpackDynamicTableIndex2 {
           value = "";
         }
         entries.add(String.format(
-            "%d: ib=%03d pd=%03d hash=%08x seq=%08x tix=%03d type=%5s value=%s",
+            "%d: ib=%03d pd=%03d hash=%08x seq=%08x tix=%03d type=%s value=%s",
             i, ib(entryHash(entry), mask), dib(entryHash(entry), i, table.length, mask), entryHash(entry),
             entrySeq(entry), entryTableIndex, type, value));
       }
