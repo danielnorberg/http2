@@ -12,12 +12,15 @@ import io.netty.util.AsciiString;
 
 final class HpackDynamicTableIndex2 {
 
+  private final float loadFactor = 0.25f;
+
   // TODO: load factor - dynamic capacity
-  private int capacity = 256;
-  private int mask = capacity - 1;
+  private static final int MAX_CAPACITY = 1 << 30;
+  private static final int INITIAL_CAPACITY = 32;
+  private int growthThreshold;
 
   // header seq | header hash
-  private long table[] = new long[capacity];
+  private long table[] = new long[INITIAL_CAPACITY];
 
   private int seq = 0;
 
@@ -25,12 +28,33 @@ final class HpackDynamicTableIndex2 {
 
   HpackDynamicTableIndex2(final HpackDynamicTable headerTable) {
     this.headerTable = headerTable;
+    this.growthThreshold = (int) (loadFactor * table.length);
   }
 
   void insert(Http2Header header) {
     seq++;
-    insert(table, header, hash(header), seq, headerTable, false);
-    insert(table, header.name(), hash(header.name()), seq, headerTable, true);
+    insert(table, header, hash(header), seq, seq, headerTable, false);
+    insert(table, header.name(), hash(header.name()), seq, seq, headerTable, true);
+    if (headerTable.length() > growthThreshold) {
+      grow();
+    }
+  }
+
+  private void grow() {
+    if (table.length == MAX_CAPACITY) {
+      throw new OutOfMemoryError();
+    }
+    int newCapacity = table.length << 1;
+    long[] newTable = new long[newCapacity];
+    int seq = this.seq - headerTable.length();
+    for (int i = headerTable.length() - 1; i >= 0; i--) {
+      final Http2Header header = headerTable.header(i);
+      seq++;
+      insert(newTable, header, hash(header), seq, seq, headerTable, false);
+      insert(newTable, header.name(), hash(header.name()), seq, seq, headerTable, true);
+    }
+    table = newTable;
+    growthThreshold = (int) (loadFactor * table.length);
   }
 
   static long get(final long[] array, final int i) {
@@ -38,7 +62,7 @@ final class HpackDynamicTableIndex2 {
   }
 
   static void insert(final long[] table, final Object insertValue, final int insertHash, final int insertSeq,
-                     final HpackDynamicTable headerTable,
+                     final int tableSeq, final HpackDynamicTable headerTable,
                      boolean name) {
     final int count = headerTable.length();
     final int capacity = table.length;
@@ -75,7 +99,7 @@ final class HpackDynamicTableIndex2 {
       }
 
       int probeSeq = entrySeq(probeEntry);
-      int probeTableIndex = entryTableIndex(insertSeq, probeSeq);
+      int probeTableIndex = entryTableIndex(tableSeq, probeSeq);
       int probeHash = entryHash(probeEntry);
       final boolean probeExpired = entryExpired(probeTableIndex, count);
 
@@ -236,15 +260,28 @@ final class HpackDynamicTableIndex2 {
   }
 
   int lookup(AsciiString name) {
-    return lookup0(name, hash(name), true);
+    return lookup(name, table, headerTable, seq);
   }
 
   int lookup(Http2Header header) {
-    return lookup0(header, hash(header), false);
+    return lookup(header, table, headerTable, seq);
   }
 
-  private int lookup0(final Object value, final int hash, final boolean name) {
+  private static int lookup(final Http2Header header, final long[] table, final HpackDynamicTable headerTable,
+                            final int seq) {
+    return lookup0(table, headerTable, seq, header, hash(header), false);
+  }
+
+  private static int lookup(final AsciiString name, final long[] table, final HpackDynamicTable headerTable,
+                            final int seq) {
+    return lookup0(table, headerTable, seq, name, hash(name), true);
+  }
+
+
+  private static int lookup0(final long[] table, final HpackDynamicTable headerTable, final int seq, final Object value,
+                             final int hash, final boolean name) {
     final int count = headerTable.length();
+    final int mask = table.length - 1;
 
     int pos = ib(hash, mask);
     int dist = 0;
@@ -376,6 +413,11 @@ final class HpackDynamicTableIndex2 {
   }
 
   void validate() {
+    validate(table, headerTable, seq);
+  }
+
+  static void validate(long[] table, HpackDynamicTable headerTable, int seq) {
+    final int mask = table.length - 1;
     Set<Http2Header> headers = new HashSet<>();
     Set<AsciiString> names = new HashSet<>();
     for (int i = 0; i < table.length; i++) {
@@ -424,16 +466,17 @@ final class HpackDynamicTableIndex2 {
     }
     for (int i = 0; i < headerTable.length(); i++) {
       final Http2Header header = headerTable.header(i);
-      if (lookup(header) != headerIndices.get(header)) {
+      if (lookup(header, table, headerTable, seq) != headerIndices.get(header)) {
         throw new AssertionError();
       }
-      if (lookup(header.name()) != nameIndices.get(header.name())) {
+      if (lookup(header.name(), table, headerTable, seq) != nameIndices.get(header.name())) {
         throw new AssertionError();
       }
     }
   }
 
   List<String> inspect() {
+    final int mask = table.length - 1;
     final List<String> entries = new ArrayList<>();
     for (int i = 0; i < table.length; i++) {
       long entry = table[i];

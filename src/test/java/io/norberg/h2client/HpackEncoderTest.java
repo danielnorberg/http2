@@ -187,13 +187,14 @@ public class HpackEncoderTest {
     }
   }
 
-  @Ignore
+//  @Ignore
   @Test
   public void testIndex3() throws Exception {
 
     // TODO: optimize index
 
     final int n = 16 * 1024;
+    final int mask = n - 1;
 
     final List<Http2Header> headers = new ArrayList<>();
     for (int i = 0; i < n; i++) {
@@ -205,14 +206,15 @@ public class HpackEncoderTest {
 
     final HpackDynamicTable table = new HpackDynamicTable();
     final HpackDynamicTableIndex2 index = new HpackDynamicTableIndex2(table);
-    for (int i = 0; i < 50; i++) {
+    int i = 0;
+    for (; i < 50; i++) {
       final Http2Header header = headers.get(i);
       table.addFirst(header);
       index.insert(header);
     }
     while (true) {
       long start = System.nanoTime();
-      for (int i = 0; i < headers.size(); i++) {
+      for (int j = 0; j < n; j++, i = (i + 1) & mask) {
         table.removeLast();
         final Http2Header header = headers.get(i);
         table.addFirst(header);

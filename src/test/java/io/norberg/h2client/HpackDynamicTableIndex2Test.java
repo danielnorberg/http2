@@ -66,6 +66,21 @@ public class HpackDynamicTableIndex2Test {
     }
   }
 
+  @Test
+  public void growth() throws Exception {
+    for (int i = 0; i < 128; i++) {
+      Http2Header header = Http2Header.of("name-" + i, "value-" + i);
+      table.addFirst(header);
+      index.insert(header);
+      index.validate();
+      for (int j = 0; j < table.length(); j++) {
+        final Http2Header h = table.header(j);
+        assertThat(index.lookup(h), is(j));
+        assertThat(index.lookup(h.name()), is(j));
+      }
+    }
+  }
+
   @Ignore("this is a benchmark")
   @Test
   public void benchmark() throws Exception {
