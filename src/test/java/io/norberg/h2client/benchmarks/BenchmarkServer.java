@@ -39,6 +39,10 @@ class BenchmarkServer {
 
   static void run() throws Exception {
 
+    final ProgressMeter meter = new ProgressMeter();
+    final ProgressMeter.Metric requests = meter.group("throughput").metric("requests", "requests");
+    final ProgressMeter.Metric data = meter.group("throughput").metric("data", "bytes");
+
     final List<AsciiString> headers = new ArrayList<>();
     final int n = 1024;
     for (int i = 0; i < n; i++) {
@@ -51,6 +55,10 @@ class BenchmarkServer {
     }
 
     final RequestHandler requestHandler = (context, request) -> {
+      requests.inc(0);
+      if (request.hasContent()) {
+        data.add(request.content().readableBytes(), 0);
+      }
       final Http2Response response = request.response(OK);
       for (int i = 0; i < headers.size(); i += 2) {
         response.header(headers.get(i), headers.get(i + 1));

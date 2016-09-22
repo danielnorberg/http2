@@ -55,7 +55,12 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
 
   private void dispatchResponse(final ClientStream stream) {
     deregisterStream(stream.id);
-    succeed(stream.requestPromise.responseHandler, stream.response);
+    Http2Response response = stream.response;
+    Http2ResponseHandler responseHandler = stream.responseHandler;
+    stream.responseHandler = null;
+    stream.response = null;
+    succeed(responseHandler, response);
+    response.release();
   }
 
   private int nextStreamId() {
@@ -105,7 +110,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
 
     // Create new stream
     final int streamId = nextStreamId();
-    final ClientStream stream = new ClientStream(streamId, localInitialStreamWindow(), request, requestPromise);
+    final ClientStream stream = new ClientStream(streamId, localInitialStreamWindow(), request, requestPromise.responseHandler);
 
     registerStream(stream);
 
@@ -115,6 +120,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   @Override
   protected void outboundEnd(final ClientStream stream) {
     stream.request.release();
+    stream.request = null;
   }
 
   @Override
@@ -195,16 +201,16 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
 
   protected static class ClientStream extends Stream {
 
-    private final Http2Request request;
-    private final RequestPromise requestPromise;
-    private final Http2Response response = new Http2Response();
+    private Http2Request request;
+    private Http2ResponseHandler responseHandler;
+    private Http2Response response = new Http2Response();
 
     public ClientStream(final int id, final int localWindow, final Http2Request request,
-                        final RequestPromise requestPromise) {
+                        final Http2ResponseHandler responseHandler) {
       super(id, request.content());
-      this.request = request;
-      this.requestPromise = requestPromise;
       this.localWindow = localWindow;
+      this.request = request;
+      this.responseHandler = responseHandler;
     }
   }
 

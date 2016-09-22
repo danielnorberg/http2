@@ -15,13 +15,13 @@ import static io.norberg.h2client.HpackStaticTable.isIndexedName;
 class HpackEncoder {
 
   private final HpackDynamicTable dynamicTable = new HpackDynamicTable();
-  private final HpackDynamicTableIndex tableIndex;
+  private final HpackDynamicTableIndex4 tableIndex;
   private int tableSize;
   private int maxTableSize;
 
   HpackEncoder(final int maxTableSize) {
     this.maxTableSize = maxTableSize;
-    this.tableIndex = new HpackDynamicTableIndex(16);
+    this.tableIndex = new HpackDynamicTableIndex4(dynamicTable);
   }
 
   void encodeRequest(final ByteBuf out, final AsciiString method, final AsciiString scheme, final AsciiString authority,
@@ -52,6 +52,7 @@ class HpackEncoder {
     if (index != 0) {
       if (isIndexedName(index)) {
         final int nameIndex = nameIndex(index);
+        // TODO: use name instead?
         indexHeader(name(nameIndex), value);
         Hpack.writeLiteralHeaderFieldIncrementalIndexing(out, nameIndex, value);
       } else {

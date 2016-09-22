@@ -99,7 +99,6 @@ class BenchmarkClient {
         if (response.hasContent()) {
           data.add(response.content().readableBytes(), latency);
         }
-        response.release();
         get(client, requests, errors, data, headers);
       }
 

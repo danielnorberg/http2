@@ -117,12 +117,15 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   @Override
   protected void inboundEnd(final ServerStream stream) throws Http2Exception {
     // Hand off request to request handler
+    Http2Request request = stream.request;
+    stream.request = null;
     try {
-      requestHandler.handleRequest(stream, stream.request);
+      requestHandler.handleRequest(stream, request);
     } catch (Exception e) {
       log.error("Request handler threw exception", e);
       stream.fail();
     }
+    request.release();
   }
 
 
@@ -146,6 +149,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   @Override
   protected void outboundEnd(final ServerStream stream) {
     stream.response.release();
+    stream.response = null;
     deregisterStream(stream.id);
   }
 
@@ -208,7 +212,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
 
   class ServerStream extends Stream implements Http2RequestContext {
 
-    private final Http2Request request = new Http2Request();
+    private Http2Request request = new Http2Request();
     private Http2Response response;
 
     public ServerStream(final int id, final int localWindow) {

@@ -10,13 +10,15 @@ import java.util.Set;
 
 import io.netty.util.AsciiString;
 
-final class HpackDynamicTableIndex2 {
+final class HpackDynamicTableIndex3 {
 
-  private final float loadFactor = 0.25f;
+  private final float loadFactor = 0.5f;
 
+  // TODO: load factor - dynamic capacity
   private static final int MAX_CAPACITY = 1 << 30;
   private static final int INITIAL_CAPACITY = 32;
   private int growthThreshold;
+  private int rehashMask;
 
   // header seq | header hash
   private long table[] = new long[INITIAL_CAPACITY];
@@ -25,82 +27,55 @@ final class HpackDynamicTableIndex2 {
 
   private final HpackDynamicTable headerTable;
 
-  HpackDynamicTableIndex2(final HpackDynamicTable headerTable) {
+  HpackDynamicTableIndex3(final HpackDynamicTable headerTable) {
     this.headerTable = headerTable;
-    this.growthThreshold = (int) (loadFactor * table.length);
+    this.growthThreshold = (int) (loadFactor * table.length / 2);
+    this.rehashMask = table.length - 1;
   }
 
   void insert(Http2Header header) {
     seq++;
+    if (headerTable.length() > growthThreshold) {
+      rehash(table.length << 1);
+      return;
+    } else if ((seq & rehashMask) == rehashMask) {
+//      rehash(table.length);
+//      System.out.println("Before compact");
+//      inspect().forEach(System.out::println);
+      compact();
+//      System.out.println("After compact");
+//      inspect().forEach(System.out::println);
+    }
     insert(table, header, hash(header), seq, seq, headerTable, false);
     insert(table, header.name(), hash(header.name()), seq, seq, headerTable, true);
-    if (headerTable.length() > growthThreshold) {
-      grow();
-    }
   }
 
-  private void grow() {
-    if (table.length == MAX_CAPACITY) {
-      throw new OutOfMemoryError();
-    }
-    int newCapacity = table.length << 1;
-    long[] newTable = new long[newCapacity];
-    final int tableSeq = this.seq;
-    int seq = this.seq - headerTable.length();
-    for (int i = headerTable.length() - 1; i >= 0; i--) {
-      final Http2Header header = headerTable.header(i);
-      seq++;
-      insert(newTable, header, hash(header), seq, tableSeq, headerTable, false);
-      insert(newTable, header.name(), hash(header.name()), seq, tableSeq, headerTable, true);
-    }
-    table = newTable;
-    growthThreshold = (int) (loadFactor * table.length);
+  private void compact() {
+    compact(table, seq, headerTable.length());
   }
 
-  static long get(final long[] array, final int i) {
-    return array[i & (array.length - 1)];
-  }
+  static void compact(final long[] table, final int tableSeq, final int count) {
+    assert count != 0;
 
-  static void insert(final long[] table, final Object insertValue, final int insertHash, final int insertSeq,
-                     final int tableSeq, final HpackDynamicTable headerTable,
-                     boolean name) {
-    final int count = headerTable.length();
     final int capacity = table.length;
     final int mask = capacity - 1;
-    final int insertIB = ib(insertHash, mask);
 
-    boolean insert = true;
-    Object value = insertValue;
-    int seq = insertSeq;
-    int hash = insertHash;
-    int dist = 0;
-    int insertPos = insertIB;
-    int probePos = insertIB;
+    int insertPos = 0;
+    int probePos = 0;
 
-    while (true) {
-      if (dist == capacity) {
-        throw new AssertionError();
-      }
-
+    final int n = table.length + (table.length >> 2);
+    for (int i = 0; i < n; i++) {
       final long probeEntry = table[probePos];
 
       // Is the probed bucket unused?
       if (probeEntry == 0) {
-        // We're done. Store our entry if we have one and bail.
-        if (insert) {
-          table[insertPos] = entry(seq, hash);
-          if (insertPos != probePos) {
-            clear(table, next(insertPos, mask), probePos);
-          }
-        } else {
-          clear(table, insertPos, probePos);
-        }
-        return;
+        probePos = next(probePos, mask);
+        continue;
       }
 
-      int probeSeq = entrySeq(probeEntry);
-      int probeTableIndex = entryTableIndex(tableSeq, probeSeq);
-      int probeHash = entryHash(probeEntry);
+      final int probeSeq = entrySeq(probeEntry);
+      final int probeTableIndex = entryTableIndex(tableSeq, probeSeq);
+      final int probeHash = entryHash(probeEntry);
       final boolean probeExpired = entryExpired(probeTableIndex, count);
 
       // Is the probed entry expired?
@@ -110,139 +85,121 @@ final class HpackDynamicTableIndex2 {
         continue;
       }
 
+      // Do we have any empty buckets to fill?
+      if (insertPos == probePos) {
+        insertPos = next(probePos, mask);
+        probePos = next(probePos, mask);
+        continue;
+      }
+
       final int probeIB = ib(probeHash, mask);
       final int probeDIB = dib(probeIB, probePos, capacity, mask);
 
-      // Is the probed entry header identical to our entry header?
-      if (hash == probeHash && value != null) {
-        final Object probeValue;
-        final Http2Header probeHeader = headerTable.header(probeTableIndex);
-        if (name) {
-          probeValue = probeHeader.name();
-        } else {
-          probeValue = probeHeader;
-        }
-        if (value.equals(probeValue)) {
-          // Keep probing for the stop-bucket
-          probePos = next(probePos, mask);
-          continue;
-        }
-      }
-
       // Is the probed entry already optimally located?
       if (probeDIB == 0) {
-        // Do we have an entry to store?
-        if (!insert) {
-          // No, then we're done.
-          clear(table, insertPos, probePos);
-          return;
-        }
-
-        if (insertPos != probePos) {
-          // Put our entry in the insertion bucket
-          table[insertPos] = entry(seq, hash);
-          // And we're done
-          clear(table, next(insertPos, mask), probePos);
-          return;
-        }
-
-        if (dist > 0) {
-          // Displace the probed entry
-          table[insertPos] = entry(seq, hash);
-          // Look for a new bucket for the displaced entry
-          seq = probeSeq;
-          hash = probeHash;
-          value = null;
-          dist = 1;
-          probePos = next(probePos, mask);
-          insertPos = probePos;
-          continue;
-        } else {
-          // Keep looking
-          dist++;
-          probePos = next(probePos, mask);
-          insertPos = probePos;
-          continue;
-        }
-      }
-
-      // Do we have any empty buckets to fill?
-      if (insertPos == probePos) {
-        // No. Ok, do we have an entry to insert?
-        if (!insert) {
-          // No, then we're done.
-          return;
-        }
-        // Is the current entry better located than our entry would be?
-        if (dist > probeDIB) {
-          // Yes, then put our entry in the insertion bucket and look for a new bucket for the displaced entry
-          table[insertPos] = entry(seq, hash);
-          value = null;
-          seq = probeSeq;
-          hash = probeHash;
-          dist = probeDIB + 1;
-          probePos = next(probePos, mask);
-          insertPos = probePos;
-          continue;
-        } else {
-          // No, so let the probed entry stay and keep looking for a bucket for our entry
-          insertPos = next(insertPos, mask);
-          probePos = insertPos;
-          dist++;
-          continue;
-        }
+        clear(table, insertPos, probePos);
+        insertPos = next(probePos, mask);
+        probePos = next(probePos, mask);
+        continue;
       }
 
       // Is the IB of the probed entry after the insertion bucket?
       final int probeInsertDIB = dib(probeIB, insertPos, capacity, mask);
       if (probeInsertDIB > probeDIB) {
-        // Yes, so put our entry in the insertion bucket (if we have one) and the probed entry in its IB.
-        // Then keep looking for the stop-bucket.
+        // Yes, move the probed entry to its IB.
         clear(table, insertPos, probeIB);
-        if (insert) {
-          table[insertPos] = entry(seq, hash);
-          value = null;
-          insert = false;
-        }
         table[probeIB] = probeEntry;
         insertPos = next(probeIB, mask);
         probePos = next(probePos, mask);
         continue;
       } else {
-        // Do we have an entry to insert?
-        if (!insert) {
-          // No, so move the probed entry and then keep looking for the stop bucket
-          table[insertPos] = probeEntry;
-          insertPos = next(insertPos, mask);
-          probePos = next(probePos, mask);
-          continue;
-        }
-        // Would the probed entry be better located in the insertion bucket than our entry?
-        if (dist > probeInsertDIB) {
-          // Yes, so put our entry there and the probed entry in the next bucket and keep looking for the stop bucket
-          table[insertPos] = entry(seq, hash);
-          insertPos = next(insertPos, mask);
-          table[insertPos] = probeEntry;
-          if (insertPos == probePos) {
-            // We're done here
-            return;
-          }
-          insertPos = next(insertPos, mask);
-          probePos = next(probePos, mask);
-          insert = false;
-          value = null;
-          continue;
-        } else {
-          // No, so put the probed entry in the insertion bucket and keep looking for the stop bucket
-          table[insertPos] = probeEntry;
-          insertPos = next(insertPos, mask);
-          probePos = next(probePos, mask);
-          dist++;
-          continue;
-        }
+        // Move the probed entry to the insertion bucket
+        table[insertPos] = probeEntry;
+        insertPos = next(insertPos, mask);
+        probePos = next(probePos, mask);
+        continue;
       }
     }
   }
+
+//  private static void compact(final long[] table, final int seq, final int count) {
+//    final int capacity = table.length;
+//    final int mask = capacity - 1;
+//
+//    int i = 0;
+//    for (; i < table.length; i++) {
+//      final long entry = table[i];
+//      if (entry == 0) {
+//        break;
+//      }
+//      final int entryHash = entryHash(entry);
+//      final int entryIB = ib(entryHash, mask);
+//      final int entryDIB = dib(entryIB, i, capacity, mask);
+//      final int entrySeq = entrySeq(entry);
+//      final int entryTableIndex = entryTableIndex(seq, entrySeq);
+//      final boolean entryExpired = entryExpired(entryTableIndex, count);
+//      if (entryDIB == 0) {
+//        break;
+//      }
+//    }
+//
+//    assert i < table.length;
+//
+//    final int end = i;
+//    int insert = i;
+//    i = next(i, mask);
+//    while (true) {
+//      if (i == end) {
+//        clear(table, insert, i);
+//        return;
+//      }
+//
+//      final long entry = table[i];
+//      if (entry == 0) {
+//        i = next(i, mask);
+//        continue;
+//      }
+//
+//      final int entryHash = entryHash(entry);
+//      final int entrySeq = entrySeq(entry);
+//      final int entryTableIndex = entryTableIndex(seq, entrySeq);
+//      final boolean entryExpired = entryExpired(entryTableIndex, count);
+//      if (entryExpired) {
+//        i = next(i, mask);
+//        continue;
+//      }
+//
+//      if (insert == i) {
+//        insert = next(insert, mask);
+//        i = insert;
+//        continue;
+//      }
+//
+//      final int entryIB = ib(entryHash, mask);
+//      final int entryDIB = dib(entryIB, i, capacity, mask);
+//      if (entryDIB == 0) {
+//        clear(table, insert, i);
+//        insert = next(i, mask);
+//        i = insert;
+//        continue;
+//      }
+//
+//      final int entryInsertDIB = dib(entryIB, insert, capacity, mask);
+//      if (entryInsertDIB < entryDIB) {
+//        table[insert] = entry;
+//        insert = next(insert, mask);
+//        i = next(i, mask);
+//        continue;
+//      } else {
+//        clear(table, insert, entryIB);
+//        table[entryIB] = entry;
+//        insert = next(entryIB, mask);
+//        i = next(i, mask);
+//        clear(table, next(entryIB, mask), i);
+//        continue;
+//      }
+//    }
+//  }
 
   private static void clear(final long[] table, final int start, final int end) {
     if (end < start) {
@@ -253,12 +210,101 @@ final class HpackDynamicTableIndex2 {
     }
   }
 
-  static int next(final int i, final int mask) {
-    return (i + 1) & mask;
+  private void rehash(int newCapacity) {
+    if (newCapacity >= MAX_CAPACITY) {
+      throw new OutOfMemoryError();
+    }
+    if (newCapacity == table.length) {
+      Arrays.fill(table, 0);
+    } else {
+      table = new long[newCapacity];
+      growthThreshold = (int) (loadFactor * table.length / 2);
+      rehashMask = table.length - 1;
+    }
+    final int insertSeq = this.seq;
+    int seq = insertSeq - headerTable.length();
+    for (int i = headerTable.length() - 1; i >= 0; i--) {
+      final Http2Header header = headerTable.header(i);
+      seq++;
+      insert(table, header, hash(header), seq, insertSeq, headerTable, false);
+      insert(table, header.name(), hash(header.name()), seq, insertSeq, headerTable, true);
+    }
   }
 
-  static boolean entryExpired(long entryTableIndex, int entryTableLength) {
-    return entryTableIndex >= entryTableLength;
+  static void insert(final long[] table, final Object insertValue, final int insertHash, final int insertSeq,
+                     final int tableSeq, final HpackDynamicTable headerTable,
+                     boolean name) {
+    final int count = headerTable.length();
+    final int capacity = table.length;
+    final int mask = capacity - 1;
+    final int insertIB = ib(insertHash, mask);
+
+    Object value = insertValue;
+    int seq = insertSeq;
+    int hash = insertHash;
+    int dist = 0;
+    int pos = insertIB;
+
+    while (true) {
+      if (dist == capacity) {
+        throw new AssertionError();
+      }
+
+      final long probeEntry = table[pos];
+
+      // Is the probed bucket unused?
+      if (probeEntry == 0) {
+        // We're done. Store our entry and bail.
+        table[pos] = entry(seq, hash);
+        return;
+      }
+
+      final int entrySeq = entrySeq(probeEntry);
+      final int entryTableIndex = entryTableIndex(tableSeq, entrySeq);
+      final int entryHash = entryHash(probeEntry);
+      final int entryIB = ib(entryHash, mask);
+      final int entryDIB = dib(entryIB, pos, capacity, mask);
+
+      // Is the entry identical?
+      if (hash == entryHash && value != null) {
+        final Object probeValue;
+        final boolean entryExpired = entryExpired(entryTableIndex, count);
+        if (entryExpired) {
+          table[pos] = entry(seq, hash);
+          return;
+        }
+        final Http2Header probeHeader = headerTable.header(entryTableIndex);
+        if (name) {
+          probeValue = probeHeader.name();
+        } else {
+          probeValue = probeHeader;
+        }
+        if (value.equals(probeValue)) {
+          table[pos] = entry(seq, hash);
+          return;
+        }
+      }
+
+      // Displace the current entry?
+      if (dist > entryDIB) {
+        table[pos] = entry(seq, hash);
+        final boolean entryExpired = entryExpired(entryTableIndex, count);
+        if (entryExpired) {
+          return;
+        }
+        seq = entrySeq;
+        hash = entryHash;
+        dist = entryDIB;
+        value = null;
+      }
+
+      dist++;
+      pos = next(pos, mask);
+    }
+  }
+
+  static int next(final int i, final int mask) {
+    return (i + 1) & mask;
   }
 
   int lookup(AsciiString name) {
@@ -325,6 +371,10 @@ final class HpackDynamicTableIndex2 {
       pos = (pos + 1) & mask;
       dist++;
     }
+  }
+
+  static boolean entryExpired(long entryTableIndex, int entryTableLength) {
+    return entryTableIndex >= entryTableLength;
   }
 
   /**
@@ -468,7 +518,9 @@ final class HpackDynamicTableIndex2 {
     }
     for (int i = 0; i < headerTable.length(); i++) {
       final Http2Header header = headerTable.header(i);
-      if (lookup(header, table, headerTable, seq) != headerIndices.get(header)) {
+      final int ix = lookup(header, table, headerTable, seq);
+      if (ix != headerIndices.get(header)) {
+        lookup(header, table, headerTable, seq);
         throw new AssertionError();
       }
       if (lookup(header.name(), table, headerTable, seq) != nameIndices.get(header.name())) {
@@ -508,7 +560,7 @@ final class HpackDynamicTableIndex2 {
     return entries;
   }
 
-  public void remove(final Http2Header removed) {
+  public void remove(final Http2Header header) {
 
   }
 }

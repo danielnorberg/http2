@@ -59,6 +59,13 @@ abstract class Http2Message {
     }
   }
 
+  protected final void releaseHeaders() {
+    if (headers != null) {
+      Arrays.fill(headers, null);
+      headers = null;
+    }
+  }
+
   public void forEachHeader(BiConsumer<AsciiString, AsciiString> action) {
     Objects.requireNonNull(action);
     for (int i = 0; i < headers(); i++) {

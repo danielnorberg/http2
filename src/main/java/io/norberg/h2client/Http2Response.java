@@ -55,6 +55,7 @@ public class Http2Response extends Http2Message {
   }
 
   public void release() {
+    releaseHeaders();
     if (hasContent()) {
       content.release();
     }

@@ -14,7 +14,7 @@ class HpackDynamicTableIndex {
   private int maxFill;
 
   private int offset;
-  private final float f = 0.05f;
+  private final float f = 0.25f;
 
   HpackDynamicTableIndex(final int expected) {
     this.n = arraySize(expected, f);
@@ -204,9 +204,19 @@ class HpackDynamicTableIndex {
     }
   }
 
-  private static int hash(int x) {
-    int h = x * -1640531527;
-    return h ^ h >>> 16;
+//  private static int hash(int x) {
+//    int h = x * -1640531527;
+//    return h ^ h >>> 16;
+//  }
+
+  static int hash(int key) {
+    key += ~(key << 15);
+    key ^= (key >> 10);
+    key += (key << 3);
+    key ^= (key >> 6);
+    key += ~(key << 11);
+    key ^= (key >> 16);
+    return key;
   }
 
   private static int maxFill(int n, float f) {
@@ -260,5 +270,21 @@ class HpackDynamicTableIndex {
       }
     }
     return sb.append('}').toString();
+  }
+
+  public int lookup(final Http2Header header) {
+    return index(header.name(), header.value());
+  }
+
+  public int lookup(final AsciiString name) {
+    return index(name);
+  }
+
+  public void insert(final Http2Header header) {
+    add(header);
+  }
+
+  public void validate() {
+
   }
 }

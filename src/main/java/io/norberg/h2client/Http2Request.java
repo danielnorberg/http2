@@ -89,6 +89,7 @@ public class Http2Request extends Http2Message {
   }
 
   public void release() {
+    releaseHeaders();
     if (hasContent()) {
       content.release();
     }
