@@ -12,7 +12,7 @@ import io.netty.util.AsciiString;
 
 final class HpackDynamicTableIndex4 {
 
-  private final float loadFactor = 0.4f;
+  private final float loadFactor = 0.25f;
 
   private static final int MAX_CAPACITY = 1 << 30;
   private static final int INITIAL_CAPACITY = 32;

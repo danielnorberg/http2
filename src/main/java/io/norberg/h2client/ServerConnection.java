@@ -125,7 +125,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
       log.error("Request handler threw exception", e);
       stream.fail();
     }
-    request.release();
+//    request.release();
   }
 
 

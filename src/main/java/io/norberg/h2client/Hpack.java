@@ -1,7 +1,6 @@
 package io.norberg.h2client;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.util.AsciiString;
 
 import static java.lang.Integer.numberOfLeadingZeros;
@@ -110,10 +109,7 @@ class Hpack {
   }
 
   static AsciiString readHuffmanAsciiString(final ByteBuf in, final int length) throws HpackDecodingException {
-    final ByteBuf buf = Unpooled.buffer(length * 2);
-    Huffman.decode(in, buf, length);
-    final AsciiString s = new AsciiString(buf.array(), buf.arrayOffset(), buf.readableBytes(), false);
-    return s;
+    return Huffman.decode(in, length);
   }
 
   /**

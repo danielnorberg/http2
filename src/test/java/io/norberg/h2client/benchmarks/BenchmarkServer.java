@@ -64,6 +64,7 @@ class BenchmarkServer {
         response.header(headers.get(i), headers.get(i + 1));
       }
       context.respond(response);
+      request.release();
     };
 
     final Http2Server server = Http2Server.builder()

@@ -2,7 +2,6 @@ package io.norberg.h2client;
 
 import com.google.common.collect.ImmutableList;
 
-import com.koloboke.collect.hash.HashConfig;
 import com.twitter.hpack.Decoder;
 import com.twitter.hpack.HeaderListener;
 
@@ -165,7 +164,7 @@ public class HpackEncoderTest {
     final ProgressMeter meter = new ProgressMeter();
     final ProgressMeter.Metric messages = meter.group("throughput").metric("headers", "headers");
 
-    final HpackDynamicTableIndex index = new HpackDynamicTableIndex(1024);
+    final HpackDynamicTableIndex index = new HpackDynamicTableIndex(64);
     final Queue<Http2Header> q = new ArrayDeque<>();
     for (int i = 0; i < 50; i++) {
       final Http2Header header = headers.get(i);
@@ -187,7 +186,7 @@ public class HpackEncoderTest {
     }
   }
 
-//  @Ignore
+  @Ignore
   @Test
   public void testIndex3() throws Exception {
 
@@ -205,7 +204,7 @@ public class HpackEncoderTest {
     final ProgressMeter.Metric messages = meter.group("throughput").metric("headers", "headers");
 
     final HpackDynamicTable table = new HpackDynamicTable();
-    final HpackDynamicTableIndex2 index = new HpackDynamicTableIndex2(table);
+    final HpackDynamicTableIndex4 index = new HpackDynamicTableIndex4(table);
     int i = 0;
     for (; i < 50; i++) {
       final Http2Header header = headers.get(i);
@@ -215,60 +214,11 @@ public class HpackEncoderTest {
     while (true) {
       long start = System.nanoTime();
       for (int j = 0; j < n; j++, i = (i + 1) & mask) {
-        table.removeLast();
+        Http2Header removed = table.removeLast();
+        index.remove(removed);
         final Http2Header header = headers.get(i);
         table.addFirst(header);
         index.insert(header);
-      }
-      long end = System.nanoTime();
-      messages.add(n, end - start);
-    }
-  }
-
-  @Ignore
-  @Test
-  public void testIndex2() throws Exception {
-
-    // TODO: optimize index
-
-    final int n = 16 * 1024;
-
-    final List<Http2Header> headers = new ArrayList<>();
-    for (int i = 0; i < n; i++) {
-      headers.add(Http2Header.of(AsciiString.of("header" + i), AsciiString.of("value" + i)));
-    }
-
-    final ProgressMeter meter = new ProgressMeter();
-    final ProgressMeter.Metric messages = meter.group("throughput").metric("messages", "messages");
-
-    final KolobokeIndex index = KolobokeIndex.withExpectedSize(HashConfig.fromLoads(0.05, 0.07, 0.1), 16);
-    final Queue<Http2Header> q = new ArrayDeque<>();
-    int offset = 0;
-    for (int i = 0; i < 50; i++) {
-      final Http2Header header = headers.get(i);
-      offset++;
-      index.put(header, offset);
-      index.put(header.name(), offset);
-      q.add(header);
-    }
-    while (true) {
-      long start = System.nanoTime();
-      for (int i = 0; i < headers.size(); i++) {
-        int ix = offset - q.size() + 1;
-        final Http2Header last = q.remove();
-        boolean r1 = index.remove(last, ix);
-        if (!r1) {
-          throw new AssertionError();
-        }
-        boolean r2 = index.remove(last.name(), ix);
-        if (!r2) {
-          throw new AssertionError();
-        }
-        final Http2Header header = headers.get(i);
-        offset++;
-        index.put(header, offset);
-        index.put(header.name(), offset);
-        q.add(header);
       }
       long end = System.nanoTime();
       messages.add(n, end - start);

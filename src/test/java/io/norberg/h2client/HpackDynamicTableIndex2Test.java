@@ -51,7 +51,7 @@ public class HpackDynamicTableIndex2Test {
     final Random r = new Random(17);
     Map<Http2Header, Integer> expectedHeaderIndices = new HashMap<>();
     Map<CharSequence, Integer> expectedNameIndices = new HashMap<>();
-    for (int i = 0; i < 1024 * 1024; i++) {
+    for (int i = 0; i < 16 * 1024; i++) {
       Http2Header header;
       if (r.nextInt(10) == 0) {
         final int index = r.nextInt(table.length());
@@ -68,9 +68,6 @@ public class HpackDynamicTableIndex2Test {
         removed = null;
       }
       table.addFirst(header);
-      if (i == 79425) {
-        System.out.println("foo");
-      }
       index.insert(header);
       index.validate();
       expectedHeaderIndices.clear();
@@ -108,8 +105,8 @@ public class HpackDynamicTableIndex2Test {
       index.validate();
       for (int j = 0; j < table.length(); j++) {
         final Http2Header h = table.header(j);
-        assertThat(index.lookup(h), is(j));
-        assertThat(index.lookup(h.name()), is(j));
+        assertThat(index.lookup(h), is(j + 1));
+        assertThat(index.lookup(h.name()), is(j + 1));
       }
     }
   }

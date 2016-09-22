@@ -60,7 +60,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
     stream.responseHandler = null;
     stream.response = null;
     succeed(responseHandler, response);
-    response.release();
+//    response.release();
   }
 
   private int nextStreamId() {
