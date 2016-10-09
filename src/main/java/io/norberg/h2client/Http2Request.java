@@ -106,4 +106,8 @@ public class Http2Request extends Http2Message {
   public static Http2Request of(final HttpMethod method, final CharSequence path) {
     return new Http2Request(method, path);
   }
+
+  public static Http2Request of(final HttpMethod method, final AsciiString path, final ByteBuf payload) {
+    return new Http2Request(method, path, payload);
+  }
 }

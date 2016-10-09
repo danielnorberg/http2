@@ -24,6 +24,10 @@ import io.netty.handler.ssl.SslHandler;
 import io.netty.util.AsciiString;
 
 import static io.netty.buffer.ByteBufUtil.writeAscii;
+import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
+import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
+import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
+import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
@@ -38,6 +42,10 @@ import static java.util.Objects.requireNonNull;
 class ClientConnection extends AbstractConnection<ClientConnection, ClientConnection.ClientStream> {
 
   private static final Logger log = LoggerFactory.getLogger(ClientConnection.class);
+  public static final AsciiString OK_TEXT = OK.codeAsText();
+  public static final AsciiString NOT_FOUND_TEXT = NOT_FOUND.codeAsText();
+  public static final AsciiString BAD_REQUEST_TEXT = BAD_REQUEST.codeAsText();
+  public static final AsciiString INTERNAL_SERVER_ERROR_TEXT = INTERNAL_SERVER_ERROR.codeAsText();
 
   private final Listener listener;
 
@@ -110,7 +118,9 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
 
     // Create new stream
     final int streamId = nextStreamId();
-    final ClientStream stream = new ClientStream(streamId, localInitialStreamWindow(), request, requestPromise.responseHandler);
+    final ClientStream
+        stream =
+        new ClientStream(streamId, localInitialStreamWindow(), request, requestPromise.responseHandler);
 
     registerStream(stream);
 
@@ -168,7 +178,20 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
     if (!name.equals(Http2Headers.PseudoHeaderName.STATUS.value())) {
       throw new Http2Exception(PROTOCOL_ERROR);
     }
-    stream.response.status(HttpResponseStatus.valueOf(value.parseInt()));
+    stream.response.status(responseStatus(value));
+  }
+
+  private static HttpResponseStatus responseStatus(final AsciiString value) {
+    if (OK_TEXT.equals(value)) {
+      return OK;
+    } else if (NOT_FOUND_TEXT.equals(value)) {
+      return NOT_FOUND;
+    } else if (BAD_REQUEST_TEXT.equals(value)) {
+      return BAD_REQUEST;
+    } else if (INTERNAL_SERVER_ERROR_TEXT.equals(value)) {
+      return INTERNAL_SERVER_ERROR;
+    }
+    return HttpResponseStatus.valueOf(value.parseInt());
   }
 
   @Override

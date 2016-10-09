@@ -1,7 +1,5 @@
 package io.norberg.h2client.benchmarks;
 
-import com.google.common.base.Strings;
-
 import com.spotify.logging.LoggingConfigurator;
 
 import java.util.ArrayList;
@@ -18,15 +16,12 @@ import io.norberg.h2client.RequestHandler;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 class BenchmarkServer {
 
-  public static final int PAYLOAD_SIZE = 128;
-  public static final ByteBuf[] PAYLOADS = BenchmarkUtil.payloads(PAYLOAD_SIZE, 1024);
-
-  private static final ByteBuf HELLO_WORLD = Unpooled.unreleasableBuffer(
-      Unpooled.copiedBuffer(Strings.repeat("hello world ", 256), UTF_8));
+  private static final int PAYLOAD_SIZE = 128;
+  private static final ByteBuf[] PAYLOADS = BenchmarkUtil.payloads(PAYLOAD_SIZE, 1024);
+  private static final byte[][] ARRAY_PAYLOADS = BenchmarkUtil.arrayPayloads(PAYLOAD_SIZE, 1024);
 
   public static void main(final String... args) throws Exception {
     LoggingConfigurator.configureNoLogging();
@@ -44,8 +39,8 @@ class BenchmarkServer {
     final ProgressMeter.Metric data = meter.group("throughput").metric("data", "bytes");
 
     final List<AsciiString> headers = new ArrayList<>();
-    final int n = 1024;
-    for (int i = 0; i < n; i++) {
+    final int numHeaders = 16;
+    for (int i = 0; i < numHeaders; i++) {
       final AsciiString name = AsciiString.of("header" + i);
       final AsciiString value = AsciiString.of("value" + i);
       name.hashCode();
@@ -56,13 +51,21 @@ class BenchmarkServer {
 
     final RequestHandler requestHandler = (context, request) -> {
       requests.inc(0);
+      int size = 0;
       if (request.hasContent()) {
-        data.add(request.content().readableBytes(), 0);
+        size += request.content().readableBytes();
       }
+      if (request.hasHeaders()) {
+        for (int i = 0; i < request.headers(); i++) {
+          size += request.headerName(i).length() + request.headerValue(i).length();
+        }
+      }
+      data.add(size, 0);
       final Http2Response response = request.response(OK);
       for (int i = 0; i < headers.size(); i += 2) {
         response.header(headers.get(i), headers.get(i + 1));
       }
+      response.content(payload());
       context.respond(response);
       request.release();
     };
@@ -77,6 +80,7 @@ class BenchmarkServer {
   }
 
   private static ByteBuf payload() {
-    return PAYLOADS[ThreadLocalRandom.current().nextInt(PAYLOADS.length)].duplicate();
+    return Unpooled.wrappedBuffer(ARRAY_PAYLOADS[ThreadLocalRandom.current().nextInt(ARRAY_PAYLOADS.length)]);
+//    return PAYLOADS[ThreadLocalRandom.current().nextInt(PAYLOADS.length)].duplicate();
   }
 }

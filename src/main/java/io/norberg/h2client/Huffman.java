@@ -4,7 +4,6 @@ import io.netty.buffer.ByteBuf;
 import io.netty.util.AsciiString;
 import io.netty.util.internal.PlatformDependent;
 
-import static io.netty.util.internal.PlatformDependent.getByte;
 import static io.norberg.h2client.HuffmanTable.CODES;
 import static io.norberg.h2client.HuffmanTable.LENGTHS;
 import static io.norberg.h2client.HuffmanTable.TERMINAL;
@@ -219,17 +218,6 @@ class Huffman {
   }
 
   static int decode(final ByteBuf in, final byte[] out, final int length) {
-    if (in.hasMemoryAddress()) {
-      final int readerIndex = in.readerIndex();
-      final long address = in.memoryAddress() + readerIndex;
-      in.readerIndex(readerIndex + length);
-      return decode0(address, out, length);
-    } else {
-      return decode0(in, out, length);
-    }
-  }
-
-  private static int decode0(final ByteBuf in, final byte[] out, final int length) {
     long bits = 0;
     int n = 0;
     int i = 0;
@@ -320,105 +308,4 @@ class Huffman {
     return j;
   }
 
-  private static int decode0(final long memoryAddress, final byte[] out, final int length) {
-    long bits = 0;
-    int n = 0;
-    int i = 0;
-
-    int table = 0;
-
-    int j = 0;
-
-    while (true) {
-
-      // Read the next byte from input if necessary
-      if (n < 8) {
-        if (i == length) {
-          break;
-        }
-        if (length - i >= 4) {
-          bits = (bits << 32) | getIntBE(memoryAddress + i) & 0xFFFFFFFFL;
-          n += 32;
-          i += 4;
-        } else {
-          bits = (bits << 8) | getByte(memoryAddress + i) & 0xFFL;
-          n += 8;
-          i++;
-        }
-      }
-
-      // Get first 8 bits in buffer
-      final int r = n - 8;
-      final int b = (int) ((bits >>> r) & 0xFF);
-
-      // Look up node
-      final int node = HuffmanTable.node(table, b);
-
-      final boolean terminal = (node & TERMINAL) != 0;
-      if (terminal) {
-        // Extract value and number of used bits
-        final int value = node & 0xFF;
-        final int used = (node ^ TERMINAL) >>> 8;
-
-        // Consume used bits
-        n -= used;
-
-        // Write decoded value to output
-        out[j] = (byte) value;
-        j++;
-
-        // Start decoding the next sequence
-        table = 0;
-
-        continue;
-      }
-
-      // Consume used bits
-      n -= 8;
-
-      // Move on to the next lookup in the sequence
-      table = node;
-    }
-
-    // Consume trailing bits
-    while (n > 0) {
-      final int r = 8 - n;
-      final int fill = 0xFF >> (8 - r);
-      final int b = (int) ((bits << r) & 0xFF | fill);
-      if (table == 0 && b == 0xFF) {
-        break;
-      }
-      final int node = HuffmanTable.node(table, b);
-      final boolean terminal = (node & TERMINAL) != 0;
-      // There's no more bytes to read so this must be a terminal node
-      if (!terminal) {
-        throw new IllegalArgumentException();
-      }
-      // Extract value and number of used bits
-      final int value = node & 0xFF;
-      final int used = (node ^ TERMINAL) >>> 8;
-
-      // Consume used bits
-      n -= used;
-
-      // Write decoded value to output
-      out[j] = (byte) value;
-      j++;
-
-      // Start decoding the next sequence
-      table = 0;
-    }
-    return j;
-  }
-
-  private static int getIntBE(long address) {
-    if (PlatformDependent.isUnaligned()) {
-      int v = PlatformDependent.getInt(address);
-      return PlatformDependent.BIG_ENDIAN_NATIVE_ORDER ? v : Integer.reverseBytes(v);
-    }
-    return getByte(address) << 24 |
-           (getByte(address + 1) & 0xff) << 16 |
-           (getByte(address + 2) & 0xff) << 8 |
-           getByte(address + 3) & 0xff;
-  }
 }
