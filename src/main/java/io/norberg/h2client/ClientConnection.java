@@ -145,9 +145,8 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   }
 
   @Override
-  protected int encodeHeaders(final ClientStream stream, final HpackEncoder headerEncoder,
-                              final ByteBuf buf) throws Http2Exception {
-    final int mark = buf.readableBytes();
+  protected void encodeHeaders(final ClientStream stream, final HpackEncoder headerEncoder,
+                               final ByteBuf buf) throws Http2Exception {
     final Http2Request request = stream.request;
     headerEncoder.encodeRequest(buf,
                                 request.method().asciiName(),
@@ -157,7 +156,6 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
     for (int i = 0; i < request.headers(); i++) {
       headerEncoder.encodeHeader(buf, request.headerName(i), request.headerValue(i), false);
     }
-    return buf.readableBytes() - mark;
   }
 
   @Override

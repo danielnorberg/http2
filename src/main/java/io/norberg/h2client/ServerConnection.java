@@ -44,16 +44,13 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   }
 
   @Override
-  protected int encodeHeaders(final ServerStream stream, final HpackEncoder headerEncoder,
-                              final ByteBuf buf) throws Http2Exception {
+  protected void encodeHeaders(final ServerStream stream, final HpackEncoder headerEncoder,
+                               final ByteBuf buf) throws Http2Exception {
     final Http2Response response = stream.response;
-    final int mark = buf.readableBytes();
     headerEncoder.encodeResponse(buf, response.status().codeAsText());
     for (int i = 0; i < response.headers(); i++) {
       headerEncoder.encodeHeader(buf, response.headerName(i), response.headerValue(i), false);
     }
-    final int size = buf.readableBytes() - mark;
-    return size;
   }
 
   @Override

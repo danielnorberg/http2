@@ -34,10 +34,8 @@ import static io.netty.handler.codec.http2.Http2CodecUtil.PING_FRAME_PAYLOAD_LEN
 import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
 import static io.netty.handler.codec.http2.Http2Flags.ACK;
-import static io.netty.handler.codec.http2.Http2Flags.END_HEADERS;
 import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
 import static io.netty.handler.codec.http2.Http2FrameTypes.DATA;
-import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
 import static io.netty.handler.codec.http2.Http2FrameTypes.PING;
 import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
 import static io.norberg.h2client.Hpack.writeDynamicTableSizeUpdate;
@@ -509,25 +507,24 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     @Override
     public void writeInitialHeadersFrame(final ChannelHandlerContext ctx, final ByteBuf buf, final STREAM stream,
                                          final boolean endOfStream) throws Http2Exception {
+      final int headerIndex = buf.writerIndex();
+
+      assert buf.writableBytes() >= FRAME_HEADER_LENGTH;
+      int blockIndex = headerIndex + FRAME_HEADER_LENGTH;
+      buf.writerIndex(blockIndex);
+
       // Signal header table size update in the beginning of the block, if necessary
       if (headerTableSizeUpdatePending) {
         headerTableSizeUpdatePending = false;
         writeDynamicTableSizeUpdate(buf, headerEncoder.maxTableSize());
       }
 
-      final int headerIndex = buf.writerIndex();
+      encodeHeaders(stream, headerEncoder, buf);
 
-      assert buf.writableBytes() >= FRAME_HEADER_LENGTH;
-      buf.writerIndex(headerIndex + FRAME_HEADER_LENGTH);
-      final int size = encodeHeaders(stream, headerEncoder, buf);
+      final int blockSize = buf.writerIndex() - blockIndex;
 
-      if (size > remoteMaxFrameSize) {
-        // TODO: continuation frames
-        throw new AssertionError();
-      }
-
-      final int flags = END_HEADERS | (endOfStream ? END_STREAM : 0);
-      writeFrameHeader(buf, headerIndex, size, HEADERS, flags, stream.id);
+      final int writerIndex = HeaderFraming.frameHeaderBlock(buf, headerIndex, blockSize, remoteMaxFrameSize, endOfStream, stream.id);
+      buf.writerIndex(writerIndex);
 
       // TODO: padding + fields
     }
@@ -551,7 +548,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     }
   }
 
-  protected abstract int encodeHeaders(final STREAM stream, final HpackEncoder headerEncoder, final ByteBuf buf)
+  protected abstract void encodeHeaders(final STREAM stream, final HpackEncoder headerEncoder, final ByteBuf buf)
       throws Http2Exception;
 
   protected abstract int headersPayloadSize(final STREAM stream);
