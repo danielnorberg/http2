@@ -20,32 +20,11 @@ dependencies can be added to produce an artifact that can run unchanged on multi
 
 Note: OpenSSL >= 1.0.2 is required for ALPN support.
 
-Available classifiers:
-
-* windows-x86_64
-* osx-x86_64
-* linux-x86_64
-* linux-x86_64-fedora
-
-E.g.
-
 ```
     <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-tcnative-boringssl-static</artifactId>
-      <version>1.1.33.Fork20</version>
-      <classifier>osx-x86_64</classifier>
-      <scope>test</scope>
-    </dependency>
-```
-
-```
-    <dependency>
-      <groupId>io.netty</groupId>
-      <artifactId>netty-tcnative-boringssl-static</artifactId>
-      <version>1.1.33.Fork20</version>
-      <classifier>linux-x86_64</classifier>
-      <scope>test</scope>
+      <version>2.0.0.Final</version>
     </dependency>
 ```
 
