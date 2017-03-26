@@ -10,23 +10,25 @@ import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.util.AsciiString;
 
+import static io.netty.util.ReferenceCountUtil.releaseLater;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
+@SuppressWarnings("deprecation")
 public class HuffmanTest {
 
   @Test
   public void testEncodeDecodeUnpooledHeap() throws Exception {
-    final ByteBuf in = Unpooled.buffer();
-    final ByteBuf out = Unpooled.buffer();
+    final ByteBuf in = releaseLater(Unpooled.buffer());
+    final ByteBuf out = releaseLater(Unpooled.buffer());
     testEncodeDecode(in, out);
   }
 
   @Test
   public void testEncodeDecodePooledDirect() throws Exception {
-    final ByteBuf in = PooledByteBufAllocator.DEFAULT.directBuffer();
-    final ByteBuf out = PooledByteBufAllocator.DEFAULT.directBuffer();
+    final ByteBuf in = releaseLater(PooledByteBufAllocator.DEFAULT.directBuffer());
+    final ByteBuf out = releaseLater(PooledByteBufAllocator.DEFAULT.directBuffer());
     System.out.println("hasMemoryAddress: " + in.hasMemoryAddress());
     testEncodeDecode(in, out);
   }
@@ -46,8 +48,8 @@ public class HuffmanTest {
 
   @Test
   public void testEncodeDecodeBinary() throws Exception {
-    final ByteBuf encoded = Unpooled.buffer();
-    final ByteBuf decoded1 = Unpooled.buffer();
+    final ByteBuf encoded = releaseLater(Unpooled.buffer());
+    final ByteBuf decoded1 = releaseLater(Unpooled.buffer());
     final byte[] data = new byte[128];
     final ByteBuf input = Unpooled.wrappedBuffer(data);
     final Random r = new Random(4711);
@@ -71,8 +73,8 @@ public class HuffmanTest {
   @Ignore
   @Test
   public void benchmarkEncodeDecodeBinary1() throws Exception {
-    final ByteBuf encoded = Unpooled.buffer();
-    final ByteBuf decoded = Unpooled.buffer();
+    final ByteBuf encoded = releaseLater(Unpooled.buffer());
+    final ByteBuf decoded = releaseLater(Unpooled.buffer());
     final byte[] data = new byte[128];
     final ByteBuf input = Unpooled.wrappedBuffer(data);
     final Random r = new Random(4711);
@@ -102,7 +104,7 @@ public class HuffmanTest {
   @Ignore
   @Test
   public void benchmarkEncodeDecodeBinary2() throws Exception {
-    final ByteBuf encoded = Unpooled.buffer();
+    final ByteBuf encoded = releaseLater(Unpooled.buffer());
     final byte[] decoded = new byte[128];
     final byte[] data = new byte[128];
     final ByteBuf input = Unpooled.wrappedBuffer(data);
