@@ -1,25 +1,26 @@
 package io.norberg.h2client;
 
-import org.junit.Test;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
 import static io.netty.handler.codec.http2.Http2Flags.END_HEADERS;
 import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
 import static io.netty.handler.codec.http2.Http2FrameTypes.CONTINUATION;
 import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
+import static io.netty.util.ReferenceCountUtil.releaseLater;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import org.junit.Test;
 
 public class HeaderFramingTest {
 
   @Test
   public void frameHeaderBlock_TwoContinuationFrames() throws Exception {
 
-    final ByteBuf buf = Unpooled.buffer(1024);
+    final ByteBuf buf = releaseLater(Unpooled.buffer(1024));
+
     buf.writeZero(FRAME_HEADER_LENGTH);
     byte[] block = "0123456789abcdefghijkl".getBytes(UTF_8);
     buf.writeBytes(block);
@@ -37,7 +38,7 @@ public class HeaderFramingTest {
     assertThat(f0Type, is(HEADERS));
     assertThat(f0Flags, is(END_STREAM));
     assertThat(f0StreamId, is(streamId));
-    assertThat(buf.readBytes(f0Length).toString(UTF_8), is("01234567"));
+    assertThat(releaseLater(buf.readBytes(f0Length)).toString(UTF_8), is("01234567"));
 
     int f1Length = buf.readUnsignedMedium();
     byte f1Type = buf.readByte();
@@ -48,7 +49,7 @@ public class HeaderFramingTest {
     assertThat(f1Type, is(CONTINUATION));
     assertThat(f1Flags, is((short) 0));
     assertThat(f1StreamId, is(streamId));
-    assertThat(buf.readBytes(f1Length).toString(UTF_8), is("89abcdef"));
+    assertThat(releaseLater(buf.readBytes(f1Length)).toString(UTF_8), is("89abcdef"));
 
     int f2Length = buf.readUnsignedMedium();
     byte f2Type = buf.readByte();
@@ -59,14 +60,15 @@ public class HeaderFramingTest {
     assertThat(f2Type, is(CONTINUATION));
     assertThat(f2Flags, is(END_HEADERS));
     assertThat(f2StreamId, is(streamId));
-    assertThat(buf.readBytes(f2Length).toString(UTF_8), is("ghijkl"));
+    assertThat(releaseLater(buf.readBytes(f2Length)).toString(UTF_8), is("ghijkl"));
 
   }
 
   @Test
   public void frameHeaderBlock_ThreeContinuationFrames() throws Exception {
 
-    final ByteBuf buf = Unpooled.buffer(1024);
+    final ByteBuf buf = releaseLater(Unpooled.buffer(1024));
+
     buf.writeZero(FRAME_HEADER_LENGTH);
     byte[] block = "0123456789abcdefghijkl".getBytes(UTF_8);
     buf.writeBytes(block);
@@ -84,7 +86,7 @@ public class HeaderFramingTest {
     assertThat(f0Type, is(HEADERS));
     assertThat(f0Flags, is(END_STREAM));
     assertThat(f0StreamId, is(streamId));
-    assertThat(buf.readBytes(f0Length).toString(UTF_8), is("0123456"));
+    assertThat(releaseLater(buf.readBytes(f0Length)).toString(UTF_8), is("0123456"));
 
     int f1Length = buf.readUnsignedMedium();
     byte f1Type = buf.readByte();
@@ -95,7 +97,7 @@ public class HeaderFramingTest {
     assertThat(f1Type, is(CONTINUATION));
     assertThat(f1Flags, is((short) 0));
     assertThat(f1StreamId, is(streamId));
-    assertThat(buf.readBytes(f1Length).toString(UTF_8), is("789abcd"));
+    assertThat(releaseLater(buf.readBytes(f1Length)).toString(UTF_8), is("789abcd"));
 
     int f2Length = buf.readUnsignedMedium();
     byte f2Type = buf.readByte();
@@ -106,7 +108,7 @@ public class HeaderFramingTest {
     assertThat(f2Type, is(CONTINUATION));
     assertThat(f2Flags, is((short) 0));
     assertThat(f2StreamId, is(streamId));
-    assertThat(buf.readBytes(f2Length).toString(UTF_8), is("efghijk"));
+    assertThat(releaseLater(buf.readBytes(f2Length)).toString(UTF_8), is("efghijk"));
 
     int f3Length = buf.readUnsignedMedium();
     byte f3Type = buf.readByte();
@@ -117,14 +119,15 @@ public class HeaderFramingTest {
     assertThat(f3Type, is(CONTINUATION));
     assertThat(f3Flags, is(END_HEADERS));
     assertThat(f3StreamId, is(streamId));
-    assertThat(buf.readBytes(f3Length).toString(UTF_8), is("l"));
+    assertThat(releaseLater(buf.readBytes(f3Length)).toString(UTF_8), is("l"));
 
   }
 
   @Test
   public void frameHeaderBlock_OneContinuationFrame() throws Exception {
 
-    final ByteBuf buf = Unpooled.buffer(1024);
+    final ByteBuf buf = releaseLater(Unpooled.buffer(1024));
+
     buf.writeZero(FRAME_HEADER_LENGTH);
     byte[] block = "0123456789abcde".getBytes(UTF_8);
     buf.writeBytes(block);
@@ -142,7 +145,7 @@ public class HeaderFramingTest {
     assertThat(f0Type, is(HEADERS));
     assertThat(f0Flags, is(END_STREAM));
     assertThat(f0StreamId, is(streamId));
-    assertThat(buf.readBytes(f0Length).toString(UTF_8), is("01234567"));
+    assertThat(releaseLater(buf.readBytes(f0Length)).toString(UTF_8), is("01234567"));
 
     int f1Length = buf.readUnsignedMedium();
     byte f1Type = buf.readByte();
@@ -153,13 +156,14 @@ public class HeaderFramingTest {
     assertThat(f1Type, is(CONTINUATION));
     assertThat(f1Flags, is(END_HEADERS));
     assertThat(f1StreamId, is(streamId));
-    assertThat(buf.readBytes(f1Length).toString(UTF_8), is("89abcde"));
+    assertThat(releaseLater(buf.readBytes(f1Length)).toString(UTF_8), is("89abcde"));
   }
 
   @Test
   public void frameHeaderBlock_NoContinuationFrames() throws Exception {
 
-    final ByteBuf buf = Unpooled.buffer(1024);
+    final ByteBuf buf = releaseLater(Unpooled.buffer(1024));
+
     buf.writeZero(FRAME_HEADER_LENGTH);
     String blockString = "0123456789abcdefghijkl";
     byte[] block = blockString.getBytes(UTF_8);
@@ -178,6 +182,6 @@ public class HeaderFramingTest {
     assertThat(f0Type, is(HEADERS));
     assertThat(f0Flags, is((short) (END_HEADERS | END_STREAM)));
     assertThat(f0StreamId, is(streamId));
-    assertThat(buf.readBytes(f0Length).toString(UTF_8), is(blockString));
+    assertThat(releaseLater(buf.readBytes(f0Length)).toString(UTF_8), is(blockString));
   }
 }
