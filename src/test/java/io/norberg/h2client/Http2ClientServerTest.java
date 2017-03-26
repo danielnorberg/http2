@@ -118,41 +118,40 @@ public class Http2ClientServerTest {
     assertThat(payload, is("hello: /world/1"));
   }
 
-//  @Test
-//  public void testReqRepManyHeaders() throws Exception {
-//
-//    final int n = 1024;
-//
-//    final Http2Headers headers = new DefaultHttp2Headers();
-//    for (int i = 0; i < n; i++) {
-//      headers.add(AsciiString.of("header" + i), AsciiString.of("value" + i));
-//    }
-//
-//    final RequestHandler requestHandler = (context, request) -> {
-//      context.respond(request.response(
-//          OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8))
-//          .headers(headers));
-//    };
-//
-//    // Start server
-//    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
-//    final int port = server.bind(0).get().getPort();
-//
-//    // Start client
-//    final Http2Client client = autoClosing(
-//        Http2Client.of("127.0.0.1", port));
-//
-//    // Make a request
-//    final CompletableFuture<Http2Response> future = client.send(
-//        Http2Request.of(GET, "/world/1")
-//            .headers(headers));
-//    final Http2Response response = future.get(30, SECONDS);
-//    assertThat(response.status(), is(OK));
-//    final String payload = response.content().toString(UTF_8);
-//    assertThat(payload, is("hello: /world/1"));
-//
-//    assertThat(response.headers(), is(headers));
-//  }
+  @Test
+  public void testReqRepManyHeaders() throws Exception {
+
+    final int n = 1024;
+
+    List<Entry<AsciiString, AsciiString>> headers = new ArrayList<>();
+    for (int i = 0; i < n; i++) {
+      headers.add(immutableEntry(AsciiString.of("header" + i), AsciiString.of("value" + i)));
+    }
+
+    final RequestHandler requestHandler = (context, request) ->
+        context.respond(request
+            .response(OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8))
+            .headers(headers));
+
+    // Start server
+    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final int port = server.bind(0).get().getPort();
+
+    // Start client
+    final Http2Client client = autoClosing(
+        Http2Client.of("127.0.0.1", port));
+
+    // Make a request
+    final CompletableFuture<Http2Response> future = client.send(
+        Http2Request.of(GET, "/world/1")
+            .headers(headers));
+    final Http2Response response = future.get(30, SECONDS);
+    assertThat(response.status(), is(OK));
+    final String payload = response.content().toString(UTF_8);
+    assertThat(payload, is("hello: /world/1"));
+
+    assertThat(response.headerStream().collect(toList()), is(headers));
+  }
 
   @Test
   public void testLargeReqRep() throws Exception {
