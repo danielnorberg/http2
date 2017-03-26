@@ -26,7 +26,7 @@ import io.netty.util.concurrent.Future;
 
 class Util {
 
-  static final CompletableFuture[] COMPLETABLE_FUTURES = new CompletableFuture[0];
+  static final CompletableFuture<?>[] COMPLETABLE_FUTURES = new CompletableFuture<?>[0];
 
   private static class LazyDefaultEventLoopGroup {
 

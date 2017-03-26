@@ -54,7 +54,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
   private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
 
-  private final IntObjectHashMap<STREAM> streams = new IntObjectHashMap<STREAM>();
+  private final IntObjectHashMap<STREAM> streams = new IntObjectHashMap<>();
   private final FlowController<ChannelHandlerContext, STREAM> flowController = new FlowController<>();
 
   private final SslContext sslContext;
@@ -68,7 +68,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
   private int remoteMaxFrameSize = Http2CodecUtil.DEFAULT_MAX_FRAME_SIZE;
   private int remoteMaxConcurrentStreams = Integer.MAX_VALUE;
-  private int remoteMaxHeaderListSize = Integer.MAX_VALUE;
+  private long remoteMaxHeaderListSize = Long.MAX_VALUE;
 
   private final int localInitialStreamWindow;
   private final int localMaxConnectionWindow;
@@ -82,7 +82,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
   // TODO: move this state into HpackEncoder
   private boolean headerTableSizeUpdatePending;
 
-  protected AbstractConnection(final Builder builder, final Channel channel, final Logger log) {
+  AbstractConnection(final Builder<?> builder, final Channel channel, final Logger log) {
     this.localInitialStreamWindow = Optional.ofNullable(builder.initialStreamWindowSize)
         .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
     this.localMaxConnectionWindow = Optional.ofNullable(builder.connectionWindowSize)
@@ -671,7 +671,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     return remoteMaxConcurrentStreams;
   }
 
-  protected final int remoteMaxHeaderListSize() {
+  protected final long remoteMaxHeaderListSize() {
     return remoteMaxHeaderListSize;
   }
 

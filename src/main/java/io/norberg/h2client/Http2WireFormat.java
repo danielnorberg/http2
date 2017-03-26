@@ -68,7 +68,7 @@ class Http2WireFormat {
     return size;
   }
 
-  static int headersPayloadSize(final Http2Message message) {
+  static int headersPayloadSize(final Http2Message<?> message) {
     int size = 0;
     final int n = message.numHeaders();
     for (int i = 0; i < n; i++) {

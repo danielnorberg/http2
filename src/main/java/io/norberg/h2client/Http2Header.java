@@ -45,10 +45,7 @@ public final class Http2Header {
   }
 
   boolean equals(final AsciiString name, final AsciiString value) {
-    if (!this.name.equals(name)) {
-      return false;
-    }
-    return this.value.equals(value);
+    return this.name.equals(name) && this.value.equals(value);
   }
 
   static int hashCode(final AsciiString name, final AsciiString value) {

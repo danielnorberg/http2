@@ -16,11 +16,15 @@
 
 package io.norberg.h2client.benchmarks;
 
+import static java.lang.Math.max;
+import static java.lang.String.format;
+import static java.lang.System.out;
+import static java.util.Collections.unmodifiableMap;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import com.google.common.primitives.Ints;
-
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Collection;
@@ -29,15 +33,10 @@ import java.util.Date;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
-
-import static com.google.common.base.Optional.fromNullable;
-import static java.lang.Math.max;
-import static java.lang.String.format;
-import static java.lang.System.out;
-import static java.util.Collections.unmodifiableMap;
 
 /**
  * A simple progress meter. Prints average throughput and latencies for a set of metrics created
@@ -257,7 +256,7 @@ public class ProgressMeter {
       if (metric == null) {
         final Metric newMetric = new Metric(name, unit);
         final Metric existingMetric = metrics.putIfAbsent(key, newMetric);
-        return fromNullable(existingMetric).or(newMetric);
+        return Optional.ofNullable(existingMetric).orElse(newMetric);
       }
       return metric;
     }
