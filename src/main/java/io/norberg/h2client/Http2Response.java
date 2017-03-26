@@ -3,7 +3,7 @@ package io.norberg.h2client;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.HttpResponseStatus;
 
-public class Http2Response extends Http2Message {
+public class Http2Response extends Http2Message<Http2Response> {
 
   private HttpResponseStatus status;
   private ByteBuf content;

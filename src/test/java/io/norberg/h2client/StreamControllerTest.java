@@ -9,7 +9,7 @@ import static org.junit.Assert.assertThat;
 
 public class StreamControllerTest {
 
-  private StreamController<Stream> controller = new StreamController<>();
+  private StreamController<Http2Stream> controller = new StreamController<>();
 
   @Test
   public void testNoStreams() throws Exception {
@@ -23,7 +23,7 @@ public class StreamControllerTest {
 
   @Test
   public void testAddRemoveGetStream() throws Exception {
-    final Stream stream1 = new Stream(1, randomByteBuf(17));
+    final Http2Stream stream1 = new Http2Stream(1, randomByteBuf(17));
 
     // One stream
     controller.addStream(stream1);
@@ -34,7 +34,7 @@ public class StreamControllerTest {
     assertThat(controller.streams(), is(1));
 
     // Two streams
-    final Stream stream2 = new Stream(3, randomByteBuf(18));
+    final Http2Stream stream2 = new Http2Stream(3, randomByteBuf(18));
     controller.addStream(stream2);
     assertThat(controller.streams(), is(2));
     assertThat(controller.stream(1), is(stream1));

@@ -220,7 +220,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
     dispatchResponse(stream);
   }
 
-  protected static class ClientStream extends Stream {
+  protected static class ClientStream extends Http2Stream {
 
     private Http2Request request;
     private Http2ResponseHandler responseHandler;

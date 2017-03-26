@@ -3,7 +3,7 @@ package io.norberg.h2client;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http2.Http2Exception;
 
-interface StreamWriter<CTX, STREAM extends Stream> {
+interface StreamWriter<CTX, STREAM extends Http2Stream> {
 
   int estimateInitialHeadersFrameSize(final CTX ctx, STREAM stream) throws Http2Exception;
 

@@ -5,7 +5,7 @@ import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.util.AsciiString;
 
-public class Http2Request extends Http2Message {
+public class Http2Request extends Http2Message<Http2Request> {
 
   private HttpMethod method;
   private AsciiString scheme;

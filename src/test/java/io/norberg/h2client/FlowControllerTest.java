@@ -43,10 +43,10 @@ public class FlowControllerTest {
 
   }
 
-  private FlowController<Context, Stream> controller = new FlowController<>();
+  private FlowController<Context, Http2Stream> controller = new FlowController<>();
 
   @Mock Context ctx;
-  @Mock StreamWriter<Context, Stream> writer;
+  @Mock StreamWriter<Context, Http2Stream> writer;
 
   @Captor ArgumentCaptor<Integer> bufferSizeCaptor;
 
@@ -68,7 +68,7 @@ public class FlowControllerTest {
 
   @Test
   public void testStart() throws Exception {
-    final Stream stream = new Stream(1, randomByteBuf(4711));
+    final Http2Stream stream = new Http2Stream(1, randomByteBuf(4711));
     assertThat(stream.started, is(false));
     controller.start(stream);
     assertThat(stream.started, is(true));
@@ -78,7 +78,7 @@ public class FlowControllerTest {
   public void testRemoteInitialStreamWindow() throws Exception {
     final int remoteInitialStreamWindow = controller.remoteInitialStreamWindow();
 
-    final Stream stream = new Stream(17, randomByteBuf(4711));
+    final Http2Stream stream = new Http2Stream(17, randomByteBuf(4711));
     assertThat(stream.remoteWindow, is(0));
 
     controller.start(stream);
@@ -90,7 +90,7 @@ public class FlowControllerTest {
   @Test
   public void testRemoteInitialStreamWindowUpdateIncrease() throws Exception {
     final int remoteInitialStreamWindow = controller.remoteInitialStreamWindow();
-    final Stream stream = new Stream(17, randomByteBuf(4711));
+    final Http2Stream stream = new Http2Stream(17, randomByteBuf(4711));
 
     controller.start(stream);
     controller.remoteInitialStreamWindowSizeUpdate(remoteInitialStreamWindow + 47, asList(stream));
@@ -102,7 +102,7 @@ public class FlowControllerTest {
   @Test
   public void testRemoteInitialStreamWindowUpdateDecrease() throws Exception {
     final int remoteInitialStreamWindow = controller.remoteInitialStreamWindow();
-    final Stream stream = new Stream(17, randomByteBuf(4711));
+    final Http2Stream stream = new Http2Stream(17, randomByteBuf(4711));
 
     controller.start(stream);
     controller.remoteInitialStreamWindowSizeUpdate(remoteInitialStreamWindow - 47, asList(stream));
@@ -117,7 +117,7 @@ public class FlowControllerTest {
     final int remoteInitialStreamWindow = 20;
     controller = new FlowController<>(remoteConnectionWindow, remoteInitialStreamWindow);
 
-    final Stream stream = new Stream(17, randomByteBuf(4711));
+    final Http2Stream stream = new Http2Stream(17, randomByteBuf(4711));
 
     // Consume 10 octets of the stream window, leaving 10 octets
     controller.start(stream);
@@ -140,7 +140,7 @@ public class FlowControllerTest {
     final int remoteInitialStreamWindow = 10;
     controller = new FlowController<>(remoteConnectionWindow, remoteInitialStreamWindow);
 
-    final Stream stream = new Stream(17, randomByteBuf(4711));
+    final Http2Stream stream = new Http2Stream(17, randomByteBuf(4711));
 
     // Consume 10 octets of the stream window, leaving 0 octets
     controller.start(stream);
@@ -160,7 +160,7 @@ public class FlowControllerTest {
   @Test
   public void testRemoteInitialStreamWindowZero() throws Exception {
     final int remoteInitialStreamWindow = controller.remoteInitialStreamWindow();
-    final Stream stream = new Stream(17, randomByteBuf(4711));
+    final Http2Stream stream = new Http2Stream(17, randomByteBuf(4711));
 
     controller.start(stream);
     controller.remoteInitialStreamWindowSizeUpdate(0, asList(stream));
@@ -171,20 +171,20 @@ public class FlowControllerTest {
 
   @Test
   public void testHappyPathSingleEmptyStream() throws Exception {
-    final Stream stream = startStream(1, 0);
+    final Http2Stream stream = startStream(1, 0);
     verifyFlush(stream(stream).headers(END_OF_STREAM));
   }
 
   @Test
   public void testHappyPathSingleStream() throws Exception {
-    final Stream stream = startStream(1, 17);
+    final Http2Stream stream = startStream(1, 17);
     verifyFlush(stream(stream).headers().estimate(17).write(17, END_OF_STREAM));
   }
 
   @Test
   public void testHappyPathSingleStreamMultipleFrames() throws Exception {
     controller.remoteMaxFrameSize(8);
-    final Stream stream = startStream(1, 17);
+    final Http2Stream stream = startStream(1, 17);
     verifyFlush(stream(stream).headers()
                     .estimate(8).estimate(1)
                     .write(8, 2).write(1, END_OF_STREAM));
@@ -194,8 +194,8 @@ public class FlowControllerTest {
   public void testHappyPathTwoConcurrentStreams() throws Exception {
     final int size1 = 7;
     final int size2 = 17;
-    final Stream stream1 = startStream(1, size1);
-    final Stream stream2 = startStream(3, size2);
+    final Http2Stream stream1 = startStream(1, size1);
+    final Http2Stream stream2 = startStream(3, size2);
     verifyFlush(
         stream(stream1).headers().estimate(size1).write(size1, END_OF_STREAM),
         stream(stream2).headers().estimate(size2).write(size2, END_OF_STREAM));
@@ -210,7 +210,7 @@ public class FlowControllerTest {
     int id = 1;
 
     for (final int size : sizes) {
-      final Stream stream = startStream(id, size);
+      final Http2Stream stream = startStream(id, size);
       verifyFlush(stream(stream).headers().estimate(size).write(size, END_OF_STREAM));
       expectedRemoteConnectionWindow -= size;
       assertThat(controller.remoteConnectionWindow(), is(expectedRemoteConnectionWindow));
@@ -233,7 +233,7 @@ public class FlowControllerTest {
     // Update: 3  | 1    | 3
     // Write:  1  | 0    | 2
 
-    final Stream stream = startStream(1, 6);
+    final Http2Stream stream = startStream(1, 6);
     verifyFlush(stream(stream).headers().estimate(3).write(3).pending(false));
     assertThat(stream.remoteWindow, is(0));
     verifyRemoteStreamWindowUpdate(2, stream);
@@ -249,10 +249,10 @@ public class FlowControllerTest {
 
     controller.remoteInitialStreamWindowSizeUpdate(10, emptyList());
 
-    final Stream exhausted = startStream(1, 20);
+    final Http2Stream exhausted = startStream(1, 20);
     verifyFlush(stream(exhausted).headers().estimate(10).write(10).pending(false));
-    final Stream happy1 = startStream(3, 5);
-    final Stream happy2 = startStream(5, 10);
+    final Http2Stream happy1 = startStream(3, 5);
+    final Http2Stream happy2 = startStream(5, 10);
     verifyFlush(
         stream(happy1).headers().estimate(5).write(5, END_OF_STREAM).pending(false),
         stream(happy2).headers().estimate(10).write(10, END_OF_STREAM).pending(false));
@@ -263,9 +263,9 @@ public class FlowControllerTest {
 
     controller.remoteInitialStreamWindowSizeUpdate(10, emptyList());
 
-    final Stream exhausted1 = startStream(1, 20);
-    final Stream happy = startStream(3, 5);
-    final Stream exhausted2 = startStream(5, 30);
+    final Http2Stream exhausted1 = startStream(1, 20);
+    final Http2Stream happy = startStream(3, 5);
+    final Http2Stream exhausted2 = startStream(5, 30);
     verifyFlush(
         stream(exhausted1).headers().estimate(10).write(10).pending(false),
         stream(happy).headers().estimate(5).write(5, END_OF_STREAM).pending(false),
@@ -280,8 +280,8 @@ public class FlowControllerTest {
     controller = new FlowController<>(remoteConnectionWindow, remoteInitialStreamWindow);
 
     // Exhaust the window of two streams and the connection window
-    final Stream streamWindowExhausted1 = startStream(1, 20);
-    final Stream streamWindowExhausted2 = startStream(3, 20);
+    final Http2Stream streamWindowExhausted1 = startStream(1, 20);
+    final Http2Stream streamWindowExhausted2 = startStream(3, 20);
     verifyFlush(
         stream(streamWindowExhausted1).headers().estimate(10).write(10).pending(false),
         stream(streamWindowExhausted2).headers().estimate(10).write(10).pending(false));
@@ -334,7 +334,7 @@ public class FlowControllerTest {
     // Update: 3  | 1    | 3
     // Write:  1  | 0    | 2
 
-    final Stream stream = startStream(1, 6);
+    final Http2Stream stream = startStream(1, 6);
     verifyFlush(stream(stream).headers().estimate(3).write(3).pending(true));
     verifyRemoteConnectionWindowUpdate(2, stream);
     verifyFlush(stream(stream).estimate(2).write(2).pending(true));
@@ -346,7 +346,7 @@ public class FlowControllerTest {
   public void testMultipleRemoteStreamWindowUpdates() throws Exception {
     controller = new FlowController<>(DEFAULT_INITIAL_WINDOW_SIZE, 7);
 
-    final Stream stream = startStream(1, 17);
+    final Http2Stream stream = startStream(1, 17);
 
     // Exhaust stream window
     verifyFlush(stream(stream).headers().estimate(7).write(7).pending(false));
@@ -361,7 +361,7 @@ public class FlowControllerTest {
 
   @Test
   public void testRemoteStreamWindowUpdateBeforeFirstFlush() throws Exception {
-    final Stream stream = startStream(1, 17);
+    final Http2Stream stream = startStream(1, 17);
     verifyRemoteStreamWindowUpdate(3, stream);
     verifyFlush(stream(stream).headers().estimate(17).write(17, END_OF_STREAM).pending(false));
   }
@@ -370,7 +370,7 @@ public class FlowControllerTest {
   public void testRemoteStreamWindowUpdateAndConnectionWindowUpdate() throws Exception {
     controller = new FlowController<>(7, DEFAULT_INITIAL_WINDOW_SIZE);
 
-    final Stream stream = startStream(1, 17);
+    final Http2Stream stream = startStream(1, 17);
 
     // Exhaust connection window
     verifyFlush(stream(stream).headers().estimate(7).write(7).pending(true));
@@ -395,12 +395,12 @@ public class FlowControllerTest {
     controller = new FlowController<>(remoteConnectionWindow, remoteInitialStreamWindow);
 
     // Exhaust the window of the first stream
-    final Stream stream1 = startStream(1, 40);
+    final Http2Stream stream1 = startStream(1, 40);
     verifyFlush(
         stream(stream1).headers().estimate(20).write(20).pending(false));
 
     // Then exhaust the connection window using a second stream
-    final Stream stream2 = startStream(3, 20);
+    final Http2Stream stream2 = startStream(3, 20);
     verifyFlush(
         stream(stream2).headers().estimate(10).write(10).pending(true));
 
@@ -424,14 +424,14 @@ public class FlowControllerTest {
         stream(stream1).estimate(20).write(20, END_OF_STREAM).pending(false));
   }
 
-  private Stream startStream(final int id, final int size) {
+  private Http2Stream startStream(final int id, final int size) {
     final ByteBuf data = randomByteBuf(size);
-    final Stream stream = new Stream(id, data);
+    final Http2Stream stream = new Http2Stream(id, data);
     controller.start(stream);
     return stream;
   }
 
-  private void verifyRemoteStreamWindowUpdate(final int windowIncrease, final Stream stream) throws Http2Exception {
+  private void verifyRemoteStreamWindowUpdate(final int windowIncrease, final Http2Stream stream) throws Http2Exception {
     final int currentRemoteWindow = stream.remoteWindow;
     final int expectedRemoteWindow = currentRemoteWindow + windowIncrease;
     controller.remoteStreamWindowUpdate(stream, windowIncrease);
@@ -439,16 +439,16 @@ public class FlowControllerTest {
     assertThat(stream.pending, is(true));
   }
 
-  private void verifyRemoteConnectionWindowUpdate(final int bytes, final Stream... streams) throws Http2Exception {
+  private void verifyRemoteConnectionWindowUpdate(final int bytes, final Http2Stream... streams) throws Http2Exception {
     verifyRemoteConnectionWindowUpdate(bytes, asList(streams));
   }
 
-  private void verifyRemoteConnectionWindowUpdate(final int bytes, final List<Stream> streams) throws Http2Exception {
+  private void verifyRemoteConnectionWindowUpdate(final int bytes, final List<Http2Stream> streams) throws Http2Exception {
     // Record window sizes before update
     final int remoteConnectionWindowPre = controller.remoteConnectionWindow();
-    final IdentityHashMap<Stream, Integer> remoteStreamWindowsPre = new IdentityHashMap<>();
-    final IdentityHashMap<Stream, Boolean> pendingPre = new IdentityHashMap<>();
-    for (final Stream stream : streams) {
+    final IdentityHashMap<Http2Stream, Integer> remoteStreamWindowsPre = new IdentityHashMap<>();
+    final IdentityHashMap<Http2Stream, Boolean> pendingPre = new IdentityHashMap<>();
+    for (final Http2Stream stream : streams) {
       remoteStreamWindowsPre.put(stream, stream.remoteWindow);
       pendingPre.put(stream, stream.pending);
     }
@@ -460,7 +460,7 @@ public class FlowControllerTest {
     assertThat(controller.remoteConnectionWindow(), is(remoteConnectionWindowPre + bytes));
 
     // Verify that stream windows and pending status are unchanged
-    for (final Stream stream : streams) {
+    for (final Http2Stream stream : streams) {
       assertThat(stream.remoteWindow, is(remoteStreamWindowsPre.get(stream)));
       assertThat(stream.pending, is(pendingPre.get(stream)));
     }
@@ -477,7 +477,7 @@ public class FlowControllerTest {
 
     // Record window sizes before write
     final int remoteConnectionWindowPre = controller.remoteConnectionWindow();
-    final IdentityHashMap<Stream, Integer> remoteStreamWindowsPre = new IdentityHashMap<>();
+    final IdentityHashMap<Http2Stream, Integer> remoteStreamWindowsPre = new IdentityHashMap<>();
     for (final FlushOp op : ops) {
       remoteStreamWindowsPre.put(op.stream, op.stream.remoteWindow);
     }
@@ -583,7 +583,7 @@ public class FlowControllerTest {
     verifyNoMoreInteractions(writer);
   }
 
-  private FlushOp stream(final Stream stream) {
+  private FlushOp stream(final Http2Stream stream) {
     return new FlushOp(stream);
   }
 
@@ -601,14 +601,14 @@ public class FlowControllerTest {
       }
     }
 
-    private final Stream stream;
+    private final Http2Stream stream;
     private boolean headers;
     private Set<Flags> headerFlags;
     private List<Integer> estimates = new ArrayList<>();
     private List<Write> writes = new ArrayList<>();
     private Boolean pending;
 
-    FlushOp(final Stream stream) {
+    FlushOp(final Http2Stream stream) {
       this.stream = stream;
     }
 

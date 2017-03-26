@@ -3,7 +3,9 @@ package io.norberg.h2client;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.util.AsciiString;
 import java.util.Base64;
+import java.util.Map.Entry;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -18,10 +20,13 @@ import java.util.concurrent.ExecutionException;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
+import static com.google.common.collect.Maps.immutableEntry;
+import static io.netty.handler.codec.http.HttpMethod.GET;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.util.CharsetUtil.UTF_8;
 import static io.norberg.h2client.TestUtil.randomByteBuf;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static java.util.stream.Collectors.toList;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -100,7 +105,7 @@ public class Http2ClientServerTest {
     String cookie = Base64.getEncoder().encodeToString(cookieBytes);
 
     // Make a request with a huge header
-    Http2Request request = new Http2Request(HttpMethod.GET, "/world/1");
+    Http2Request request = new Http2Request(GET, "/world/1");
     AsciiString cookieHeaderName = AsciiString.of("SetCookie");
     AsciiString cookieHeaderValue = AsciiString.of(cookie);
     request.header(cookieHeaderName, cookieHeaderValue);

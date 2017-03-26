@@ -1,12 +1,15 @@
 package io.norberg.h2client;
 
+import io.netty.util.AsciiString;
+import java.util.AbstractMap;
 import java.util.Arrays;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.function.BiConsumer;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
-import io.netty.util.AsciiString;
-
-abstract class Http2Message {
+abstract class Http2Message<T extends Http2Message<T>> {
 
   private AsciiString[] headers;
   private int headerIx;
@@ -20,16 +23,22 @@ abstract class Http2Message {
   }
 
   public AsciiString headerName(int i) {
+    if (headers == null) {
+      throw new IndexOutOfBoundsException("Index: " + i + ", Size: " + 0);
+    }
     final int ix = i << 1;
     return headers[ix];
   }
 
   public AsciiString headerValue(int i) {
+    if (headers == null) {
+      throw new IndexOutOfBoundsException("Index: " + i + ", Size: " + 0);
+    }
     final int ix = i << 1;
     return headers[ix + 1];
   }
 
-  public void header(final AsciiString name, final AsciiString value) {
+  public T header(final AsciiString name, final AsciiString value) {
     if (headers == null) {
       headers = new AsciiString[16];
     }
@@ -39,6 +48,22 @@ abstract class Http2Message {
     headers[headerIx] = name;
     headers[headerIx + 1] = value;
     headerIx += 2;
+    return self();
+  }
+
+  public T headers(Iterable<Entry<AsciiString, AsciiString>> headers) {
+    headers.forEach(e -> header(e.getKey(), e.getValue()));
+    return self();
+  }
+
+  public T headers(Stream<Entry<AsciiString, AsciiString>> headers) {
+    headers.forEach(e -> header(e.getKey(), e.getValue()));
+    return self();
+  }
+
+  public Stream<Entry<AsciiString, AsciiString>> headerStream() {
+    return IntStream.range(0, headers())
+        .mapToObj(i -> new AbstractMap.SimpleImmutableEntry<>(headerName(i), headerValue(i)));
   }
 
   String headersToString() {
@@ -71,5 +96,10 @@ abstract class Http2Message {
     for (int i = 0; i < headers(); i++) {
       action.accept(headerName(i), headerValue(i));
     }
+  }
+
+  @SuppressWarnings("unchecked")
+  private T self() {
+    return (T) this;
   }
 }

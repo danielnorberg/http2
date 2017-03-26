@@ -15,7 +15,7 @@ import static io.norberg.h2client.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.h2client.Http2Protocol.DEFAULT_MAX_FRAME_SIZE;
 import static io.norberg.h2client.Util.connectionError;
 
-class FlowController<CTX, STREAM extends Stream> {
+class FlowController<CTX, STREAM extends Http2Stream> {
 
   private final List<STREAM> newStreams = new ArrayList<>();
   private final Deque<STREAM> connectionWindowBlockedStreams = new ArrayDeque<>();

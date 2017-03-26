@@ -5,7 +5,7 @@ import io.netty.buffer.ByteBuf;
 /**
  * A flow controlled stream.
  */
-class Stream {
+class Http2Stream {
 
   final int id;
 
@@ -49,11 +49,11 @@ class Stream {
 
   int localWindow;
 
-  Stream(final int id) {
+  Http2Stream(final int id) {
     this(id, null);
   }
 
-  Stream(final int id, final ByteBuf data) {
+  Http2Stream(final int id, final ByteBuf data) {
     if (id < 1) {
       throw new IllegalArgumentException("stream id cannot be < 1");
     }
@@ -70,7 +70,7 @@ class Stream {
       return false;
     }
 
-    final Stream stream = (Stream) o;
+    final Http2Stream stream = (Http2Stream) o;
 
     return id == stream.id;
 
@@ -83,7 +83,7 @@ class Stream {
 
   @Override
   public String toString() {
-    return "Stream{" +
+    return "Http2Stream{" +
            "id=" + id +
            ", data=" + data +
            ", remoteWindow=" + remoteWindow +

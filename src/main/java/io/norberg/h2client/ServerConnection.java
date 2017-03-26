@@ -207,7 +207,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
     }
   }
 
-  class ServerStream extends Stream implements Http2RequestContext {
+  class ServerStream extends Http2Stream implements Http2RequestContext {
 
     private Http2Request request = new Http2Request();
     private Http2Response response;

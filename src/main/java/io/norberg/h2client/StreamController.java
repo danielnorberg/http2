@@ -10,7 +10,7 @@ import io.netty.util.collection.IntObjectHashMap;
 import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
 import static io.norberg.h2client.Util.connectionError;
 
-public class StreamController<STREAM extends Stream> implements Iterable<STREAM> {
+public class StreamController<STREAM extends Http2Stream> implements Iterable<STREAM> {
 
   private final IntObjectHashMap<STREAM> streams = new IntObjectHashMap<>();
 
