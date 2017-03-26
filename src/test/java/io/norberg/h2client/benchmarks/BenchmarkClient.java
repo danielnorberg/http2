@@ -108,7 +108,7 @@ class BenchmarkClient {
           size += response.content().readableBytes();
         }
         if (response.hasHeaders()) {
-          for (int i = 0; i < response.headers(); i++) {
+          for (int i = 0; i < response.numHeaders(); i++) {
             size += response.headerName(i).length() + response.headerValue(i).length();
           }
         }

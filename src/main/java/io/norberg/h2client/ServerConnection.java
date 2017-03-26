@@ -48,7 +48,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
                                final ByteBuf buf) throws Http2Exception {
     final Http2Response response = stream.response;
     headerEncoder.encodeResponse(buf, response.status().codeAsText());
-    for (int i = 0; i < response.headers(); i++) {
+    for (int i = 0; i < response.numHeaders(); i++) {
       headerEncoder.encodeHeader(buf, response.headerName(i), response.headerValue(i), false);
     }
   }

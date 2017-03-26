@@ -1,11 +1,9 @@
 package io.norberg.h2client;
 
-import io.netty.handler.codec.http.HttpMethod;
 import io.netty.util.AsciiString;
 import java.util.Base64;
 import java.util.Map.Entry;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.Collectors;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -150,7 +148,7 @@ public class Http2ClientServerTest {
     final String payload = response.content().toString(UTF_8);
     assertThat(payload, is("hello: /world/1"));
 
-    assertThat(response.headerStream().collect(toList()), is(headers));
+    assertThat(response.headers().collect(toList()), is(headers));
   }
 
   @Test

@@ -153,7 +153,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
                                 request.scheme(),
                                 request.authority(),
                                 request.path());
-    for (int i = 0; i < request.headers(); i++) {
+    for (int i = 0; i < request.numHeaders(); i++) {
       headerEncoder.encodeHeader(buf, request.headerName(i), request.headerValue(i), false);
     }
   }

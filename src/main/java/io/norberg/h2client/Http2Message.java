@@ -18,7 +18,7 @@ abstract class Http2Message<T extends Http2Message<T>> {
     return headers != null;
   }
 
-  public int headers() {
+  public int numHeaders() {
     return headerIx >> 1;
   }
 
@@ -61,13 +61,13 @@ abstract class Http2Message<T extends Http2Message<T>> {
     return self();
   }
 
-  public Stream<Entry<AsciiString, AsciiString>> headerStream() {
-    return IntStream.range(0, headers())
+  public Stream<Entry<AsciiString, AsciiString>> headers() {
+    return IntStream.range(0, numHeaders())
         .mapToObj(i -> new AbstractMap.SimpleImmutableEntry<>(headerName(i), headerValue(i)));
   }
 
   String headersToString() {
-    final int n = headers();
+    final int n = numHeaders();
     if (n == 0) {
       return "{}";
     }
@@ -93,7 +93,7 @@ abstract class Http2Message<T extends Http2Message<T>> {
 
   public void forEachHeader(BiConsumer<AsciiString, AsciiString> action) {
     Objects.requireNonNull(action);
-    for (int i = 0; i < headers(); i++) {
+    for (int i = 0; i < numHeaders(); i++) {
       action.accept(headerName(i), headerValue(i));
     }
   }

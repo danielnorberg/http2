@@ -56,7 +56,7 @@ class BenchmarkServer {
         size += request.content().readableBytes();
       }
       if (request.hasHeaders()) {
-        for (int i = 0; i < request.headers(); i++) {
+        for (int i = 0; i < request.numHeaders(); i++) {
           size += request.headerName(i).length() + request.headerValue(i).length();
         }
       }
