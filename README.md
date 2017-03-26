@@ -1,4 +1,6 @@
-# h2client
+# http2
+
+Http/2 client and server library with a focus on performance.
 
 Maven
 =====
@@ -6,7 +8,7 @@ Maven
 ```
     <dependency>
         <groupId>io.norberg</groupId>
-        <artifactId>h2client</artifactId>
+        <artifactId>http2</artifactId>
         <version>1.0-SNAPSHOT</version>
     </dependency>
 ```
@@ -34,9 +36,9 @@ Benchmark
 =========
 
 ```
-mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath -Dio.netty.leakDetection.level=disabled io.norberg.h2client.benchmarks.BenchmarkServer"
+mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath -Dio.netty.leakDetection.level=disabled io.norberg.http2.benchmarks.BenchmarkServer"
 ```
 
 ```
-mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath -Dio.netty.leakDetection.level=disabled io.norberg.h2client.benchmarks.BenchmarkClient"
+mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath -Dio.netty.leakDetection.level=disabled io.norberg.http2.benchmarks.BenchmarkClient"
 ```
