@@ -5,7 +5,9 @@ import java.util.Base64;
 import java.util.Map.Entry;
 import java.util.concurrent.ThreadLocalRandom;
 import org.junit.After;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
@@ -39,6 +41,9 @@ public class Http2ClientServerTest {
   private final List<Http2Client> clients = new ArrayList<>();
 
   @Mock Http2Client.Listener listener;
+
+  @Rule
+  public TestRule watcher = new LogTest();
 
   @After
   public void tearDown() throws Exception {
