@@ -14,6 +14,9 @@ abstract class Http2Message<T extends Http2Message<T>> {
   private AsciiString[] headers;
   private int headerIx;
 
+  Http2Message() {
+  }
+
   public boolean hasHeaders() {
     return headers != null;
   }
@@ -84,7 +87,7 @@ abstract class Http2Message<T extends Http2Message<T>> {
     }
   }
 
-  protected final void releaseHeaders() {
+  final void releaseHeaders() {
     if (headers != null) {
       Arrays.fill(headers, null);
       headers = null;
