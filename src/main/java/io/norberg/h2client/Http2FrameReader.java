@@ -10,16 +10,18 @@ import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.INT_FIELD_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.PING_FRAME_PAYLOAD_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
+import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
 import static io.netty.handler.codec.http2.Http2Flags.ACK;
 import static io.netty.handler.codec.http2.Http2Flags.END_HEADERS;
 import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
 import static io.netty.handler.codec.http2.Http2Flags.PADDED;
 import static io.netty.handler.codec.http2.Http2Flags.PRIORITY;
+import static io.norberg.h2client.Util.connectionError;
 import static java.util.Objects.requireNonNull;
 
 
 
-class Http2FrameReader implements HpackDecoder.Listener {
+class Http2FrameReader implements HpackDecoder.Listener, AutoCloseable {
 
   private final HpackDecoder hpackDecoder;
   private final Http2FrameListener listener;
@@ -29,9 +31,21 @@ class Http2FrameReader implements HpackDecoder.Listener {
   private short flags;
   private int streamId;
 
+  // For handling CONTINUATION frames
+  private ByteBuf headersBlock;
+  private short headersFlags;
+
   Http2FrameReader(final HpackDecoder hpackDecoder, final Http2FrameListener listener) {
     this.hpackDecoder = requireNonNull(hpackDecoder, "hpackDecoder");
     this.listener = requireNonNull(listener, "listener");
+  }
+
+  @Override
+  public void close() {
+    if (headersBlock != null) {
+      headersBlock.release();
+      headersBlock = null;
+    }
   }
 
   void readFrames(final ChannelHandlerContext ctx, final ByteBuf in)
@@ -52,6 +66,11 @@ class Http2FrameReader implements HpackDecoder.Listener {
         streamId = readInt31(in);
 
         // TODO: validate
+
+        if (headersBlock != null && type != Http2FrameTypes.CONTINUATION) {
+          throw connectionError(PROTOCOL_ERROR,
+              "Expected CONTINUATION frame, got %d: streamId=%d", type, streamId);
+        }
       }
 
       // Wait for the frame payload
@@ -90,7 +109,7 @@ class Http2FrameReader implements HpackDecoder.Listener {
           readWindowUpdateFrame(ctx, in, listener);
           break;
         case Http2FrameTypes.CONTINUATION:
-          readContinuationFrame(ctx, in, listener);
+          readContinuationFrame(ctx, in);
           break;
         default:
           // Discard unknown frame types
@@ -108,6 +127,10 @@ class Http2FrameReader implements HpackDecoder.Listener {
   }
 
   private boolean readFlag(final short flag) {
+    return readFlag(flag, flags);
+  }
+
+  private static boolean readFlag(short flag, short flags) {
     return (flags & flag) != 0;
   }
 
@@ -128,10 +151,23 @@ class Http2FrameReader implements HpackDecoder.Listener {
 
   private void readHeadersFrame(final ChannelHandlerContext ctx, final ByteBuf in)
       throws Http2Exception {
-    if (!readFlag(END_HEADERS)) {
-      throw new UnsupportedOperationException("TODO");
-    }
     final boolean hasPriority = readFlag(PRIORITY);
+    final boolean endHeaders = readFlag(END_HEADERS);
+    final short padding = readPadding(in);
+    final int blockLength = length - (readFlag(PADDED) ? 1 : 0) - padding;
+
+    // Handle HEADERS + CONTINUATION
+    if (!endHeaders) {
+      assert headersBlock == null;
+      // CONTINUATION headers are assumed to be rare and the resulting frame blocks large enough
+      // that we can accept allocating a temporary cumulation buffer.
+      // TODO: Piggyback on the preceding cumulation buffer instead and avoid copying?
+      this.headersBlock = in.alloc().buffer(blockLength * 2);
+      this.headersFlags = flags;
+      in.readBytes(this.headersBlock, blockLength);
+      return;
+    }
+
     if (hasPriority) {
       readHeadersFrameWithPriority(ctx, in);
     } else {
@@ -152,11 +188,10 @@ class Http2FrameReader implements HpackDecoder.Listener {
     final int writerMark = in.writerIndex();
     in.writerIndex(in.readerIndex() + blockLength);
     final boolean endOfStream = readFlag(END_STREAM);
-    listener.onHeadersRead(ctx, streamId, null, streamDependency, weight, exclusive, padding, endOfStream);
+    listener.onHeadersRead(ctx, streamId, streamDependency, weight, exclusive, endOfStream);
     hpackDecoder.decode(in, this);
     listener.onHeadersEnd(ctx, streamId, endOfStream);
     in.writerIndex(writerMark);
-
   }
 
   private void readHeadersFrameWithoutPriority(final ChannelHandlerContext ctx, final ByteBuf in) throws Http2Exception {
@@ -165,10 +200,43 @@ class Http2FrameReader implements HpackDecoder.Listener {
     final boolean endOfStream = readFlag(END_STREAM);
     final int writerMark = in.writerIndex();
     in.writerIndex(in.readerIndex() + blockLength);
-    listener.onHeadersRead(ctx, streamId, null, padding, endOfStream);
+    listener.onHeadersRead(ctx, streamId, endOfStream);
     hpackDecoder.decode(in, this);
     listener.onHeadersEnd(ctx, streamId, endOfStream);
     in.writerIndex(writerMark);
+  }
+
+  private void readContinuationFrame(final ChannelHandlerContext ctx, final ByteBuf in) throws Http2Exception {
+    final boolean hasPriority = readFlag(headersFlags, PRIORITY);
+    final boolean endOfStream = readFlag(headersFlags, END_STREAM);
+    final boolean endHeaders = readFlag(END_HEADERS);
+
+    if (headersBlock == null) {
+      throw connectionError(PROTOCOL_ERROR,
+          "Unexpected CONTINUATION frame: streamId=%d", streamId);
+    }
+
+    if (headersBlock.writableBytes() < length) {
+      headersBlock.capacity(headersBlock.capacity() * 2);
+    }
+    in.readBytes(headersBlock, length);
+
+    if (endHeaders) {
+      if (hasPriority) {
+        final long word = in.readUnsignedInt();
+        final boolean exclusive = (word & 0x8000000L) != 0;
+        final int streamDependency = (int) (word & 0x7FFFFFFL);
+        final short weight = in.readUnsignedByte();
+        listener.onHeadersRead(ctx, streamId, streamDependency, weight, exclusive, endOfStream);
+      } else {
+        listener.onHeadersRead(ctx, streamId, endOfStream);
+      }
+      hpackDecoder.decode(headersBlock, this);
+      listener.onHeadersEnd(ctx, streamId, endOfStream);
+      headersBlock.release();
+      headersBlock = null;
+      headersFlags = 0;
+    }
   }
 
   private void readPriorityFrame(final ChannelHandlerContext ctx, final ByteBuf in) throws Http2Exception {
@@ -240,11 +308,6 @@ class Http2FrameReader implements HpackDecoder.Listener {
                                      final Http2FrameListener listener) throws Http2Exception {
     final int windowSizeIncrement = readInt31(in);
     listener.onWindowUpdateRead(ctx, streamId, windowSizeIncrement);
-  }
-
-  private void readContinuationFrame(final ChannelHandlerContext ctx, final ByteBuf in,
-                                     final Http2FrameListener listener) throws Http2Exception {
-    throw new UnsupportedOperationException("TODO");
   }
 
   @Override

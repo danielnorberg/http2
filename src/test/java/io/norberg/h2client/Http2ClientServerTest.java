@@ -1,5 +1,9 @@
 package io.norberg.h2client;
 
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.util.AsciiString;
+import java.util.Base64;
+import java.util.concurrent.ThreadLocalRandom;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -71,6 +75,42 @@ public class Http2ClientServerTest {
       final String payload = response.content().toString(UTF_8);
       assertThat(payload, is("hello: /world/2"));
     }
+  }
+
+  @Test
+  public void testHeaderFragmentation() throws Exception {
+
+    final RequestHandler requestHandler = (context, request) -> {
+      Http2Response response = request.response(
+          OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8));
+      request.forEachHeader(response::header);
+      context.respond(response);
+    };
+
+    // Start server
+    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final int port = server.bind(0).get().getPort();
+
+    // Start client
+    final Http2Client client = autoClosing(
+        Http2Client.of("127.0.0.1", port));
+
+    byte[] cookieBytes = new byte[128 * 1024];
+    ThreadLocalRandom.current().nextBytes(cookieBytes);
+    String cookie = Base64.getEncoder().encodeToString(cookieBytes);
+
+    // Make a request with a huge header
+    Http2Request request = new Http2Request(HttpMethod.GET, "/world/1");
+    AsciiString cookieHeaderName = AsciiString.of("SetCookie");
+    AsciiString cookieHeaderValue = AsciiString.of(cookie);
+    request.header(cookieHeaderName, cookieHeaderValue);
+    final CompletableFuture<Http2Response> future = client.send(request);
+    final Http2Response response = future.get(30, SECONDS);
+    assertThat(response.status(), is(OK));
+    assertThat(response.headerName(0), is(cookieHeaderName));
+    assertThat(response.headerValue(0), is(cookieHeaderValue));
+    final String payload = response.content().toString(UTF_8);
+    assertThat(payload, is("hello: /world/1"));
   }
 
 //  @Test

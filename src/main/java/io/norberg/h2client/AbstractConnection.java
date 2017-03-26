@@ -166,6 +166,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public void handlerAdded(final ChannelHandlerContext ctx) throws Exception {
+      super.handlerAdded(ctx);
       // Update connection window size
       final int sizeIncrement = localMaxConnectionWindow - DEFAULT_WINDOW_SIZE;
       if (sizeIncrement > 0) {
@@ -173,6 +174,12 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
         writeWindowUpdate(buf, 0, sizeIncrement);
         ctx.writeAndFlush(buf);
       }
+    }
+
+    @Override
+    protected void handlerRemoved0(ChannelHandlerContext ctx) throws Exception {
+      super.handlerRemoved0(ctx);
+      reader.close();
     }
 
     @Override
@@ -233,12 +240,11 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     }
 
     @Override
-    public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId, final Http2Headers headers,
-                              final int padding, final boolean endOfStream) throws Http2Exception {
-      assert headers == null;
+    public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId,
+        final boolean endOfStream) throws Http2Exception {
       if (log.isDebugEnabled()) {
-        log.debug("got headers: streamId={}, padding={}, endOfStream={}",
-                  streamId, padding, endOfStream);
+        log.debug("got headers: streamId={}, endOfStream={}",
+                  streamId, endOfStream);
       }
       if (stream == null) {
         this.stream = inbound(streamId);
@@ -247,14 +253,13 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     }
 
     @Override
-    public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId, final Http2Headers headers,
-                              final int streamDependency, final short weight, final boolean exclusive,
-                              final int padding, final boolean endOfStream)
+    public void onHeadersRead(final ChannelHandlerContext ctx, final int streamId,
+        final int streamDependency, final short weight, final boolean exclusive,
+        final boolean endOfStream)
         throws Http2Exception {
-      assert headers == null;
       if (log.isDebugEnabled()) {
-        log.debug("got headers: streamId={}, streamDependency={}, weight={}, exclusive={}, padding={}, "
-                  + "endOfStream={}", streamId, streamDependency, weight, exclusive, padding, endOfStream);
+        log.debug("got headers: streamId={}, streamDependency={}, weight={}, exclusive={}, "
+                  + "endOfStream={}", streamId, streamDependency, weight, exclusive, endOfStream);
       }
       if (stream == null) {
         this.stream = inbound(streamId);
