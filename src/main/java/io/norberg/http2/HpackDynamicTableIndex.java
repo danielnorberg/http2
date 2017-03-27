@@ -1,215 +1,257 @@
 package io.norberg.http2;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import io.netty.util.AsciiString;
 
-class HpackDynamicTableIndex {
+final class HpackDynamicTableIndex {
 
-  private int n;
-  private Object[] keys;
-  private int[] values;
-  private int mask;
-  private int size;
-  private int maxFill;
+  private final float loadFactor = 0.25f;
 
-  private int offset;
-  private final float f = 0.25f;
+  private static final int MAX_CAPACITY = 1 << 30;
+  private static final int INITIAL_CAPACITY = 32;
+  private int growthThreshold;
 
-  HpackDynamicTableIndex(final int expected) {
-    this.n = arraySize(expected, f);
-    this.mask = n - 1;
-    this.maxFill = maxFill(n, f);
-    this.keys = new Object[n + 1];
-    this.values = new int[n + 1];
+  // header seq | header hash
+  private long table[] = new long[INITIAL_CAPACITY];
+
+  private int seq = 0;
+
+  private final HpackDynamicTable headerTable;
+
+  HpackDynamicTableIndex(final HpackDynamicTable headerTable) {
+    this.headerTable = headerTable;
+    this.growthThreshold = (int) (loadFactor * table.length / 2);
   }
 
-  int index(final AsciiString name, final AsciiString value) {
-    final Object[] keys = this.keys;
-    final int[] values = this.values;
-    final int hashCode = Http2Header.hashCode(name, value);
-    Object curr;
-    int pos;
-    if ((curr = keys[pos = hash(hashCode) & mask]) == null) {
-      return 0;
-    } else if (curr instanceof Http2Header && ((Http2Header) curr).equals(name, value)) {
-      return values[pos];
-    } else {
-      while ((curr = keys[pos = pos + 1 & mask]) != null) {
-        if (curr instanceof Http2Header && ((Http2Header) curr).equals(name, value)) {
-          return index0(values[pos]);
-        }
-      }
-      return 0;
+  int lookup(Http2Header header) {
+    return lookup(header.name(), header.value(), table, headerTable, seq);
+  }
+
+  int lookup(AsciiString name) {
+    return lookup0(table, headerTable, seq, name, null, hash(name));
+  }
+
+  int lookup(AsciiString name, AsciiString value) {
+    return lookup(name, value, table, headerTable, seq);
+  }
+
+  void insert(Http2Header header) {
+    seq++;
+    if (headerTable.length() > growthThreshold) {
+      rehash(table.length << 1);
+      return;
     }
+    insert(table, header.name(), header.value(), hash(header.name(), header.value()), seq, seq, headerTable);
+    insert(table, header.name(), null, hash(header.name()), seq, seq, headerTable);
   }
 
-  int index(final AsciiString name) {
-    return index0(name);
-  }
-
-  void add(final Http2Header header) {
-    offset++;
-    insert(header, offset);
-    insert(header.name(), offset);
-  }
-
-  void remove(final Http2Header header, int index) {
-    remove0(header, index);
-    remove0(header.name(), index);
+  void remove(Http2Header header) {
+    int headerSeq = seq - headerTable.length();
+    remove0(table, headerSeq, hash(header.name(), header.value()));
+    remove0(table, headerSeq, hash(header.name()));
   }
 
   void clear() {
-    this.size = 0;
-    Arrays.fill(keys, null);
+    Arrays.fill(table, 0);
   }
 
-  private int index0(Object k) {
-    final Object[] keys = this.keys;
-    final int[] values = this.values;
-    Object curr;
-    int pos;
-    if ((curr = keys[pos = hash(k.hashCode()) & mask]) == null) {
-      return 0;
-    } else if (k.equals(curr)) {
-      return index0(values[pos]);
+  private void rehash(int newCapacity) {
+    if (newCapacity >= MAX_CAPACITY) {
+      throw new OutOfMemoryError();
+    }
+    if (newCapacity == table.length) {
+      Arrays.fill(table, 0);
     } else {
-      while ((curr = keys[pos = pos + 1 & mask]) != null) {
-        if (k.equals(curr)) {
-          return index0(values[pos]);
-        }
-      }
-      return 0;
+      table = new long[newCapacity];
+      growthThreshold = (int) (loadFactor * table.length / 2);
+    }
+    final int insertSeq = this.seq;
+    int seq = insertSeq - headerTable.length();
+    for (int i = headerTable.length() - 1; i >= 0; i--) {
+      final Http2Header header = headerTable.header(i);
+      seq++;
+      insert(table, header.name(), header.value(), hash(header.name(), header.value()), seq, insertSeq, headerTable);
+      insert(table, header.name(), null, hash(header.name()), seq, insertSeq, headerTable);
     }
   }
 
-  private int index0(final int value) {
-    return offset - value + 1;
-  }
+  static void insert(final long[] table, final AsciiString insertName, final AsciiString insertValue,
+                     final int insertHash, final int insertSeq,
+                     final int tableSeq, final HpackDynamicTable headerTable) {
+    final int capacity = table.length;
+    final int mask = capacity - 1;
+    final int insertIB = ib(insertHash, mask);
 
-  private void remove0(final Object k, final int value) {
-    final Object[] keys = this.keys;
-    final int[] values = this.values;
-    Object curr;
-    int pos;
-    int ix = index0(value);
-    if ((curr = keys[pos = hash(k.hashCode()) & mask]) == null) {
-    } else if (k.equals(curr)) {
-      if (values[pos] == ix) {
-        remove0(pos);
+    AsciiString name = insertName;
+    AsciiString value = insertValue;
+    int seq = insertSeq;
+    int hash = insertHash;
+    int dist = 0;
+    int pos = insertIB;
+
+    while (true) {
+      if (dist == capacity) {
+        throw new AssertionError();
       }
-    } else {
-      while ((curr = keys[pos = pos + 1 & mask]) != null) {
-        if (k.equals(curr)) {
-          if (values[pos] == ix) {
-            remove0(pos);
-          }
-          return;
-        }
-      }
-    }
-  }
 
-  private void remove0(final int pos) {
-    --this.size;
-    this.shiftKeys(pos);
-  }
+      final long probeEntry = table[pos];
 
-  private void insert(Object k, int v) {
-    final Object[] keys = this.keys;
-    final int[] values = this.values;
-    int pos;
-    Object curr;
-
-    if ((curr = keys[pos = hash(k.hashCode()) & mask]) != null) {
-      if (curr.equals(k)) {
-        values[pos] = v;
+      // Is the probed bucket unused?
+      if (probeEntry == 0) {
+        // We're done. Store our entry and bail.
+        table[pos] = entry(seq, hash);
         return;
       }
 
-      while ((curr = keys[pos = pos + 1 & mask]) != null) {
-        if (curr.equals(k)) {
-          values[pos] = v;
+      final int entryHash = entryHash(probeEntry);
+      final int entrySeq = entrySeq(probeEntry);
+      final int entryTableIndex = entryTableIndex(tableSeq, entrySeq);
+
+      // Is the entry identical?
+      if (hash == entryHash && name != null) {
+        final Http2Header probeHeader = headerTable.header(entryTableIndex);
+        if (probeHeader.name().equals(name) && (value == null || probeHeader.value().equals(value))) {
+          table[pos] = entry(seq, hash);
           return;
         }
       }
-    }
 
-    keys[pos] = k;
-    values[pos] = v;
+      final int entryIB = ib(entryHash, mask);
+      final int entryDIB = dib(entryIB, pos, capacity, mask);
 
-    if (size++ >= maxFill) {
-      rehash(arraySize(size + 1, f));
-    }
-  }
-
-  private void rehash(int newN) {
-    final Object[] keys = this.keys;
-    final int[] values = this.values;
-    int mask = newN - 1;
-    Object[] newKey = new Object[newN + 1];
-    int[] newValue = new int[newN + 1];
-    int i = this.n;
-
-    int pos;
-    for (int j = this.size; j-- != 0; newValue[pos] = values[i]) {
-      do {
-        --i;
-      } while (keys[i] == null);
-
-      if (newKey[pos = hash(keys[i].hashCode()) & mask] != null) {
-        while (newKey[pos = pos + 1 & mask] != null) {
-        }
+      // Displace the current entry?
+      if (dist > entryDIB) {
+        table[pos] = entry(seq, hash);
+        seq = entrySeq;
+        hash = entryHash;
+        dist = entryDIB;
+        name = null;
       }
 
-      newKey[pos] = keys[i];
+      dist++;
+      pos = next(pos, mask);
     }
-
-    newValue[newN] = values[this.n];
-    this.n = newN;
-    this.mask = mask;
-    this.maxFill = maxFill(this.n, this.f);
-    this.keys = newKey;
-    this.values = newValue;
   }
 
-  private void shiftKeys(int pos) {
-    final Object[] keys = this.keys;
-    final int[] values = this.values;
+  private void remove0(final long[] table, final int seq, final int hash) {
+    final int capacity = table.length;
+    final int mask = capacity - 1;
+
+    int pos = ib(hash, mask);
+    int dist = 0;
+
+    final long needle = entry(seq, hash);
+
+    // Find our bucket
     while (true) {
-      int last = pos;
-      pos = pos + 1 & mask;
-
-      Object curr;
-      while (true) {
-        if ((curr = keys[pos]) == null) {
-          keys[last] = null;
-          return;
-        }
-
-        int slot = hash(curr.hashCode()) & mask;
-        if (last <= pos) {
-          if (last >= slot || slot > pos) {
-            break;
-          }
-        } else if (last >= slot && slot > pos) {
-          break;
-        }
-
-        pos = pos + 1 & mask;
+      final long entry = table[pos];
+      if (entry == needle) {
+        break;
       }
 
-      keys[last] = curr;
-      values[last] = values[pos];
+      // Have we searched longer than the probe distance of this entry?
+      final int entryHash = entryHash(entry);
+      final int entryIB = ib(entryHash, mask);
+      final int entryProbeDistance = dib(entryIB, pos, table.length, mask);
+      if (entryProbeDistance < dist) {
+        return;
+      }
+
+      pos = (pos + 1) & mask;
+      dist++;
+    }
+
+    // Shift buckets left
+    int prevPos = pos;
+    int probePos = next(prevPos, mask);
+    while (true) {
+      final long probeEntry = table[probePos];
+      if (probeEntry == 0) {
+        table[prevPos] = 0;
+        return;
+      }
+      final int probeHash = entryHash(probeEntry);
+      final int probeIB = ib(probeHash, mask);
+      final int probeDIB = dib(probeIB, probePos, capacity, mask);
+      if (probeDIB == 0) {
+        table[prevPos] = 0;
+        return;
+      }
+      table[prevPos] = table[probePos];
+      prevPos = probePos;
+      probePos = next(probePos, mask);
     }
   }
 
-//  private static int hash(int x) {
-//    int h = x * -1640531527;
-//    return h ^ h >>> 16;
-//  }
+  static int next(final int i, final int mask) {
+    return (i + 1) & mask;
+  }
 
-  static int hash(int key) {
+  private static int lookup(AsciiString name, AsciiString value, final long[] table,
+                            final HpackDynamicTable headerTable,
+                            final int seq) {
+    return lookup0(table, headerTable, seq, name, value, hash(name, value));
+  }
+
+  private static int lookup(final AsciiString name, final long[] table, final HpackDynamicTable headerTable,
+                            final int seq) {
+    return lookup0(table, headerTable, seq, name, null, hash(name));
+  }
+
+
+  private static int lookup0(final long[] table, final HpackDynamicTable headerTable, final int seq,
+                             final AsciiString name, final AsciiString value,
+                             final int hash) {
+    final int mask = table.length - 1;
+
+    int pos = ib(hash, mask);
+    int dist = 0;
+
+    while (true) {
+      final long entry = table[pos];
+
+      // Is this entry unused?
+      if (entry == 0) {
+        return 0;
+      }
+
+      final int entryHash = entryHash(entry);
+
+      // Have we searched longer than the probe distance of this entry?
+      final int entryIB = ib(entryHash, mask);
+      final int entryProbeDistance = dib(entryIB, pos, table.length, mask);
+      if (entryProbeDistance < dist) {
+        return 0;
+      }
+
+      final int entrySeq = entrySeq(entry);
+      final int entryTableIndex = entryTableIndex(seq, entrySeq);
+
+      if (hash == entryHash) {
+        final Http2Header entryHeader = headerTable.header(entryTableIndex);
+        if (entryHeader.name().equals(name) &&
+            (value == null || entryHeader.value().equals(value))) {
+          return entryTableIndex + 1;
+        }
+      }
+
+      pos = (pos + 1) & mask;
+      dist++;
+    }
+  }
+
+  /**
+   * Thomas Wang's 32 Bit Mix Function
+   * http://web.archive.org/web/20071223173210/http://www.concentric.net/~Ttwang/tech/inthash.htm
+   */
+  private static int mix(int key) {
     key += ~(key << 15);
     key ^= (key >> 10);
     key += (key << 3);
@@ -219,72 +261,168 @@ class HpackDynamicTableIndex {
     return key;
   }
 
-  private static int maxFill(int n, float f) {
-    return Math.min((int) Math.ceil((double) ((float) n * f)), n - 1);
+  private static final int HEADER = 0x80000000;
+
+  private static boolean isHeader(int hash) {
+    return (hash & HEADER) != 0;
   }
 
-  private static int arraySize(int expected, float f) {
-    long s = Math.max(2L, nextPowerOfTwo((long) Math.ceil((double) ((float) expected / f))));
-    if (s > 1073741824L) {
-      throw new IllegalArgumentException("Too large (" + expected + " expected elements with load factor " + f + ")");
-    } else {
-      return (int) s;
-    }
+  private static boolean isName(int hash) {
+    return !isHeader(hash);
   }
 
-  private static long nextPowerOfTwo(long x) {
-    if (x == 0L) {
-      return 1L;
-    } else {
-      --x;
-      x |= x >> 1;
-      x |= x >> 2;
-      x |= x >> 4;
-      x |= x >> 8;
-      x |= x >> 16;
-      return (x | x >> 32) + 1L;
-    }
+  private static int hash(AsciiString name, AsciiString value) {
+    final int hash = mix((31 * name.hashCode()) ^ value.hashCode()) | HEADER;
+    return (hash == 0)
+           ? 1_190_494_759
+           : hash;
+  }
+
+  private static int hash(AsciiString name) {
+    final int hash = mix(name.hashCode()) & ~HEADER;
+    return (hash == 0)
+           ? 1_190_494_759
+           : hash;
+  }
+
+  private static long entry(final int seq, final int hash) {
+    return ((long) seq) << 32 | (hash & 0xFFFFFFFFL);
+  }
+
+  private static int entrySeq(final long entry) {
+    return (int) (entry >>> 32);
+  }
+
+  private static int entryHash(final long entry) {
+    return (int) entry;
+  }
+
+  private static int entryTableIndex(final int insertSeq, final int entrySeq) {
+    return insertSeq - entrySeq;
+  }
+
+  /**
+   * Initial Bucket
+   */
+  private static int ib(final int hash, final int mask) {
+    return hash & mask;
+  }
+
+  /**
+   * Distance from Initial Bucket (DIB)
+   */
+  private static int dib(final int ib, final int pos, final int capacity, final int mask) {
+    return (pos + capacity - ib) & mask;
   }
 
   @Override
   public String toString() {
-    if (size == 0) {
-      return "{}";
-    }
-
-    StringBuilder sb = new StringBuilder();
-    sb.append('{');
-    for (int i = 0; i < keys.length; i++) {
-      final Object key = keys[i];
-      if (key == null) {
+    final StringBuilder s = new StringBuilder();
+    for (int i = 0; i < table.length; i++) {
+      long entry = table[i];
+      if (entry == 0) {
         continue;
       }
-      final int value = values[i];
-      sb.append('"');
-      sb.append(key);
-      sb.append('"');
-      sb.append('=');
-      sb.append(index0(value));
-      if (i + 1 < keys.length) {
-        sb.append(',').append(' ');
+      final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
+      if (entryTableIndex >= headerTable.length()) {
+        continue;
+      }
+      final Http2Header header = headerTable.header(entryTableIndex);
+      s.append('\'').append(header.name()).append(':').append(header.value()).append("' => ").append(entryTableIndex)
+          .append(System.lineSeparator());
+    }
+    return s.toString();
+  }
+
+  void validate() {
+    validate(table, headerTable, seq);
+  }
+
+  private static void validate(long[] table, HpackDynamicTable headerTable, int seq) {
+    final int mask = table.length - 1;
+    Set<Http2Header> headers = new HashSet<>();
+    Set<AsciiString> names = new HashSet<>();
+    for (int i = 0; i < table.length; i++) {
+      final long entry = table[i];
+      if (entry == 0) {
+        continue;
+      }
+      final int entryHash = entryHash(entry);
+      final int entryIB = ib(entryHash, mask);
+      final int entryProbeDistance = dib(entryIB, i, table.length, mask);
+      final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
+      // Check that there's no duplicate entries
+      Http2Header header = headerTable.header(entryTableIndex);
+      if (isHeader(entryHash)) {
+        if (headers.contains(header)) {
+          throw new AssertionError();
+        }
+        headers.add(header);
+      } else {
+        if (names.contains(header.name())) {
+          throw new AssertionError();
+        }
+        names.add(header.name());
+      }
+      // Check that all entries between the entry desiredPos and actual pos has at least the same probe distance from their respective desired positions
+      for (int j = entryIB; j < i; j = (j + 1) & mask) {
+        final long e = table[i];
+        final int h = entryHash(e);
+        final int ib = ib(h, mask);
+        final int pd = dib(ib, i, table.length, mask);
+        if (pd < entryProbeDistance) {
+          throw new AssertionError();
+        }
       }
     }
-    return sb.append('}').toString();
+    // Check that all table headers and header names can be looked up with the correct index
+    final Map<Http2Header, Integer> headerIndices = new HashMap<>();
+    final Map<AsciiString, Integer> nameIndices = new HashMap<>();
+    for (int i = 0; i < headerTable.length(); i++) {
+      final Http2Header header = headerTable.header(i);
+      headerIndices.putIfAbsent(header, i + 1);
+      nameIndices.putIfAbsent(header.name(), i + 1);
+    }
+    for (int i = 0; i < headerTable.length(); i++) {
+      final Http2Header header = headerTable.header(i);
+      final int ix = lookup(header.name(), header.value(), table, headerTable, seq);
+      if (ix != headerIndices.get(header)) {
+        throw new AssertionError();
+      }
+      if (lookup(header.name(), table, headerTable, seq) != nameIndices.get(header.name())) {
+        throw new AssertionError();
+      }
+    }
   }
 
-  public int lookup(final Http2Header header) {
-    return index(header.name(), header.value());
-  }
-
-  public int lookup(final AsciiString name) {
-    return index(name);
-  }
-
-  public void insert(final Http2Header header) {
-    add(header);
-  }
-
-  public void validate() {
-
+  List<String> inspect() {
+    final int mask = table.length - 1;
+    final List<String> entries = new ArrayList<>();
+    for (int i = 0; i < table.length; i++) {
+      long entry = table[i];
+      if (entry == 0) {
+        entries.add(i + ":");
+      } else {
+        final int entryTableIndex = entryTableIndex(seq, entrySeq(entry));
+        final boolean isHeader = isHeader(entryHash(entry));
+        final String type = isHeader ? "hædr" : "name";
+        final String value;
+        if (entryTableIndex < headerTable.length()) {
+          final Http2Header header = headerTable.header(entryTableIndex);
+          if (isHeader) {
+            value = header.toString();
+          } else {
+            value = header.name().toString();
+          }
+        } else {
+          value = "";
+        }
+        entries.add(String.format(
+            "%d: ib=%03d pd=%03d hash=%08x seq=%08x tix=%03d type=%s value=%s",
+            i, ib(entryHash(entry), mask), dib(entryHash(entry), i, table.length, mask), entryHash(entry),
+            entrySeq(entry), entryTableIndex, type, value));
+      }
+    }
+    return entries;
   }
 }

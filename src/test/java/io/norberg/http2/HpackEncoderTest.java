@@ -5,6 +5,8 @@ import com.google.common.collect.ImmutableList;
 import com.twitter.hpack.Decoder;
 import com.twitter.hpack.HeaderListener;
 
+import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -130,8 +132,6 @@ public class HpackEncoderTest {
   @Test
   public void testOverflow() throws Exception {
 
-    // TODO: optimize index
-
     final int n = 16 * 1024;
 
     final Http2Headers headers = new DefaultHttp2Headers();
@@ -145,83 +145,6 @@ public class HpackEncoderTest {
     for (int i = 0; i < headers.size(); i++) {
       final Map.Entry<CharSequence, CharSequence> header = headerList.get(i);
       encoder.encodeHeader(block, AsciiString.of(header.getKey()), AsciiString.of(header.getValue()));
-    }
-  }
-
-  @Ignore
-  @Test
-  public void testIndex() throws Exception {
-
-    // TODO: optimize index
-
-    final int n = 16 * 1024;
-
-    final List<Http2Header> headers = new ArrayList<>();
-    for (int i = 0; i < n; i++) {
-      headers.add(Http2Header.of(AsciiString.of("header" + i), AsciiString.of("value" + i)));
-    }
-
-    final ProgressMeter meter = new ProgressMeter();
-    final ProgressMeter.Metric messages = meter.group("throughput").metric("headers", "headers");
-
-    final HpackDynamicTableIndex index = new HpackDynamicTableIndex(64);
-    final Queue<Http2Header> q = new ArrayDeque<>();
-    for (int i = 0; i < 50; i++) {
-      final Http2Header header = headers.get(i);
-      index.add(header);
-      q.add(header);
-    }
-    while (true) {
-      long start = System.nanoTime();
-      for (int i = 0; i < headers.size(); i++) {
-        int ix = q.size();
-        final Http2Header last = q.remove();
-        index.remove(last, ix);
-        final Http2Header header = headers.get(i);
-        index.add(header);
-        q.add(header);
-      }
-      long end = System.nanoTime();
-      messages.add(n, end - start);
-    }
-  }
-
-  @Ignore
-  @Test
-  public void testIndex3() throws Exception {
-
-    // TODO: optimize index
-
-    final int n = 16 * 1024;
-    final int mask = n - 1;
-
-    final List<Http2Header> headers = new ArrayList<>();
-    for (int i = 0; i < n; i++) {
-      headers.add(Http2Header.of(AsciiString.of("header" + i), AsciiString.of("value" + i)));
-    }
-
-    final ProgressMeter meter = new ProgressMeter();
-    final ProgressMeter.Metric messages = meter.group("throughput").metric("headers", "headers");
-
-    final HpackDynamicTable table = new HpackDynamicTable();
-    final HpackDynamicTableIndex4 index = new HpackDynamicTableIndex4(table);
-    int i = 0;
-    for (; i < 50; i++) {
-      final Http2Header header = headers.get(i);
-      table.addFirst(header);
-      index.insert(header);
-    }
-    while (true) {
-      long start = System.nanoTime();
-      for (int j = 0; j < n; j++, i = (i + 1) & mask) {
-        Http2Header removed = table.removeLast();
-        index.remove(removed);
-        final Http2Header header = headers.get(i);
-        table.addFirst(header);
-        index.insert(header);
-      }
-      long end = System.nanoTime();
-      messages.add(n, end - start);
     }
   }
 }

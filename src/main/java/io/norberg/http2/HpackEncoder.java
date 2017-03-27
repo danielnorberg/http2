@@ -15,13 +15,13 @@ import static io.norberg.http2.HpackStaticTable.isIndexedName;
 class HpackEncoder {
 
   private final HpackDynamicTable dynamicTable = new HpackDynamicTable();
-  private final HpackDynamicTableIndex4 tableIndex;
+  private final HpackDynamicTableIndex tableIndex;
   private int tableSize;
   private int maxTableSize;
 
   HpackEncoder(final int maxTableSize) {
     this.maxTableSize = maxTableSize;
-    this.tableIndex = new HpackDynamicTableIndex4(dynamicTable);
+    this.tableIndex = new HpackDynamicTableIndex(dynamicTable);
   }
 
   void encodeRequest(final ByteBuf out, final AsciiString method, final AsciiString scheme, final AsciiString authority,
@@ -80,7 +80,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = tableIndex.index(METHOD.value(), method);
+    final int dynamicIndex = tableIndex.lookup(METHOD.value(), method);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -92,7 +92,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = tableIndex.index(SCHEME.value(), scheme);
+    final int dynamicIndex = tableIndex.lookup(SCHEME.value(), scheme);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -104,7 +104,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = tableIndex.index(AUTHORITY.value(), authority);
+    final int dynamicIndex = tableIndex.lookup(AUTHORITY.value(), authority);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -116,7 +116,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = tableIndex.index(PATH.value(), path);
+    final int dynamicIndex = tableIndex.lookup(PATH.value(), path);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -128,7 +128,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = tableIndex.index(STATUS.value(), status);
+    final int dynamicIndex = tableIndex.lookup(STATUS.value(), status);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -146,11 +146,11 @@ class HpackEncoder {
   }
 
   private int dynamicHeaderIndex(final AsciiString name, final AsciiString value) {
-    final int headerIndex = tableIndex.index(name, value);
+    final int headerIndex = tableIndex.lookup(name, value);
     if (headerIndex != 0) {
       return headerIndex + HpackStaticTable.length();
     }
-    final int nameIndex = tableIndex.index(name);
+    final int nameIndex = tableIndex.lookup(name);
     if (nameIndex != 0) {
       return nameIndex + HpackStaticTable.length() | INDEXED_NAME;
     }
@@ -172,13 +172,13 @@ class HpackEncoder {
       while (newTableSize > maxTableSize) {
         final int index = dynamicTable.length();
         final Http2Header removed = dynamicTable.removeLast();
-        tableIndex.remove(removed, index);
+        tableIndex.remove(removed);
         newTableSize -= removed.size();
       }
     }
     tableSize = newTableSize;
     dynamicTable.addFirst(header);
-    tableIndex.add(header);
+    tableIndex.insert(header);
   }
 
   private static int nameIndex(final int index) {
@@ -219,7 +219,7 @@ class HpackEncoder {
     if (staticIndex != 0) {
       return staticIndex;
     }
-    return tableIndex.index(name) + HpackStaticTable.length();
+    return tableIndex.lookup(name) + HpackStaticTable.length();
   }
 
   int tableLength() {

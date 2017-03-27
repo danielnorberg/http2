@@ -16,10 +16,10 @@ import io.norberg.http2.benchmarks.ProgressMeter;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
-public class HpackDynamicTableIndex2Test {
+public class HpackDynamicTableIndexTest {
 
   private HpackDynamicTable table = new HpackDynamicTable();
-  private HpackDynamicTableIndex4 index = new HpackDynamicTableIndex4(table);
+  private HpackDynamicTableIndex index = new HpackDynamicTableIndex(table);
 
   @Test
   public void singleHeader() throws Exception {
