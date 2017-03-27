@@ -58,7 +58,7 @@ public class HpackEncoderTest {
 
     // Decode
     final InputStream is = new ByteBufInputStream(block);
-    final Decoder decoder = new Decoder(Integer.MAX_VALUE, Integer.MAX_VALUE);
+    final Decoder decoder = new Decoder(1024, 1024);
     decoder.decode(is, listener);
 
     verify(listener).addHeader(METHOD.value().array(), GET.asciiName().array(), false);
@@ -69,7 +69,7 @@ public class HpackEncoderTest {
   public void testIndexing() throws Exception {
 
     final HpackEncoder encoder = new HpackEncoder(Integer.MAX_VALUE);
-    final Decoder decoder = new Decoder(Integer.MAX_VALUE, Integer.MAX_VALUE);
+    final Decoder decoder = new Decoder(1024, 1024);
 
     final ByteBuf block1 = Unpooled.buffer();
     final ByteBuf block2 = Unpooled.buffer();
@@ -112,12 +112,12 @@ public class HpackEncoderTest {
     final AsciiString path = AsciiString.of("/");
 
     // Encode
-    final HpackEncoder encoder = new HpackEncoder(Integer.MAX_VALUE);
+    final HpackEncoder encoder = new HpackEncoder(1024);
     final ByteBuf block = Unpooled.buffer();
     encoder.encodeRequest(block, method, scheme, authority, path);
 
     final InputStream is = new ByteBufInputStream(block);
-    final Decoder decoder = new Decoder(Integer.MAX_VALUE, Integer.MAX_VALUE);
+    final Decoder decoder = new Decoder(1024, 1024);
     decoder.decode(is, listener);
 
     verify(listener).addHeader(METHOD.value().array(), method.array(), false);

@@ -51,7 +51,7 @@ public class HpackTest {
     writeAuthority(buf, authority);
     writePath(buf, path);
 
-    final Decoder decoder = new Decoder(Integer.MAX_VALUE, Integer.MAX_VALUE);
+    final Decoder decoder = new Decoder(1024, 1024);
     final ByteBufInputStream in = new ByteBufInputStream(buf);
     final HeaderListener listener = mock(HeaderListener.class);
     decoder.decode(in, listener);
