@@ -10,6 +10,11 @@ import java.util.Set;
 
 import io.netty.util.AsciiString;
 
+/**
+ * Robin Hood hashing index with backward shift deletion
+ *
+ * http://codecapsule.com/2013/11/17/robin-hood-hashing-backward-shift-deletion/
+ */
 final class HpackDynamicTableIndex {
 
   private final float loadFactor = 0.25f;
