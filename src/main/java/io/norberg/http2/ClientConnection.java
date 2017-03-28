@@ -316,28 +316,6 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
     }
   }
 
-  private class Initializer extends ChannelInitializer<SocketChannel> {
-
-    private final SslContext sslCtx;
-
-    public Initializer(SslContext sslCtx) {
-      this.sslCtx = requireNonNull(sslCtx, "sslCtx");
-    }
-
-    @Override
-    public void initChannel(SocketChannel ch) throws Exception {
-      final SslHandler sslHandler = sslCtx.newHandler(ch.alloc());
-
-      // XXX: Discard read bytes well before consolidating
-      // https://github.com/netty/netty/commit/c8a941d01e85148c21cc01bae80764bc134b1fdd
-      sslHandler.setDiscardAfterReads(7);
-
-      ch.pipeline().addLast(
-          sslHandler,
-          new HandshakeHandler(ch));
-    }
-  }
-
   private class HandshakeHandler extends ChannelInboundHandlerAdapter {
 
     private final Channel ch;
