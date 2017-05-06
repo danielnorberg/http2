@@ -1,0 +1,24 @@
+version: 2
+jobs:
+  build:
+    working_directory: ~/http2
+    docker:
+      - image: maven:3.5.0-jdk-8
+    steps:
+      - checkout
+      - restore_cache:
+          key: v1-deps-{{ checksum "pom.xml" }}
+      - run: mvn dependency:go-offline compile
+      - save_cache:
+          key: v1-deps-{{ checksum "pom.xml" }}
+          paths:
+            - ~/.m2
+      - run: mvn verify
+      - run: bash <(curl -s https://codecov.io/bash)
+      - store_test_results:
+          path: target/surefire-reports/
+      - store_test_results:
+          path: target/failsafe-reports/
+      - store_artifacts:
+          path: report/target/site/jacoco/
+          destination: jacoco
