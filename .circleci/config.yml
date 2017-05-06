@@ -20,5 +20,5 @@ jobs:
       - store_test_results:
           path: target/failsafe-reports/
       - store_artifacts:
-          path: report/target/site/jacoco/
+          path: target/site/jacoco/
           destination: jacoco
