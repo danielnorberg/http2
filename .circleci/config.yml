@@ -7,10 +7,10 @@ jobs:
     steps:
       - checkout
       - restore_cache:
-          key: v1-deps-{{ checksum "pom.xml" }}
-      - run: mvn dependency:go-offline compile
+          key: v2-deps-{{ checksum "pom.xml" }}
+      - run: mvn dependency:go-offline compile test-compile
       - save_cache:
-          key: v1-deps-{{ checksum "pom.xml" }}
+          key: v2-deps-{{ checksum "pom.xml" }}
           paths:
             - ~/.m2
       - run: mvn verify
