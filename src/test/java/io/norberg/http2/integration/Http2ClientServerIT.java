@@ -1,7 +1,28 @@
 package io.norberg.http2.integration;
 
-import com.spotify.logging.LoggingConfigurator;
+import static com.spotify.logging.LoggingConfigurator.Level.INFO;
+import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
+import static java.util.concurrent.TimeUnit.MINUTES;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assume.assumeThat;
+import static org.mockito.MockitoAnnotations.initMocks;
 
+import ch.qos.logback.classic.BasicConfigurator;
+import com.spotify.logging.LoggingConfigurator;
+import io.netty.buffer.Unpooled;
+import io.netty.util.ResourceLeakDetector;
+import io.norberg.http2.Http2Client;
+import io.norberg.http2.Http2Response;
+import io.norberg.http2.Http2Server;
+import java.util.ArrayList;
+import java.util.IntSummaryStatistics;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.IntStream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -12,26 +33,6 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ThreadLocalRandom;
-
-import ch.qos.logback.classic.BasicConfigurator;
-import io.netty.buffer.Unpooled;
-import io.netty.util.ResourceLeakDetector;
-import io.norberg.http2.Http2Client;
-import io.norberg.http2.Http2Response;
-import io.norberg.http2.Http2Server;
-
-import static com.spotify.logging.LoggingConfigurator.Level.INFO;
-import static io.netty.handler.codec.http.HttpResponseStatus.OK;
-import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
-import static java.util.concurrent.TimeUnit.MINUTES;
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
-import static org.mockito.MockitoAnnotations.initMocks;
 
 @RunWith(Theories.class)
 public class Http2ClientServerIT {
@@ -69,6 +70,11 @@ public class Http2ClientServerIT {
       @TestedOn(ints = {1, 17, 4711, 65_535}) final int clientStreamWindow,
       @TestedOn(ints = {1, 17, 4711, 65_535}) final int payloadSize
   ) throws Exception {
+
+    final IntSummaryStatistics windows = IntStream.of(
+        serverConnectionWindow, serverStreamWindow, clientConnectionWindow, clientStreamWindow).summaryStatistics();
+
+    assumeThat(windows.getMax() == 1 || !(windows.getMin() == 1 && payloadSize == 65_535), is(true));
 
     log.info("testReqRep: scw={} ssw={} ccw={} csw={} ps={}",
              serverConnectionWindow, serverStreamWindow, clientConnectionWindow, clientStreamWindow, payloadSize);
