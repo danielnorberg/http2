@@ -51,8 +51,8 @@ public class Http2Response extends Http2Message<Http2Response> {
   @Override
   public String toString() {
     return "Http2Response{" +
-           ", content=" + content +
-           ", headers=" + headersToString() +
-           '}';
+        ", content=" + content +
+        ", headers=" + headersToString() +
+        '}';
   }
 }

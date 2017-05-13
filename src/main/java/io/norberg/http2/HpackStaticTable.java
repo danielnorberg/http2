@@ -1,12 +1,5 @@
 package io.norberg.http2;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import io.netty.util.AsciiString;
-
 import static io.netty.handler.codec.http.HttpMethod.GET;
 import static io.netty.handler.codec.http.HttpMethod.POST;
 import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
@@ -24,6 +17,12 @@ import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
 import static io.netty.util.AsciiString.EMPTY_STRING;
+
+import io.netty.util.AsciiString;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 class HpackStaticTable {
 

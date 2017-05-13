@@ -84,9 +84,9 @@ class Http2Stream {
   @Override
   public String toString() {
     return "Http2Stream{" +
-           "id=" + id +
-           ", data=" + data +
-           ", remoteWindow=" + remoteWindow +
-           '}';
+        "id=" + id +
+        ", data=" + data +
+        ", remoteWindow=" + remoteWindow +
+        '}';
   }
 }

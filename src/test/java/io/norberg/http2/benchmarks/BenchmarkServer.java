@@ -1,11 +1,9 @@
 package io.norberg.http2.benchmarks;
 
+import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
+
 import com.spotify.logging.LoggingConfigurator;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
-
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.util.AsciiString;
@@ -13,9 +11,9 @@ import io.netty.util.ResourceLeakDetector;
 import io.norberg.http2.Http2Response;
 import io.norberg.http2.Http2Server;
 import io.norberg.http2.RequestHandler;
-
-import static io.netty.handler.codec.http.HttpResponseStatus.OK;
-import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 class BenchmarkServer {
 

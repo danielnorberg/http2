@@ -1,14 +1,13 @@
 package io.norberg.http2;
 
-import java.util.Iterator;
-import java.util.Spliterator;
-import java.util.function.Consumer;
+import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+import static io.norberg.http2.Util.connectionError;
 
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.util.collection.IntObjectHashMap;
-
-import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
-import static io.norberg.http2.Util.connectionError;
+import java.util.Iterator;
+import java.util.Spliterator;
+import java.util.function.Consumer;
 
 public class StreamController<STREAM extends Http2Stream> implements Iterable<STREAM> {
 

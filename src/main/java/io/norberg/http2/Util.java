@@ -1,11 +1,5 @@
 package io.norberg.http2;
 
-import java.security.cert.CertificateException;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-
-import javax.net.ssl.SSLException;
-
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -23,6 +17,10 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.netty.util.concurrent.Future;
+import java.security.cert.CertificateException;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import javax.net.ssl.SSLException;
 
 class Util {
 

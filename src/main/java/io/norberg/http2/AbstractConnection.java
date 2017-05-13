@@ -1,32 +1,5 @@
 package io.norberg.http2;
 
-import com.spotify.netty.util.BatchFlusher;
-
-import org.slf4j.Logger;
-
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelDuplexHandler;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelHandler;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.ChannelPromise;
-import io.netty.handler.codec.ByteToMessageDecoder;
-import io.netty.handler.codec.http2.Http2CodecUtil;
-import io.netty.handler.codec.http2.Http2Exception;
-import io.netty.handler.codec.http2.Http2Flags;
-import io.netty.handler.codec.http2.Http2Headers;
-import io.netty.handler.codec.http2.Http2Settings;
-import io.netty.handler.ssl.SslContext;
-import io.netty.handler.ssl.SslHandler;
-import io.netty.util.AsciiString;
-import io.netty.util.collection.IntObjectHashMap;
-
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_WINDOW_SIZE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
@@ -47,6 +20,30 @@ import static io.norberg.http2.Util.connectionError;
 import static java.lang.Integer.max;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
+
+import com.spotify.netty.util.BatchFlusher;
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelPromise;
+import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.http2.Http2CodecUtil;
+import io.netty.handler.codec.http2.Http2Exception;
+import io.netty.handler.codec.http2.Http2Flags;
+import io.netty.handler.codec.http2.Http2Headers;
+import io.netty.handler.codec.http2.Http2Settings;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslHandler;
+import io.netty.util.AsciiString;
+import io.netty.util.collection.IntObjectHashMap;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import org.slf4j.Logger;
 
 abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTION, STREAM>, STREAM extends Http2Stream> {
 
@@ -197,7 +194,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public int onDataRead(final ChannelHandlerContext ctx, final int streamId, final ByteBuf data, final int padding,
-                          final boolean endOfStream)
+        final boolean endOfStream)
         throws Http2Exception {
       if (log.isDebugEnabled()) {
         log.debug("got data: streamId={}, data={}, padding={}, endOfStream={}", streamId, data, padding, endOfStream);
@@ -220,7 +217,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
       final boolean updateStreamWindow = !endOfStream && stream.localWindow < localStreamWindowUpdateThreshold;
       if (updateConnectionWindow || updateStreamWindow) {
         final int bufSize = (updateConnectionWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0) +
-                            (updateStreamWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0);
+            (updateStreamWindow ? WINDOW_UPDATE_FRAME_LENGTH : 0);
         final ByteBuf buf = ctx.alloc().buffer(bufSize);
         if (updateConnectionWindow) {
           final int sizeIncrement = localMaxConnectionWindow - localConnectionWindow;
@@ -244,7 +241,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
         final boolean endOfStream) throws Http2Exception {
       if (log.isDebugEnabled()) {
         log.debug("got headers: streamId={}, endOfStream={}",
-                  streamId, endOfStream);
+            streamId, endOfStream);
       }
       if (stream == null) {
         this.stream = inbound(streamId);
@@ -259,7 +256,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
         throws Http2Exception {
       if (log.isDebugEnabled()) {
         log.debug("got headers: streamId={}, streamDependency={}, weight={}, exclusive={}, "
-                  + "endOfStream={}", streamId, streamDependency, weight, exclusive, endOfStream);
+            + "endOfStream={}", streamId, streamDependency, weight, exclusive, endOfStream);
       }
       if (stream == null) {
         this.stream = inbound(streamId);
@@ -292,10 +289,10 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public void onPriorityRead(final ChannelHandlerContext ctx, final int streamId, final int streamDependency,
-                               final short weight, final boolean exclusive) throws Http2Exception {
+        final short weight, final boolean exclusive) throws Http2Exception {
       if (log.isDebugEnabled()) {
         log.debug("got priority: streamId={}, streamDependency={}, weight={}, exclusive={}",
-                  streamId, streamDependency, weight, exclusive);
+            streamId, streamDependency, weight, exclusive);
       }
     }
 
@@ -382,8 +379,8 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public void onPushPromiseRead(final ChannelHandlerContext ctx, final int streamId, final int promisedStreamId,
-                                  final Http2Headers headers,
-                                  final int padding) throws Http2Exception {
+        final Http2Headers headers,
+        final int padding) throws Http2Exception {
       if (log.isDebugEnabled()) {
         log.debug("got push promise");
       }
@@ -398,10 +395,10 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public void onGoAwayRead(final ChannelHandlerContext ctx, final int lastStreamId, final long errorCode,
-                             final ByteBuf debugData)
+        final ByteBuf debugData)
         throws Http2Exception {
       log.error("got goaway, closing connection: lastStreamId={}, errorCode={}, debugData={}",
-                lastStreamId, errorCode, debugData.toString(UTF_8));
+          lastStreamId, errorCode, debugData.toString(UTF_8));
       ctx.close();
     }
 
@@ -426,7 +423,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public void onUnknownFrame(final ChannelHandlerContext ctx, final byte frameType, final int streamId,
-                               final Http2Flags flags, final ByteBuf payload)
+        final Http2Flags flags, final ByteBuf payload)
         throws Http2Exception {
       if (log.isDebugEnabled()) {
         log.debug("got unknown frame: {} {} {} {}", frameType, streamId, flags, payload);
@@ -499,7 +496,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public void writeDataFrame(final ChannelHandlerContext ctx, final ByteBuf buf, final STREAM stream,
-                               final int payloadSize, final boolean endOfStream) {
+        final int payloadSize, final boolean endOfStream) {
       final int headerIndex = buf.writerIndex();
       final int flags = endOfStream ? END_STREAM : 0;
       assert buf.writableBytes() >= FRAME_HEADER_LENGTH;
@@ -511,7 +508,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public void writeInitialHeadersFrame(final ChannelHandlerContext ctx, final ByteBuf buf, final STREAM stream,
-                                         final boolean endOfStream) throws Http2Exception {
+        final boolean endOfStream) throws Http2Exception {
       final int headerIndex = buf.writerIndex();
 
       assert buf.writableBytes() >= FRAME_HEADER_LENGTH;
@@ -528,7 +525,8 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
       final int blockSize = buf.writerIndex() - blockIndex;
 
-      final int writerIndex = HeaderFraming.frameHeaderBlock(buf, headerIndex, blockSize, remoteMaxFrameSize, endOfStream, stream.id);
+      final int writerIndex = HeaderFraming
+          .frameHeaderBlock(buf, headerIndex, blockSize, remoteMaxFrameSize, endOfStream, stream.id);
       buf.writerIndex(writerIndex);
 
       // TODO: padding + fields
@@ -641,8 +639,8 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     // TODO: more robust pipeline setup
     channel.pipeline().remove(ExceptionHandler.class);
     channel.pipeline().addLast(new InboundHandler(),
-                               new OutboundHandler(),
-                               new ExceptionHandler());
+        new OutboundHandler(),
+        new ExceptionHandler());
     connected();
     connectFuture.complete(self());
   }
@@ -698,7 +696,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
   protected abstract void peerSettingsChanged(final Http2Settings settings);
 
   protected abstract void readData(final STREAM stream, final ByteBuf data, final int padding,
-                                   final boolean endOfStream)
+      final boolean endOfStream)
       throws Http2Exception;
 
   protected abstract STREAM inbound(final int streamId) throws Http2Exception;

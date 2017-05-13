@@ -841,7 +841,7 @@ class HuffmanTable {
   }
 
   private static short[] addTerminal(final short[] table, final int index, final int value, final int code,
-                                     final int length) {
+      final int length) {
     final int r = 8 - length;
     final int n = 1 << r;
     final short bits = (short) ((length << 8) | value | TERMINAL);

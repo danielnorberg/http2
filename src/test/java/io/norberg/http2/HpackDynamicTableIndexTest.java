@@ -1,8 +1,9 @@
 package io.norberg.http2;
 
-import org.junit.Ignore;
-import org.junit.Test;
+import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertThat;
 
+import io.norberg.http2.benchmarks.ProgressMeter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -10,11 +11,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
-
-import io.norberg.http2.benchmarks.ProgressMeter;
-
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
+import org.junit.Ignore;
+import org.junit.Test;
 
 public class HpackDynamicTableIndexTest {
 

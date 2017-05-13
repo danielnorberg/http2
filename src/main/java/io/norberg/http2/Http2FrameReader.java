@@ -1,11 +1,5 @@
 package io.norberg.http2;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.http2.Http2Exception;
-import io.netty.handler.codec.http2.Http2FrameTypes;
-import io.netty.handler.codec.http2.Http2Settings;
-
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.INT_FIELD_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.PING_FRAME_PAYLOAD_LENGTH;
@@ -19,6 +13,11 @@ import static io.netty.handler.codec.http2.Http2Flags.PRIORITY;
 import static io.norberg.http2.Util.connectionError;
 import static java.util.Objects.requireNonNull;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.http2.Http2Exception;
+import io.netty.handler.codec.http2.Http2FrameTypes;
+import io.netty.handler.codec.http2.Http2Settings;
 
 
 class Http2FrameReader implements HpackDecoder.Listener, AutoCloseable {
@@ -182,8 +181,8 @@ class Http2FrameReader implements HpackDecoder.Listener, AutoCloseable {
     final int streamDependency = (int) (word & 0x7FFFFFFL);
     final short weight = in.readUnsignedByte();
     final int fieldsLength = (readFlag(PADDED) ? 1 : 0) + // padding
-                             INT_FIELD_LENGTH + // stream dependency
-                             1; // weight
+        INT_FIELD_LENGTH + // stream dependency
+        1; // weight
     final int blockLength = length - fieldsLength - padding;
     final int writerMark = in.writerIndex();
     in.writerIndex(in.readerIndex() + blockLength);
@@ -194,7 +193,8 @@ class Http2FrameReader implements HpackDecoder.Listener, AutoCloseable {
     in.writerIndex(writerMark);
   }
 
-  private void readHeadersFrameWithoutPriority(final ChannelHandlerContext ctx, final ByteBuf in) throws Http2Exception {
+  private void readHeadersFrameWithoutPriority(final ChannelHandlerContext ctx, final ByteBuf in)
+      throws Http2Exception {
     final short padding = readPadding(in);
     final int blockLength = length - (readFlag(PADDED) ? 1 : 0) - padding;
     final boolean endOfStream = readFlag(END_STREAM);
@@ -279,7 +279,7 @@ class Http2FrameReader implements HpackDecoder.Listener, AutoCloseable {
     final int blockLength = length - (readFlag(PADDED) ? 1 : 0) - padding;
     final int writerMark = in.writerIndex();
     in.writerIndex(in.readerIndex() + blockLength);
-    listener.onPushPromiseRead(ctx,  streamId, promisedStreamId, null, padding);
+    listener.onPushPromiseRead(ctx, streamId, promisedStreamId, null, padding);
     hpackDecoder.decode(in, this);
     listener.onPushPromiseHeadersEnd(ctx, streamId);
     in.writerIndex(writerMark);
@@ -305,7 +305,7 @@ class Http2FrameReader implements HpackDecoder.Listener, AutoCloseable {
   }
 
   private void readWindowUpdateFrame(final ChannelHandlerContext ctx, final ByteBuf in,
-                                     final Http2FrameListener listener) throws Http2Exception {
+      final Http2FrameListener listener) throws Http2Exception {
     final int windowSizeIncrement = readInt31(in);
     listener.onWindowUpdateRead(ctx, streamId, windowSizeIncrement);
   }

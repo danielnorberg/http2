@@ -1,13 +1,13 @@
 package io.norberg.http2;
 
-import io.netty.buffer.ByteBuf;
-
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
 import static io.netty.handler.codec.http2.Http2Flags.END_HEADERS;
 import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
 import static io.netty.handler.codec.http2.Http2FrameTypes.CONTINUATION;
 import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
 import static io.norberg.http2.Http2WireFormat.writeFrameHeader;
+
+import io.netty.buffer.ByteBuf;
 
 class HeaderFraming {
 
@@ -18,7 +18,7 @@ class HeaderFraming {
    * frame payloads are moved in the buffer in-place, from back to front.
    */
   static int frameHeaderBlock(final ByteBuf buf, final int headerIndex, final int blockSize,
-                              final int frameSize, final boolean endOfStream, final int streamId) {
+      final int frameSize, final boolean endOfStream, final int streamId) {
 
     final int payloadIndex = headerIndex + FRAME_HEADER_LENGTH;
 

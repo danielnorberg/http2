@@ -1,14 +1,10 @@
 package io.norberg.http2.benchmarks;
 
+import static io.netty.handler.codec.http.HttpMethod.POST;
+import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
+import static java.util.concurrent.TimeUnit.SECONDS;
+
 import com.spotify.logging.LoggingConfigurator;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http2.Http2Settings;
@@ -19,10 +15,12 @@ import io.norberg.http2.Http2Client;
 import io.norberg.http2.Http2Request;
 import io.norberg.http2.Http2Response;
 import io.norberg.http2.Http2ResponseHandler;
-
-import static io.netty.handler.codec.http.HttpMethod.POST;
-import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
-import static java.util.concurrent.TimeUnit.SECONDS;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class BenchmarkClient {
 
@@ -90,8 +88,8 @@ class BenchmarkClient {
   }
 
   private static void post(final Http2Client client, final ProgressMeter.Metric requests,
-                           final ProgressMeter.Metric errors, final ProgressMeter.Metric data,
-                           final List<AsciiString> headers) {
+      final ProgressMeter.Metric errors, final ProgressMeter.Metric data,
+      final List<AsciiString> headers) {
     final long start = System.nanoTime();
     final Http2Request request = Http2Request.of(POST, PATH, payload());
     for (int i = 0; i < headers.size(); i += 2) {

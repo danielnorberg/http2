@@ -1,22 +1,20 @@
 package io.norberg.http2;
 
-import com.google.common.io.BaseEncoding;
-
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnitRunner;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.util.AsciiString;
-
 import static io.netty.handler.codec.http.HttpMethod.GET;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
+
+import com.google.common.io.BaseEncoding;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.util.AsciiString;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.Mock;
+import org.mockito.junit.MockitoJUnitRunner;
 
 @RunWith(MockitoJUnitRunner.class)
 public class HpackDecoderTest {

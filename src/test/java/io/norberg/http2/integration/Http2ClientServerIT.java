@@ -74,7 +74,7 @@ public class Http2ClientServerIT {
     assumeThat(windows.getMax() == 1 || !(windows.getMin() == 1 && payloadSize == 65_535), is(true));
 
     log.info("testReqRep: scw={} ssw={} ccw={} csw={} ps={}",
-             serverConnectionWindow, serverStreamWindow, clientConnectionWindow, clientStreamWindow, payloadSize);
+        serverConnectionWindow, serverStreamWindow, clientConnectionWindow, clientStreamWindow, payloadSize);
 
     final byte[] payload = new byte[payloadSize];
     ThreadLocalRandom.current().nextBytes(payload);

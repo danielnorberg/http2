@@ -1,11 +1,10 @@
 package io.norberg.http2.benchmarks;
 
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.IntStream;
-
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.base64.Base64;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.IntStream;
 
 class BenchmarkUtil {
 

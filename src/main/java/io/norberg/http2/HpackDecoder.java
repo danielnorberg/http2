@@ -1,11 +1,11 @@
 package io.norberg.http2;
 
+import static io.norberg.http2.Hpack.readAsciiString;
+import static io.norberg.http2.Hpack.readInteger;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.util.AsciiString;
-
-import static io.norberg.http2.Hpack.readAsciiString;
-import static io.norberg.http2.Hpack.readInteger;
 
 class HpackDecoder {
 
@@ -90,7 +90,7 @@ class HpackDecoder {
   }
 
   private Http2Header readLiteralHeaderFieldIndexedName(final int b, final ByteBuf in, final int n,
-                                                        final boolean sensitive)
+      final boolean sensitive)
       throws HpackDecodingException {
     final int index = readInteger(b, in, n);
     final Http2Header template = header(index);

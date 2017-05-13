@@ -1,10 +1,9 @@
 package io.norberg.http2.benchmarks;
 
-import com.spotify.logging.LoggingConfigurator;
-
-import io.netty.util.ResourceLeakDetector;
-
 import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
+
+import com.spotify.logging.LoggingConfigurator;
+import io.netty.util.ResourceLeakDetector;
 
 public class ReqRepBenchmark {
 

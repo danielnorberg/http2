@@ -1,19 +1,17 @@
 package io.norberg.http2;
 
-import org.junit.Ignore;
-import org.junit.Test;
-
-import java.util.Random;
+import static io.netty.util.ReferenceCountUtil.releaseLater;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertThat;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.util.AsciiString;
-
-import static io.netty.util.ReferenceCountUtil.releaseLater;
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
+import java.util.Random;
+import org.junit.Ignore;
+import org.junit.Test;
 
 @SuppressWarnings("deprecation")
 public class HuffmanTest {

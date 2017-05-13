@@ -1,11 +1,11 @@
 package io.norberg.http2;
 
-import org.junit.Test;
-
 import static io.norberg.http2.TestUtil.randomByteBuf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertThat;
+
+import org.junit.Test;
 
 public class StreamControllerTest {
 

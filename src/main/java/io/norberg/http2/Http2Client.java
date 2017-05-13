@@ -1,18 +1,11 @@
 package io.norberg.http2;
 
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.atomic.LongAdder;
+import static io.netty.handler.codec.http.HttpMethod.GET;
+import static io.netty.handler.codec.http.HttpMethod.POST;
+import static io.netty.handler.codec.http.HttpScheme.HTTPS;
+import static io.norberg.http2.Util.allOf;
+import static io.norberg.http2.Util.completableFuture;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -28,13 +21,19 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.util.AsciiString;
 import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.DefaultThreadFactory;
-
-import static io.netty.handler.codec.http.HttpMethod.GET;
-import static io.netty.handler.codec.http.HttpMethod.POST;
-import static io.netty.handler.codec.http.HttpScheme.HTTPS;
-import static io.norberg.http2.Util.allOf;
-import static io.norberg.http2.Util.completableFuture;
-import static java.util.concurrent.TimeUnit.SECONDS;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.atomic.LongAdder;
 
 public class Http2Client implements ClientConnection.Listener {
 
@@ -163,7 +162,7 @@ public class Http2Client implements ClientConnection.Listener {
   }
 
   private void send(final ClientConnection connection, final Http2Request request,
-                    final Http2ResponseHandler responseHandler) {
+      final Http2ResponseHandler responseHandler) {
     request.authority(authority);
     request.scheme(HTTPS.name());
     connection.send(request, responseHandler);

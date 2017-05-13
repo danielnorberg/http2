@@ -1,18 +1,17 @@
 package io.norberg.http2;
 
-import java.util.Map;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.handler.codec.http2.Http2Headers;
-import io.netty.handler.codec.http2.Http2Settings;
-import io.netty.util.AsciiString;
-
 import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.INT_FIELD_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
 import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
 import static io.netty.handler.codec.http2.Http2FrameTypes.WINDOW_UPDATE;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.http2.Http2Headers;
+import io.netty.handler.codec.http2.Http2Settings;
+import io.netty.util.AsciiString;
+import java.util.Map;
 
 class Http2WireFormat {
 
@@ -28,7 +27,7 @@ class Http2WireFormat {
 
 
   static void writeFrameHeader(final ByteBuf buf, final int offset, final int length,
-                               final int type, final int flags, final int streamId) {
+      final int type, final int flags, final int streamId) {
     buf.setMedium(offset + FRAME_LENGTH_OFFSET, length);
     buf.setByte(offset + FRAME_TYPE_OFFSET, type);
     buf.setByte(offset + FRAME_FLAGS_OFFSET, flags);

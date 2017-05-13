@@ -1,20 +1,5 @@
 package io.norberg.http2;
 
-import com.twitter.hpack.Decoder;
-import com.twitter.hpack.HeaderListener;
-
-import org.junit.Test;
-import org.junit.experimental.theories.Theories;
-import org.junit.experimental.theories.Theory;
-import org.junit.experimental.theories.suppliers.TestedOn;
-import org.junit.runner.RunWith;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufInputStream;
-import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.util.AsciiString;
-
 import static io.netty.handler.codec.http.HttpMethod.GET;
 import static io.norberg.http2.Hpack.writeInteger;
 import static java.nio.charset.StandardCharsets.US_ASCII;
@@ -23,6 +8,19 @@ import static org.junit.Assert.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+
+import com.twitter.hpack.Decoder;
+import com.twitter.hpack.HeaderListener;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufInputStream;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.util.AsciiString;
+import org.junit.Test;
+import org.junit.experimental.theories.Theories;
+import org.junit.experimental.theories.Theory;
+import org.junit.experimental.theories.suppliers.TestedOn;
+import org.junit.runner.RunWith;
 
 @RunWith(Theories.class)
 public class HpackTest {

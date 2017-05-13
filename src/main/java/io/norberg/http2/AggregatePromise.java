@@ -1,10 +1,9 @@
 package io.norberg.http2;
 
-import java.util.List;
-
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
+import java.util.List;
 
 final class AggregatePromise extends DefaultChannelPromise {
 

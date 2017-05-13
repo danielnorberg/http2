@@ -89,9 +89,9 @@ public class Http2Request extends Http2Message<Http2Request> {
   @Override
   public String toString() {
     return "Http2Request{" +
-           ", headers=" + headersToString() +
-           ", content=" + content +
-           '}';
+        ", headers=" + headersToString() +
+        ", content=" + content +
+        '}';
   }
 
   public static Http2Request of(final HttpMethod method, final CharSequence path) {

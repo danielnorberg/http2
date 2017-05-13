@@ -147,11 +147,11 @@ public class ProgressMeter {
       final double avgLatency = windowOps == 0 ? 0 : windowLatency / (NANOS_PER_MS * windowOps);
 
       table.row(row(name, " ",
-                    format("%,12d", operations),
-                    " (", format("%,9d", avgOps), " avg) ", unit, "/s ",
-                    format("%,12.3f", latency),
-                    " (", format("%,12.3f", avgLatency), " avg)", " ms latency ",
-                    format("%,12d", totalOperations), " total"));
+          format("%,12d", operations),
+          " (", format("%,9d", avgOps), " avg) ", unit, "/s ",
+          format("%,12.3f", latency),
+          " (", format("%,12.3f", avgLatency), " avg)", " ms latency ",
+          format("%,12d", totalOperations), " total"));
 
       prevTotalOperations = totalOperations;
       prevTimestamp = now;
@@ -171,7 +171,7 @@ public class ProgressMeter {
     /**
      * Increase this metric.
      *
-     * @param delta   The amount to increase.
+     * @param delta The amount to increase.
      * @param latency The total latency for the metric delta, if applicable.
      */
     public void add(final long delta, final long latency) {

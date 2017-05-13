@@ -1,5 +1,6 @@
 package io.norberg.http2;
 
+import io.netty.util.AsciiString;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -7,8 +8,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import io.netty.util.AsciiString;
 
 /**
  * Robin Hood hashing index with backward shift deletion
@@ -88,8 +87,8 @@ final class HpackDynamicTableIndex {
   }
 
   static void insert(final long[] table, final AsciiString insertName, final AsciiString insertValue,
-                     final int insertHash, final int insertSeq,
-                     final int tableSeq, final HpackDynamicTable headerTable) {
+      final int insertHash, final int insertSeq,
+      final int tableSeq, final HpackDynamicTable headerTable) {
     final int capacity = table.length;
     final int mask = capacity - 1;
     final int insertIB = ib(insertHash, mask);
@@ -200,20 +199,20 @@ final class HpackDynamicTableIndex {
   }
 
   private static int lookup(AsciiString name, AsciiString value, final long[] table,
-                            final HpackDynamicTable headerTable,
-                            final int seq) {
+      final HpackDynamicTable headerTable,
+      final int seq) {
     return lookup0(table, headerTable, seq, name, value, hash(name, value));
   }
 
   private static int lookup(final AsciiString name, final long[] table, final HpackDynamicTable headerTable,
-                            final int seq) {
+      final int seq) {
     return lookup0(table, headerTable, seq, name, null, hash(name));
   }
 
 
   private static int lookup0(final long[] table, final HpackDynamicTable headerTable, final int seq,
-                             final AsciiString name, final AsciiString value,
-                             final int hash) {
+      final AsciiString name, final AsciiString value,
+      final int hash) {
     final int mask = table.length - 1;
 
     int pos = ib(hash, mask);
@@ -279,15 +278,15 @@ final class HpackDynamicTableIndex {
   private static int hash(AsciiString name, AsciiString value) {
     final int hash = mix((31 * name.hashCode()) ^ value.hashCode()) | HEADER;
     return (hash == 0)
-           ? 1_190_494_759
-           : hash;
+        ? 1_190_494_759
+        : hash;
   }
 
   private static int hash(AsciiString name) {
     final int hash = mix(name.hashCode()) & ~HEADER;
     return (hash == 0)
-           ? 1_190_494_759
-           : hash;
+        ? 1_190_494_759
+        : hash;
   }
 
   private static long entry(final int seq, final int hash) {

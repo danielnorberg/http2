@@ -1,19 +1,18 @@
 package io.norberg.http2;
 
+import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+import static io.norberg.http2.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
+import static io.norberg.http2.Http2Protocol.DEFAULT_MAX_FRAME_SIZE;
+import static io.norberg.http2.Util.connectionError;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.http2.Http2Exception;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.Set;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.handler.codec.http2.Http2Exception;
-
-import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
-import static io.norberg.http2.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
-import static io.norberg.http2.Http2Protocol.DEFAULT_MAX_FRAME_SIZE;
-import static io.norberg.http2.Util.connectionError;
 
 class FlowController<CTX, STREAM extends Http2Stream> {
 
@@ -73,13 +72,13 @@ class FlowController<CTX, STREAM extends Http2Stream> {
   }
 
   private int estimateSingleFrameSize(final StreamWriter<CTX, STREAM> streamWriter, final CTX ctx, final STREAM stream,
-                                      final int fragmentSize) throws Http2Exception {
+      final int fragmentSize) throws Http2Exception {
     stream.frames = 1;
     return streamWriter.estimateDataFrameSize(ctx, stream, fragmentSize);
   }
 
   private int estimateMultipleFrameSize(final StreamWriter<CTX, STREAM> streamWriter, final CTX ctx,
-                                        final STREAM stream, final int fragmentSize)
+      final STREAM stream, final int fragmentSize)
       throws Http2Exception {
     int frames = fragmentSize / remoteMaxFramePayloadSize;
     final int fullFrameSize = streamWriter.estimateDataFrameSize(ctx, stream, remoteMaxFramePayloadSize);
@@ -110,8 +109,8 @@ class FlowController<CTX, STREAM extends Http2Stream> {
       throws Http2Exception {
 
     final ByteBuf buf = bufferSize == 0
-                        ? null
-                        : writer.writeStart(ctx, bufferSize);
+        ? null
+        : writer.writeStart(ctx, bufferSize);
 
     // Write data frames for streams that had window updates
     if (!streamWindowUpdatedStreams.isEmpty()) {
@@ -174,7 +173,7 @@ class FlowController<CTX, STREAM extends Http2Stream> {
   }
 
   private void writeConnectionWindowBlockedStreams(final CTX ctx, final StreamWriter<CTX, STREAM> writer,
-                                                   final ByteBuf buf) throws Http2Exception {
+      final ByteBuf buf) throws Http2Exception {
 
     // Was the remote connection window exhausted?
     final boolean remoteConnectionWindowExhausted = (remoteConnectionWindow == 0);
@@ -281,8 +280,8 @@ class FlowController<CTX, STREAM extends Http2Stream> {
   }
 
   private void writeDataFrames(final StreamWriter<CTX, STREAM> writer, final CTX ctx, final ByteBuf buf,
-                               final STREAM stream, final int size,
-                               final boolean endOfStream) throws Http2Exception {
+      final STREAM stream, final int size,
+      final boolean endOfStream) throws Http2Exception {
     assert size >= 0;
     int remaining = size;
     final int fullFrames = stream.frames - 1;

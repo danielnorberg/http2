@@ -1,9 +1,8 @@
 package io.norberg.http2;
 
-import java.util.concurrent.ThreadLocalRandom;
-
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import java.util.concurrent.ThreadLocalRandom;
 
 class TestUtil {
 

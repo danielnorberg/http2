@@ -183,8 +183,8 @@ public class FlowControllerTest {
     controller.remoteMaxFrameSize(8);
     final Http2Stream stream = startStream(1, 17);
     verifyFlush(stream(stream).headers()
-                    .estimate(8).estimate(1)
-                    .write(8, 2).write(1, END_OF_STREAM));
+        .estimate(8).estimate(1)
+        .write(8, 2).write(1, END_OF_STREAM));
   }
 
   @Test
@@ -428,7 +428,8 @@ public class FlowControllerTest {
     return stream;
   }
 
-  private void verifyRemoteStreamWindowUpdate(final int windowIncrease, final Http2Stream stream) throws Http2Exception {
+  private void verifyRemoteStreamWindowUpdate(final int windowIncrease, final Http2Stream stream)
+      throws Http2Exception {
     final int currentRemoteWindow = stream.remoteWindow;
     final int expectedRemoteWindow = currentRemoteWindow + windowIncrease;
     controller.remoteStreamWindowUpdate(stream, windowIncrease);
@@ -440,7 +441,8 @@ public class FlowControllerTest {
     verifyRemoteConnectionWindowUpdate(bytes, asList(streams));
   }
 
-  private void verifyRemoteConnectionWindowUpdate(final int bytes, final List<Http2Stream> streams) throws Http2Exception {
+  private void verifyRemoteConnectionWindowUpdate(final int bytes, final List<Http2Stream> streams)
+      throws Http2Exception {
     // Record window sizes before update
     final int remoteConnectionWindowPre = controller.remoteConnectionWindow();
     final IdentityHashMap<Http2Stream, Integer> remoteStreamWindowsPre = new IdentityHashMap<>();
@@ -570,7 +572,7 @@ public class FlowControllerTest {
     for (final FlushOp op : ops) {
       if (op.pending != null) {
         assertThat("unexpected stream " + op.stream.id + " pending status",
-                   op.stream.pending, is(op.pending));
+            op.stream.pending, is(op.pending));
       }
     }
 
@@ -586,6 +588,7 @@ public class FlowControllerTest {
   static class FlushOp {
 
     static class Write {
+
       private final int bytes;
       private final int times;
       private Set<Flags> flags;

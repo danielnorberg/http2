@@ -1,28 +1,5 @@
 package io.norberg.http2;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.nio.channels.ClosedChannelException;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelHandler;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelPromise;
-import io.netty.channel.DefaultChannelPromise;
-import io.netty.channel.socket.SocketChannel;
-import io.netty.handler.codec.http.HttpResponseStatus;
-import io.netty.handler.codec.http2.Http2Exception;
-import io.netty.handler.codec.http2.Http2Headers;
-import io.netty.handler.codec.http2.Http2Settings;
-import io.netty.handler.ssl.SslContext;
-import io.netty.handler.ssl.SslHandler;
-import io.netty.util.AsciiString;
-
 import static io.netty.buffer.ByteBufUtil.writeAscii;
 import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
@@ -38,6 +15,23 @@ import static io.norberg.http2.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.http2.Http2WireFormat.writeSettings;
 import static java.util.Objects.requireNonNull;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelPromise;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http2.Http2Exception;
+import io.netty.handler.codec.http2.Http2Headers;
+import io.netty.handler.codec.http2.Http2Settings;
+import io.netty.util.AsciiString;
+import java.nio.channels.ClosedChannelException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 class ClientConnection extends AbstractConnection<ClientConnection, ClientConnection.ClientStream> {
 
@@ -137,22 +131,22 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   protected int headersPayloadSize(final ClientStream stream) {
     final Http2Request request = stream.request;
     return FRAME_HEADER_SIZE +
-           Http2Header.size(METHOD.value(), request.method().asciiName()) +
-           Http2Header.size(AUTHORITY.value(), request.authority()) +
-           Http2Header.size(SCHEME.value(), request.scheme()) +
-           Http2Header.size(PATH.value(), request.path()) +
-           Http2WireFormat.headersPayloadSize(request);
+        Http2Header.size(METHOD.value(), request.method().asciiName()) +
+        Http2Header.size(AUTHORITY.value(), request.authority()) +
+        Http2Header.size(SCHEME.value(), request.scheme()) +
+        Http2Header.size(PATH.value(), request.path()) +
+        Http2WireFormat.headersPayloadSize(request);
   }
 
   @Override
   protected void encodeHeaders(final ClientStream stream, final HpackEncoder headerEncoder,
-                               final ByteBuf buf) throws Http2Exception {
+      final ByteBuf buf) throws Http2Exception {
     final Http2Request request = stream.request;
     headerEncoder.encodeRequest(buf,
-                                request.method().asciiName(),
-                                request.scheme(),
-                                request.authority(),
-                                request.path());
+        request.method().asciiName(),
+        request.scheme(),
+        request.authority(),
+        request.path());
     for (int i = 0; i < request.numHeaders(); i++) {
       headerEncoder.encodeHeader(buf, request.headerName(i), request.headerValue(i), false);
     }
@@ -160,19 +154,19 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
 
   @Override
   protected void startHeaders(final ClientStream stream,
-                              final boolean endOfStream) {
+      final boolean endOfStream) {
 
   }
 
   @Override
   protected void readHeader(final ClientStream stream, final AsciiString name,
-                            final AsciiString value) {
+      final AsciiString value) {
     stream.response.header(name, value);
   }
 
   @Override
   protected void readPseudoHeader(final ClientStream stream, final AsciiString name,
-                                  final AsciiString value) throws Http2Exception {
+      final AsciiString value) throws Http2Exception {
     if (!name.equals(Http2Headers.PseudoHeaderName.STATUS.value())) {
       throw new Http2Exception(PROTOCOL_ERROR);
     }
@@ -198,7 +192,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
 
   @Override
   protected void readData(final ClientStream stream, final ByteBuf data, final int padding,
-                          final boolean endOfStream) {
+      final boolean endOfStream) {
 
     // TODO: allow user to provide codec that can be used to parse payload directly without copying it
 
@@ -227,7 +221,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
     private Http2Response response = new Http2Response();
 
     public ClientStream(final int id, final int localWindow, final Http2Request request,
-                        final Http2ResponseHandler responseHandler) {
+        final Http2ResponseHandler responseHandler) {
       super(id, request.content());
       this.localWindow = localWindow;
       this.request = request;

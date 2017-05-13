@@ -1,8 +1,5 @@
 package io.norberg.http2;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.util.AsciiString;
-
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
 import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
@@ -11,6 +8,9 @@ import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
 import static io.norberg.http2.HpackStaticTable.INDEXED_NAME;
 import static io.norberg.http2.HpackStaticTable.isIndexedField;
 import static io.norberg.http2.HpackStaticTable.isIndexedName;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.util.AsciiString;
 
 class HpackEncoder {
 
@@ -25,7 +25,7 @@ class HpackEncoder {
   }
 
   void encodeRequest(final ByteBuf out, final AsciiString method, final AsciiString scheme, final AsciiString authority,
-                     final AsciiString path) {
+      final AsciiString path) {
     writeIndexedHeaderField(out, methodIndex(method), method);
     writeIndexedHeaderField(out, schemeIndex(scheme), scheme);
     writeIndexedHeaderField(out, authorityIndex(authority), authority);

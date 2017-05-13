@@ -1,9 +1,9 @@
 package io.norberg.http2;
 
+import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.util.AsciiString;
-
-import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
 
 class Http2Protocol {
 
@@ -19,7 +19,7 @@ class Http2Protocol {
 
   static boolean isValidMaxFrameSize(final int size) {
     return size >= MAX_FRAME_SIZE_LOWER_BOUND &&
-           size <= MAX_FRAME_SIZE_UPPER_BOUND;
+        size <= MAX_FRAME_SIZE_UPPER_BOUND;
   }
 
   static void validateMaxFrameSize(final int size) throws Http2Exception {

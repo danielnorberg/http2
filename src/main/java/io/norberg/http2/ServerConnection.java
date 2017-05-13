@@ -1,10 +1,17 @@
 package io.norberg.http2;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.List;
-import java.util.Objects;
+import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
+import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
+import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
+import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
+import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
+import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_SIZE;
+import static io.norberg.http2.Http2WireFormat.writeFrameHeader;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -18,19 +25,10 @@ import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.util.AsciiString;
-
-import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
-import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
-import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
-import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
-import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
-import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_SIZE;
-import static io.norberg.http2.Http2WireFormat.writeFrameHeader;
+import java.util.List;
+import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 class ServerConnection extends AbstractConnection<ServerConnection, ServerConnection.ServerStream> {
 
@@ -45,7 +43,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
 
   @Override
   protected void encodeHeaders(final ServerStream stream, final HpackEncoder headerEncoder,
-                               final ByteBuf buf) throws Http2Exception {
+      final ByteBuf buf) throws Http2Exception {
     final Http2Response response = stream.response;
     headerEncoder.encodeResponse(buf, response.status().codeAsText());
     for (int i = 0; i < response.numHeaders(); i++) {
@@ -57,8 +55,8 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   protected int headersPayloadSize(final ServerStream stream) {
     final Http2Response response = stream.response;
     return FRAME_HEADER_SIZE +
-           Http2Header.size(STATUS.value(), response.status().codeAsText()) +
-           Http2WireFormat.headersPayloadSize(response);
+        Http2Header.size(STATUS.value(), response.status().codeAsText()) +
+        Http2WireFormat.headersPayloadSize(response);
 
   }
 
@@ -89,7 +87,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
 
   @Override
   protected void readData(final ServerStream stream, final ByteBuf data, final int padding,
-                          final boolean endOfStream) throws Http2Exception {
+      final boolean endOfStream) throws Http2Exception {
     // TODO: allow user to provide codec that can be used to parse payload directly without copying it
 
     ByteBuf content = stream.request.content();
@@ -162,13 +160,13 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
 
   @Override
   protected void readHeader(final ServerStream stream, final AsciiString name,
-                            final AsciiString value) throws Http2Exception {
+      final AsciiString value) throws Http2Exception {
     stream.request.header(name, value);
   }
 
   @Override
   protected void readPseudoHeader(final ServerStream stream, final AsciiString name,
-                                  final AsciiString value) throws Http2Exception {
+      final AsciiString value) throws Http2Exception {
     if (name.length() < 5) {
       throw new IllegalArgumentException();
     }

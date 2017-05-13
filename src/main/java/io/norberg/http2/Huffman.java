@@ -1,12 +1,12 @@
 package io.norberg.http2;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.util.AsciiString;
-import io.netty.util.internal.PlatformDependent;
-
 import static io.norberg.http2.HuffmanTable.CODES;
 import static io.norberg.http2.HuffmanTable.LENGTHS;
 import static io.norberg.http2.HuffmanTable.TERMINAL;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.util.AsciiString;
+import io.netty.util.internal.PlatformDependent;
 
 class Huffman {
 

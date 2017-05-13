@@ -1,14 +1,12 @@
 package io.norberg.http2.integration;
 
-import org.junit.Test;
-
-import java.util.concurrent.CompletableFuture;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 import io.norberg.http2.Http2Client;
 import io.norberg.http2.Http2Response;
-
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
-import static java.util.concurrent.TimeUnit.SECONDS;
+import java.util.concurrent.CompletableFuture;
+import org.junit.Test;
 
 public class Http2ClientIT {
 
