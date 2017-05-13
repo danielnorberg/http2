@@ -5,12 +5,12 @@ import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.util.ResourceLeakDetector.Level.DISABLED;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeThat;
 import static org.mockito.MockitoAnnotations.initMocks;
 
 import ch.qos.logback.classic.BasicConfigurator;
+import ch.qos.logback.classic.LoggerContext;
 import com.spotify.logging.LoggingConfigurator;
 import io.netty.buffer.Unpooled;
 import io.netty.util.ResourceLeakDetector;
@@ -30,7 +30,6 @@ import org.junit.experimental.theories.Theories;
 import org.junit.experimental.theories.Theory;
 import org.junit.experimental.theories.suppliers.TestedOn;
 import org.junit.runner.RunWith;
-import org.mockito.Mock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,11 +41,9 @@ public class Http2ClientServerIT {
   private final List<Http2Server> servers = new ArrayList<>();
   private final List<Http2Client> clients = new ArrayList<>();
 
-  @Mock Http2Client.Listener listener;
-
   @BeforeClass
   public static void configureEnvironment() {
-    BasicConfigurator.configureDefaultContext();
+    new BasicConfigurator().configure(new LoggerContext());
     LoggingConfigurator.configureDefaults("test", INFO);
     ResourceLeakDetector.setLevel(DISABLED);
   }

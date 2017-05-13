@@ -1,25 +1,5 @@
 package io.norberg.http2;
 
-import com.google.common.collect.ImmutableSet;
-
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
-import org.mockito.InOrder;
-import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
-
-import java.util.ArrayList;
-import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ThreadLocalRandom;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.http2.Http2Exception;
-
 import static io.norberg.http2.FlowControllerTest.FlushOp.Flags.END_OF_STREAM;
 import static io.norberg.http2.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.http2.TestUtil.randomByteBuf;
@@ -28,13 +8,30 @@ import static java.util.Collections.emptyList;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Matchers.intThat;
+import static org.mockito.AdditionalMatchers.geq;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+
+import com.google.common.collect.ImmutableSet;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.http2.Http2Exception;
+import java.util.ArrayList;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.InOrder;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.junit.MockitoJUnitRunner;
 
 @RunWith(MockitoJUnitRunner.class)
 public class FlowControllerTest {
@@ -498,7 +495,7 @@ public class FlowControllerTest {
     }
     final ByteBuf buf = Unpooled.buffer(expectedMinBufferSize);
     when(writer.writeStart(eq(ctx), bufferSizeCaptor.capture()))
-        .thenAnswer(i -> Unpooled.buffer(i.getArgumentAt(1, Integer.class)));
+        .thenAnswer(i -> Unpooled.buffer(i.getArgument(1)));
 
     final InOrder inOrder = inOrder(writer);
 
@@ -522,8 +519,7 @@ public class FlowControllerTest {
             .sum())
         .sum();
     if (ops.size() > 0) {
-      inOrder.verify(writer).writeStart(eq(ctx),
-                                        intThat(greaterThanOrEqualTo(expectedMinBufferSize)));
+      inOrder.verify(writer).writeStart(eq(ctx), geq(expectedMinBufferSize));
       final int bufferSize = bufferSizeCaptor.getValue();
       assertThat(bufferSize, is(greaterThanOrEqualTo(expectedMinBufferSize)));
     }
@@ -647,4 +643,7 @@ public class FlowControllerTest {
     }
   }
 
+  private static void reset(Object... w) {
+    Mockito.reset(w);
+  }
 }

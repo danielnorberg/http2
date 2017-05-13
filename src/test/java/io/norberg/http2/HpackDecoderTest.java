@@ -5,7 +5,7 @@ import com.google.common.io.BaseEncoding;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
