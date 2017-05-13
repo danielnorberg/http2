@@ -1,6 +1,7 @@
 # http2
 
 [![CircleCI](https://circleci.com/gh/danielnorberg/http2.svg?style=svg)](https://circleci.com/gh/danielnorberg/http2)
+[![codecov](https://codecov.io/gh/danielnorberg/http2/branch/master/graph/badge.svg)](https://codecov.io/gh/danielnorberg/http2)
 
 Http/2 client and server library with a focus on performance.
 
