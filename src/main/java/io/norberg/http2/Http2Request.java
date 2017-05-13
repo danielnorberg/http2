@@ -58,15 +58,6 @@ public class Http2Request extends Http2Message<Http2Request> {
     this.path = path;
   }
 
-//  private Http2Headers headers() {
-//    return headers;
-//  }
-//
-//  private Http2Request headers(final Http2Headers headers) {
-//    this.headers = headers;
-//    return this;
-//  }
-
   public boolean hasContent() {
     return content != null;
   }

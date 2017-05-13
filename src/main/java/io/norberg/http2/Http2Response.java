@@ -28,23 +28,10 @@ public class Http2Response extends Http2Message<Http2Response> {
     return status;
   }
 
-//  public Http2Response headers(final Http2Headers headers) {
-//    this.headers = headers;
-//    return this;
-//  }
-
   public Http2Response content(final ByteBuf content) {
     this.content = content;
     return this;
   }
-
-//  public boolean hasHeaders() {
-//    return headers != null;
-//  }
-//
-//  public Http2Headers headers() {
-//    return headers;
-//  }
 
   public boolean hasContent() {
     return content != null;
@@ -68,16 +55,4 @@ public class Http2Response extends Http2Message<Http2Response> {
            ", headers=" + headersToString() +
            '}';
   }
-
-//  public void header(final AsciiString name, final AsciiString value) {
-//     TODO: cheaper header list data structure
-//    if (headers == null) {
-//      headers = new DefaultHttp2Headers(true);
-//    }
-//    headers.add(name, value);
-//  }
-
-//  public void header(final CharSequence name, final CharSequence value) {
-//    header(AsciiString.of(name), AsciiString.of(value));
-//  }
 }
