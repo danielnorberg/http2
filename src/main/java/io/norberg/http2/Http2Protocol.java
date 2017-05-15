@@ -1,12 +1,12 @@
 package io.norberg.http2;
 
-import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
 
-import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.util.AsciiString;
 
 class Http2Protocol {
 
+  static final int DEFAULT_HEADER_TABLE_SIZE = 4096;
   static final int DEFAULT_LOCAL_WINDOW_SIZE = 1024 * 1024 * 128;
   static final int DEFAULT_INITIAL_WINDOW_SIZE = 65535; // 2^16 - 1
 

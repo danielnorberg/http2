@@ -1,9 +1,8 @@
 package io.norberg.http2;
 
-import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
-import static io.norberg.http2.Util.connectionError;
+import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
+import static io.norberg.http2.Http2Exception.connectionError;
 
-import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.util.collection.IntObjectHashMap;
 import java.util.Iterator;
 import java.util.Spliterator;

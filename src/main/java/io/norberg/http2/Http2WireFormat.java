@@ -1,17 +1,10 @@
 package io.norberg.http2;
 
-import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
-import static io.netty.handler.codec.http2.Http2CodecUtil.INT_FIELD_LENGTH;
-import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
-import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
-import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
-import static io.netty.handler.codec.http2.Http2FrameTypes.WINDOW_UPDATE;
+import static io.norberg.http2.Http2FrameTypes.SETTINGS;
+import static io.norberg.http2.Http2FrameTypes.WINDOW_UPDATE;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.handler.codec.http2.Http2Headers;
-import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.util.AsciiString;
-import java.util.Map;
 
 class Http2WireFormat {
 
@@ -24,6 +17,14 @@ class Http2WireFormat {
   static final int FRAME_TYPE_OFFSET = FRAME_LENGTH_OFFSET + 3;
   static final int FRAME_FLAGS_OFFSET = FRAME_TYPE_OFFSET + 1;
   static final int FRAME_STREAM_ID_OFFSET = FRAME_FLAGS_OFFSET + 1;
+
+  static final int SHORT_FIELD_LENGTH = 2;
+  static final int INT_FIELD_LENGTH = 4;
+  static final int SETTING_ENTRY_LENGTH = SHORT_FIELD_LENGTH + INT_FIELD_LENGTH;
+  static final int FRAME_HEADER_LENGTH = 9;
+
+  static final int WINDOW_UPDATE_FRAME_LENGTH = FRAME_HEADER_LENGTH + INT_FIELD_LENGTH;
+  static final int PING_FRAME_PAYLOAD_LENGTH = 8;
 
 
   static void writeFrameHeader(final ByteBuf buf, final int offset, final int length,
@@ -47,11 +48,10 @@ class Http2WireFormat {
     final int offset = buf.writerIndex();
     writeFrameHeader(buf, offset, length, SETTINGS, 0, 0);
     buf.writerIndex(offset + FRAME_HEADER_LENGTH);
-    for (final char identifier : settings.keySet()) {
-      final int value = settings.getIntValue(identifier);
-      buf.writeShort(identifier);
-      buf.writeInt(value);
-    }
+    settings.forEach((key, value) -> {
+      buf.writeShort(key);
+      buf.writeInt(value.intValue());
+    });
   }
 
   static int settingsFrameLength(final Http2Settings settings) {
@@ -59,13 +59,13 @@ class Http2WireFormat {
     return FRAME_HEADER_LENGTH + length;
   }
 
-  static int headersPayloadSize(final Http2Headers headers) {
-    int size = 0;
-    for (final Map.Entry<CharSequence, CharSequence> header : headers) {
-      size += Http2Header.size(header.getKey(), header.getValue());
-    }
-    return size;
-  }
+//  static int headersPayloadSize(final Http2Headers headers) {
+//    int size = 0;
+//    for (final Map.Entry<CharSequence, CharSequence> header : headers) {
+//      size += Http2Header.size(header.getKey(), header.getValue());
+//    }
+//    return size;
+//  }
 
   static int headersPayloadSize(final Http2Message<?> message) {
     int size = 0;

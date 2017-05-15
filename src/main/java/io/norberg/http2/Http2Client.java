@@ -16,7 +16,6 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
 import io.netty.util.AsciiString;
 import io.netty.util.AttributeKey;
@@ -52,7 +51,7 @@ public class Http2Client implements ClientConnection.Listener {
   private final CompletableFuture<Void> closeFuture = new CompletableFuture<>();
   private final Listener listener;
 
-  private volatile int remoteMaxConcurrentStreams = Integer.MAX_VALUE;
+  private volatile long remoteMaxConcurrentStreams = Long.MAX_VALUE;
 
   private volatile ClientConnection pendingConnection;
   private volatile ClientConnection connection;
@@ -228,9 +227,7 @@ public class Http2Client implements ClientConnection.Listener {
 
   @Override
   public void peerSettingsChanged(final ClientConnection connection, final Http2Settings settings) {
-    if (settings.maxConcurrentStreams() != null) {
-      remoteMaxConcurrentStreams = settings.maxConcurrentStreams().intValue();
-    }
+    settings.maxConcurrentStreams().ifPresent(v -> remoteMaxConcurrentStreams = v);
     listener.peerSettingsChanged(Http2Client.this, settings);
   }
 

@@ -18,7 +18,7 @@ import static org.mockito.Mockito.when;
 import com.google.common.collect.ImmutableSet;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.http2.Http2Exception;
+
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;

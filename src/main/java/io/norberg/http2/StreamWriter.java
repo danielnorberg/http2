@@ -1,7 +1,7 @@
 package io.norberg.http2;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.handler.codec.http2.Http2Exception;
+
 
 interface StreamWriter<CTX, STREAM extends Http2Stream> {
 

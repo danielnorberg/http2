@@ -1,8 +1,6 @@
 package io.norberg.http2;
 
-import static io.netty.handler.codec.http2.Http2Error.COMPRESSION_ERROR;
-
-import io.netty.handler.codec.http2.Http2Exception;
+import static io.norberg.http2.Http2Error.COMPRESSION_ERROR;
 
 class HpackDecodingException extends Http2Exception {
 

@@ -3,9 +3,6 @@ package io.norberg.http2;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.handler.codec.http2.Http2Error;
-import io.netty.handler.codec.http2.Http2Exception;
-import io.netty.handler.codec.http2.Http2SecurityUtil;
 import io.netty.handler.ssl.ApplicationProtocolConfig;
 import io.netty.handler.ssl.ApplicationProtocolNames;
 import io.netty.handler.ssl.OpenSsl;
@@ -20,11 +17,42 @@ import io.netty.util.concurrent.Future;
 import java.security.cert.CertificateException;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.net.ssl.SSLException;
 
 class Util {
 
   static final CompletableFuture<?>[] COMPLETABLE_FUTURES = new CompletableFuture<?>[0];
+
+  private static final List<String> CIPHERS = Stream.of(
+      // ECDHE-ECDSA-AES256-GCM-SHA384
+      "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+      "SSL_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+      // ECDHE-RSA-AES256-GCM-SHA384
+      "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+      "SSL_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+      // ECDHE-ECDSA-AES128-GCM-SHA256
+      "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+      "SSL_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+      // ECDHE-RSA-AES128-GCM-SHA256
+      "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+      "SSL_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+
+      // For deployments lacking elliptical curve capabilities
+      // DHE-RSA-AES128-GCM-SHA256
+      "TLS_DHE_RSA_WITH_AES_128_GCM_SHA256",
+      "SSL_DHE_RSA_WITH_AES_128_GCM_SHA256",
+      // DHE-DSS-AES128-GCM-SHA256
+      "TLS_DHE_DSS_WITH_AES_128_GCM_SHA256",
+      "SSL_DHE_DSS_WITH_AES_128_GCM_SHA256",
+      // DHE-RSA-AES256-GCM-SHA384
+      "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384",
+      "SSL_DHE_RSA_WITH_AES_256_GCM_SHA384",
+      // DHE-DSS-AES256-GCM-SHA384
+      "TLS_DHE_DSS_WITH_AES_256_GCM_SHA384",
+      "SSL_DHE_DSS_WITH_AES_256_GCM_SHA384"
+  ).collect(Collectors.toList());
 
   private static class LazyDefaultEventLoopGroup {
 
@@ -37,7 +65,7 @@ class Util {
     try {
       return SslContextBuilder.forClient()
           .sslProvider(provider)
-          .ciphers(Http2SecurityUtil.CIPHERS, SupportedCipherSuiteFilter.INSTANCE)
+          .ciphers(CIPHERS, SupportedCipherSuiteFilter.INSTANCE)
           // TODO: configurable trust management
           .trustManager(InsecureTrustManagerFactory.INSTANCE)
           .applicationProtocolConfig(new ApplicationProtocolConfig(
@@ -57,7 +85,7 @@ class Util {
       final SslProvider provider = OpenSsl.isAlpnSupported() ? SslProvider.OPENSSL : SslProvider.JDK;
       return SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey(), null)
           .sslProvider(provider)
-          .ciphers(Http2SecurityUtil.CIPHERS, SupportedCipherSuiteFilter.INSTANCE)
+          .ciphers(CIPHERS, SupportedCipherSuiteFilter.INSTANCE)
           .applicationProtocolConfig(new ApplicationProtocolConfig(
               ApplicationProtocolConfig.Protocol.ALPN,
               ApplicationProtocolConfig.SelectorFailureBehavior.NO_ADVERTISE,
@@ -115,9 +143,5 @@ class Util {
         out.complete(value);
       }
     });
-  }
-
-  static Http2Exception connectionError(Http2Error error, String fmt, Object... args) {
-    return new Http2Exception(error, String.format(fmt, args));
   }
 }

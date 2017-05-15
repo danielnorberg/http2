@@ -1,23 +1,22 @@
 package io.norberg.http2;
 
-import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
-import static io.netty.handler.codec.http2.Http2CodecUtil.INT_FIELD_LENGTH;
-import static io.netty.handler.codec.http2.Http2CodecUtil.PING_FRAME_PAYLOAD_LENGTH;
-import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
-import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
-import static io.netty.handler.codec.http2.Http2Flags.ACK;
-import static io.netty.handler.codec.http2.Http2Flags.END_HEADERS;
-import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
-import static io.netty.handler.codec.http2.Http2Flags.PADDED;
-import static io.netty.handler.codec.http2.Http2Flags.PRIORITY;
-import static io.norberg.http2.Util.connectionError;
+import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
+import static io.norberg.http2.Http2Exception.connectionError;
+import static io.norberg.http2.Http2Flags.ACK;
+import static io.norberg.http2.Http2Flags.END_HEADERS;
+import static io.norberg.http2.Http2Flags.END_STREAM;
+import static io.norberg.http2.Http2Flags.PADDED;
+import static io.norberg.http2.Http2Flags.PRIORITY;
+import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_LENGTH;
+import static io.norberg.http2.Http2WireFormat.INT_FIELD_LENGTH;
+import static io.norberg.http2.Http2WireFormat.PING_FRAME_PAYLOAD_LENGTH;
+import static io.norberg.http2.Http2WireFormat.SETTING_ENTRY_LENGTH;
 import static java.util.Objects.requireNonNull;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.http2.Http2Exception;
-import io.netty.handler.codec.http2.Http2FrameTypes;
-import io.netty.handler.codec.http2.Http2Settings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 class Http2FrameReader implements HpackDecoder.Listener, AutoCloseable {
@@ -101,7 +100,7 @@ class Http2FrameReader implements HpackDecoder.Listener, AutoCloseable {
         case Http2FrameTypes.PING:
           readPingFrame(ctx, in);
           break;
-        case Http2FrameTypes.GO_AWAY:
+        case Http2FrameTypes.GOAWAY:
           readGoAwayFrame(ctx, in);
           break;
         case Http2FrameTypes.WINDOW_UPDATE:
@@ -279,7 +278,7 @@ class Http2FrameReader implements HpackDecoder.Listener, AutoCloseable {
     final int blockLength = length - (readFlag(PADDED) ? 1 : 0) - padding;
     final int writerMark = in.writerIndex();
     in.writerIndex(in.readerIndex() + blockLength);
-    listener.onPushPromiseRead(ctx, streamId, promisedStreamId, null, padding);
+    listener.onPushPromiseRead(ctx, streamId, promisedStreamId, padding);
     hpackDecoder.decode(in, this);
     listener.onPushPromiseHeadersEnd(ctx, streamId);
     in.writerIndex(writerMark);

@@ -4,7 +4,6 @@ import static io.norberg.http2.Hpack.readAsciiString;
 import static io.norberg.http2.Hpack.readInteger;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.util.AsciiString;
 
 class HpackDecoder {

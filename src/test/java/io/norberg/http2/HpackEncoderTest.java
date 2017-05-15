@@ -2,10 +2,10 @@ package io.norberg.http2;
 
 import static io.netty.handler.codec.http.HttpMethod.GET;
 import static io.netty.handler.codec.http.HttpScheme.HTTPS;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
+import static io.norberg.http2.PseudoHeaders.AUTHORITY;
+import static io.norberg.http2.PseudoHeaders.METHOD;
+import static io.norberg.http2.PseudoHeaders.PATH;
+import static io.norberg.http2.PseudoHeaders.SCHEME;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
 import static org.junit.Assert.assertThat;
@@ -13,18 +13,13 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-import com.google.common.collect.ImmutableList;
 import com.twitter.hpack.Decoder;
 import com.twitter.hpack.HeaderListener;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufInputStream;
 import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.http2.DefaultHttp2Headers;
-import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.util.AsciiString;
 import java.io.InputStream;
-import java.util.List;
-import java.util.Map;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -45,14 +40,14 @@ public class HpackEncoderTest {
     // Encode
     final HpackEncoder encoder = new HpackEncoder(0);
     final ByteBuf block = Unpooled.buffer();
-    encoder.encodeHeader(block, METHOD.value(), GET.asciiName(), false);
+    encoder.encodeHeader(block, METHOD, GET.asciiName(), false);
 
     // Decode
     final InputStream is = new ByteBufInputStream(block);
     final Decoder decoder = new Decoder(1024, 1024);
     decoder.decode(is, listener);
 
-    verify(listener).addHeader(METHOD.value().array(), GET.asciiName().array(), false);
+    verify(listener).addHeader(METHOD.array(), GET.asciiName().array(), false);
     verifyNoMoreInteractions(listener);
   }
 
@@ -111,29 +106,22 @@ public class HpackEncoderTest {
     final Decoder decoder = new Decoder(1024, 1024);
     decoder.decode(is, listener);
 
-    verify(listener).addHeader(METHOD.value().array(), method.array(), false);
-    verify(listener).addHeader(SCHEME.value().array(), scheme.array(), false);
-    verify(listener).addHeader(AUTHORITY.value().array(), authority.array(), false);
-    verify(listener).addHeader(PATH.value().array(), path.array(), false);
+    verify(listener).addHeader(METHOD.array(), method.array(), false);
+    verify(listener).addHeader(SCHEME.array(), scheme.array(), false);
+    verify(listener).addHeader(AUTHORITY.array(), authority.array(), false);
+    verify(listener).addHeader(PATH.array(), path.array(), false);
     verifyNoMoreInteractions(listener);
   }
 
   @Test
   public void testOverflow() throws Exception {
-
     final int n = 16 * 1024;
-
-    final Http2Headers headers = new DefaultHttp2Headers();
-    for (int i = 0; i < n; i++) {
-      headers.add(AsciiString.of("header" + i), AsciiString.of("value" + i));
-    }
-
-    ByteBuf block = Unpooled.buffer();
+    final ByteBuf block = Unpooled.buffer();
     final HpackEncoder encoder = new HpackEncoder(4096);
-    final List<Map.Entry<CharSequence, CharSequence>> headerList = ImmutableList.copyOf(headers);
-    for (int i = 0; i < headers.size(); i++) {
-      final Map.Entry<CharSequence, CharSequence> header = headerList.get(i);
-      encoder.encodeHeader(block, AsciiString.of(header.getKey()), AsciiString.of(header.getValue()));
+    for (int i = 0; i < n; i++) {
+      encoder.encodeHeader(block, AsciiString.of("header" + i), AsciiString.of("value" + i));
     }
+
+    // TODO: verify desired result
   }
 }

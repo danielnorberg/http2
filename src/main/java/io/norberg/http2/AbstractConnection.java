@@ -1,22 +1,22 @@
 package io.norberg.http2;
 
-import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_TABLE_SIZE;
-import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_WINDOW_SIZE;
-import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
-import static io.netty.handler.codec.http2.Http2CodecUtil.PING_FRAME_PAYLOAD_LENGTH;
-import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
-import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
-import static io.netty.handler.codec.http2.Http2Flags.ACK;
-import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
-import static io.netty.handler.codec.http2.Http2FrameTypes.DATA;
-import static io.netty.handler.codec.http2.Http2FrameTypes.PING;
-import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
 import static io.norberg.http2.Hpack.writeDynamicTableSizeUpdate;
+import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
+import static io.norberg.http2.Http2Exception.connectionError;
+import static io.norberg.http2.Http2Flags.ACK;
+import static io.norberg.http2.Http2Flags.END_STREAM;
+import static io.norberg.http2.Http2FrameTypes.DATA;
+import static io.norberg.http2.Http2FrameTypes.PING;
+import static io.norberg.http2.Http2FrameTypes.SETTINGS;
+import static io.norberg.http2.Http2Protocol.DEFAULT_HEADER_TABLE_SIZE;
 import static io.norberg.http2.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
+import static io.norberg.http2.Http2Protocol.DEFAULT_MAX_FRAME_SIZE;
+import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_LENGTH;
 import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_SIZE;
+import static io.norberg.http2.Http2WireFormat.PING_FRAME_PAYLOAD_LENGTH;
+import static io.norberg.http2.Http2WireFormat.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.norberg.http2.Http2WireFormat.writeFrameHeader;
 import static io.norberg.http2.Http2WireFormat.writeWindowUpdate;
-import static io.norberg.http2.Util.connectionError;
 import static java.lang.Integer.max;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
@@ -31,11 +31,6 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.ByteToMessageDecoder;
-import io.netty.handler.codec.http2.Http2CodecUtil;
-import io.netty.handler.codec.http2.Http2Exception;
-import io.netty.handler.codec.http2.Http2Flags;
-import io.netty.handler.codec.http2.Http2Headers;
-import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.util.AsciiString;
@@ -63,8 +58,8 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
   private final CompletableFuture<CONNECTION> connectFuture = new CompletableFuture<>();
   private final CompletableFuture<CONNECTION> disconnectFuture = new CompletableFuture<>();
 
-  private int remoteMaxFrameSize = Http2CodecUtil.DEFAULT_MAX_FRAME_SIZE;
-  private int remoteMaxConcurrentStreams = Integer.MAX_VALUE;
+  private int remoteMaxFrameSize = DEFAULT_MAX_FRAME_SIZE;
+  private long remoteMaxConcurrentStreams = Long.MAX_VALUE;
   private long remoteMaxHeaderListSize = Long.MAX_VALUE;
 
   private final int localInitialStreamWindow;
@@ -165,7 +160,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     public void handlerAdded(final ChannelHandlerContext ctx) throws Exception {
       super.handlerAdded(ctx);
       // Update connection window size
-      final int sizeIncrement = localMaxConnectionWindow - DEFAULT_WINDOW_SIZE;
+      final int sizeIncrement = localMaxConnectionWindow - DEFAULT_INITIAL_WINDOW_SIZE;
       if (sizeIncrement > 0) {
         final ByteBuf buf = ctx.alloc().buffer(WINDOW_UPDATE_FRAME_LENGTH);
         writeWindowUpdate(buf, 0, sizeIncrement);
@@ -193,7 +188,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     }
 
     @Override
-    public int onDataRead(final ChannelHandlerContext ctx, final int streamId, final ByteBuf data, final int padding,
+    public void onDataRead(final ChannelHandlerContext ctx, final int streamId, final ByteBuf data, final int padding,
         final boolean endOfStream)
         throws Http2Exception {
       if (log.isDebugEnabled()) {
@@ -232,8 +227,6 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
         ctx.write(buf);
         flusher.flush();
       }
-
-      return length + padding;
     }
 
     @Override
@@ -316,24 +309,24 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
       if (log.isDebugEnabled()) {
         log.debug("got settings: {}", settings);
       }
-      if (settings.maxFrameSize() != null) {
-        remoteMaxFrameSize = settings.maxFrameSize();
+      if (settings.maxFrameSize().isPresent()) {
+        remoteMaxFrameSize = settings.maxFrameSize().getAsInt();
         Http2Protocol.validateMaxFrameSize(remoteMaxFrameSize);
         flowController.remoteMaxFrameSize(remoteMaxFrameSize);
       }
-      if (settings.maxConcurrentStreams() != null) {
-        remoteMaxConcurrentStreams = settings.maxConcurrentStreams().intValue();
+      if (settings.maxConcurrentStreams().isPresent()) {
+        remoteMaxConcurrentStreams = settings.maxConcurrentStreams().getAsLong();
       }
-      if (settings.initialWindowSize() != null) {
-        flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize(), streams.values());
+      if (settings.initialWindowSize().isPresent()) {
+        flowController.remoteInitialStreamWindowSizeUpdate(settings.initialWindowSize().getAsInt(), streams.values());
         flusher.flush();
       }
-      if (settings.maxHeaderListSize() != null) {
-        remoteMaxHeaderListSize = settings.maxHeaderListSize();
+      if (settings.maxHeaderListSize().isPresent()) {
+        remoteMaxHeaderListSize = settings.maxHeaderListSize().getAsLong();
       }
-      if (settings.headerTableSize() != null) {
+      if (settings.headerTableSize().isPresent()) {
         // We can freely choose a table size that's smaller than the signaled size
-        final int headerTableSize = (int) Math.min(maxHeaderEncoderTableSize, settings.headerTableSize());
+        final int headerTableSize = (int) Math.min(maxHeaderEncoderTableSize, settings.headerTableSize().getAsLong());
         headerTableSizeUpdatePending = true;
         headerEncoder.setMaxTableSize(headerTableSize);
       }
@@ -346,6 +339,9 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     }
 
     private void sendSettingsAck(final ChannelHandlerContext ctx) {
+      if (log.isDebugEnabled()) {
+        log.debug("sending settings ack");
+      }
       final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH);
       writeFrameHeader(buf, 0, 0, SETTINGS, ACK, 0);
       buf.writerIndex(FRAME_HEADER_LENGTH);
@@ -379,7 +375,6 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
     @Override
     public void onPushPromiseRead(final ChannelHandlerContext ctx, final int streamId, final int promisedStreamId,
-        final Http2Headers headers,
         final int padding) throws Http2Exception {
       if (log.isDebugEnabled()) {
         log.debug("got push promise");
@@ -422,8 +417,8 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     }
 
     @Override
-    public void onUnknownFrame(final ChannelHandlerContext ctx, final byte frameType, final int streamId,
-        final Http2Flags flags, final ByteBuf payload)
+    public void onUnknownFrame(ChannelHandlerContext ctx, byte frameType, int streamId,
+        io.norberg.http2.Http2Flags flags, ByteBuf payload)
         throws Http2Exception {
       if (log.isDebugEnabled()) {
         log.debug("got unknown frame: {} {} {} {}", frameType, streamId, flags, payload);
@@ -665,7 +660,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     return remoteMaxFrameSize;
   }
 
-  protected final int remoteMaxConcurrentStreams() {
+  protected final long remoteMaxConcurrentStreams() {
     return remoteMaxConcurrentStreams;
   }
 

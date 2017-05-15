@@ -1,17 +1,18 @@
 package io.norberg.http2;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
-import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
-import static io.netty.handler.codec.http2.Http2CodecUtil.SETTING_ENTRY_LENGTH;
-import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
-import static io.netty.handler.codec.http2.Http2FrameTypes.SETTINGS;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
+import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
+import static io.norberg.http2.Http2Exception.connectionError;
+import static io.norberg.http2.Http2FrameTypes.SETTINGS;
+import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_LENGTH;
 import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_SIZE;
+import static io.norberg.http2.Http2WireFormat.SETTING_ENTRY_LENGTH;
 import static io.norberg.http2.Http2WireFormat.writeFrameHeader;
+import static io.norberg.http2.PseudoHeaders.AUTHORITY;
+import static io.norberg.http2.PseudoHeaders.METHOD;
+import static io.norberg.http2.PseudoHeaders.PATH;
+import static io.norberg.http2.PseudoHeaders.SCHEME;
+import static io.norberg.http2.PseudoHeaders.STATUS;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -22,8 +23,6 @@ import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http2.Http2Exception;
-import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.util.AsciiString;
 import java.util.List;
 import java.util.Objects;
@@ -55,7 +54,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   protected int headersPayloadSize(final ServerStream stream) {
     final Http2Response response = stream.response;
     return FRAME_HEADER_SIZE +
-        Http2Header.size(STATUS.value(), response.status().codeAsText()) +
+        Http2Header.size(STATUS, response.status().codeAsText()) +
         Http2WireFormat.headersPayloadSize(response);
 
   }
@@ -173,29 +172,29 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
     final byte b1 = name.byteAt(1);
     switch (b1) {
       case 'm': {
-        if (!name.equals(METHOD.value())) {
-          throw new Http2Exception(PROTOCOL_ERROR);
+        if (!name.equals(METHOD)) {
+          throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
         stream.request.method(HttpMethod.valueOf(value.toString()));
         return;
       }
       case 's': {
-        if (!name.equals(SCHEME.value())) {
-          throw new Http2Exception(PROTOCOL_ERROR);
+        if (!name.equals(SCHEME)) {
+          throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
         stream.request.scheme(value);
         return;
       }
       case 'a': {
-        if (!name.equals(AUTHORITY.value())) {
-          throw new Http2Exception(PROTOCOL_ERROR);
+        if (!name.equals(AUTHORITY)) {
+          throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
         stream.request.authority(value);
         return;
       }
       case 'p': {
-        if (!name.equals(PATH.value())) {
-          throw new Http2Exception(PROTOCOL_ERROR);
+        if (!name.equals(PATH)) {
+          throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
         stream.request.path(value);
         return;
@@ -273,15 +272,9 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
     }
 
     private void writeSettings(final ChannelHandlerContext ctx) {
-      final int length = SETTING_ENTRY_LENGTH * settings.size();
-      final ByteBuf buf = ctx.alloc().buffer(FRAME_HEADER_LENGTH + length);
-      writeFrameHeader(buf, 0, length, SETTINGS, 0, 0);
-      buf.writerIndex(FRAME_HEADER_LENGTH);
-      for (final char identifier : settings.keySet()) {
-        final int value = settings.getIntValue(identifier);
-        buf.writeShort(identifier);
-        buf.writeInt(value);
-      }
+      final int frameLength = Http2WireFormat.settingsFrameLength(settings);
+      final ByteBuf buf = ctx.alloc().buffer(frameLength);
+      Http2WireFormat.writeSettings(buf, settings);
       ctx.write(buf);
     }
 

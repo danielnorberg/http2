@@ -1,13 +1,13 @@
 package io.norberg.http2;
 
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
 import static io.norberg.http2.HpackStaticTable.INDEXED_NAME;
 import static io.norberg.http2.HpackStaticTable.isIndexedField;
 import static io.norberg.http2.HpackStaticTable.isIndexedName;
+import static io.norberg.http2.PseudoHeaders.AUTHORITY;
+import static io.norberg.http2.PseudoHeaders.METHOD;
+import static io.norberg.http2.PseudoHeaders.PATH;
+import static io.norberg.http2.PseudoHeaders.SCHEME;
+import static io.norberg.http2.PseudoHeaders.STATUS;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.util.AsciiString;
@@ -80,7 +80,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = tableIndex.lookup(METHOD.value(), method);
+    final int dynamicIndex = tableIndex.lookup(METHOD, method);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -92,7 +92,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = tableIndex.lookup(SCHEME.value(), scheme);
+    final int dynamicIndex = tableIndex.lookup(SCHEME, scheme);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -104,7 +104,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = tableIndex.lookup(AUTHORITY.value(), authority);
+    final int dynamicIndex = tableIndex.lookup(AUTHORITY, authority);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -116,7 +116,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = tableIndex.lookup(PATH.value(), path);
+    final int dynamicIndex = tableIndex.lookup(PATH, path);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }
@@ -128,7 +128,7 @@ class HpackEncoder {
     if (isIndexedField(staticIndex)) {
       return staticIndex;
     }
-    final int dynamicIndex = tableIndex.lookup(STATUS.value(), status);
+    final int dynamicIndex = tableIndex.lookup(STATUS, status);
     if (dynamicIndex != 0) {
       return dynamicIndex + HpackStaticTable.length();
     }

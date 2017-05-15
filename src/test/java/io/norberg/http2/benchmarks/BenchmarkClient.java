@@ -7,7 +7,6 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import com.spotify.logging.LoggingConfigurator;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.util.AsciiString;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.concurrent.DefaultThreadFactory;
@@ -15,12 +14,13 @@ import io.norberg.http2.Http2Client;
 import io.norberg.http2.Http2Request;
 import io.norberg.http2.Http2Response;
 import io.norberg.http2.Http2ResponseHandler;
+import io.norberg.http2.Http2Settings;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 class BenchmarkClient {
 
@@ -41,13 +41,13 @@ class BenchmarkClient {
 
   static void run() throws Exception {
 
-    final AtomicInteger maxConcurrentStreams = new AtomicInteger(2000);
+    final AtomicLong maxConcurrentStreams = new AtomicLong(2000L);
 
     final Http2Client.Listener listener = new Http2Client.ListenerAdapter() {
       @Override
       public void peerSettingsChanged(final Http2Client client, final Http2Settings settings) {
-        if (settings.maxConcurrentStreams() != null) {
-          maxConcurrentStreams.set(settings.maxConcurrentStreams().intValue());
+        if (settings.maxConcurrentStreams().isPresent()) {
+          maxConcurrentStreams.set(settings.maxConcurrentStreams().getAsLong());
         }
       }
     };

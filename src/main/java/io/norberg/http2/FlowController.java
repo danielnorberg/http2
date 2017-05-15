@@ -1,12 +1,11 @@
 package io.norberg.http2;
 
-import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
+import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
+import static io.norberg.http2.Http2Exception.connectionError;
 import static io.norberg.http2.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.http2.Http2Protocol.DEFAULT_MAX_FRAME_SIZE;
-import static io.norberg.http2.Util.connectionError;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.handler.codec.http2.Http2Exception;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;

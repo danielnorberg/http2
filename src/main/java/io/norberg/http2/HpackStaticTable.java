@@ -11,12 +11,12 @@ import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpResponseStatus.PARTIAL_CONTENT;
 import static io.netty.handler.codec.http.HttpScheme.HTTP;
 import static io.netty.handler.codec.http.HttpScheme.HTTPS;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.STATUS;
 import static io.netty.util.AsciiString.EMPTY_STRING;
+import static io.norberg.http2.PseudoHeaders.AUTHORITY;
+import static io.norberg.http2.PseudoHeaders.METHOD;
+import static io.norberg.http2.PseudoHeaders.PATH;
+import static io.norberg.http2.PseudoHeaders.SCHEME;
+import static io.norberg.http2.PseudoHeaders.STATUS;
 
 import io.netty.util.AsciiString;
 import java.util.ArrayList;
@@ -29,20 +29,20 @@ class HpackStaticTable {
   private static final AsciiString ROOT = AsciiString.of("/");
   private static final AsciiString INDEX = AsciiString.of("/index.html");
 
-  private static final Http2Header AUTHORITY_HEADER = h(AUTHORITY.value(), EMPTY_STRING);
-  private static final Http2Header METHOD_GET_HEADER = h(METHOD.value(), GET.asciiName());
-  private static final Http2Header METHOD_POST_HEADER = h(METHOD.value(), POST.asciiName());
-  private static final Http2Header PATH_ROOT_HEADER = h(PATH.value(), ROOT);
-  private static final Http2Header PATH_INDEX_HEADER = h(PATH.value(), INDEX);
-  private static final Http2Header SCHEME_HTTP_HEADER = h(SCHEME.value(), HTTP.name());
-  private static final Http2Header SCHEME_HTTPS_HEADER = h(SCHEME.value(), HTTPS.name());
-  private static final Http2Header STATUS_200_HEADER = h(STATUS.value(), OK.codeAsText());
-  private static final Http2Header STATUS_204_HEADER = h(STATUS.value(), NO_CONTENT.codeAsText());
-  private static final Http2Header STATUS_206_HEADER = h(STATUS.value(), PARTIAL_CONTENT.codeAsText());
-  private static final Http2Header STATUS_304_HEADER = h(STATUS.value(), NOT_MODIFIED.codeAsText());
-  private static final Http2Header STATUS_400_HEADER = h(STATUS.value(), BAD_REQUEST.codeAsText());
-  private static final Http2Header STATUS_404_HEADER = h(STATUS.value(), NOT_FOUND.codeAsText());
-  private static final Http2Header STATUS_500_HEADER = h(STATUS.value(), INTERNAL_SERVER_ERROR.codeAsText());
+  private static final Http2Header AUTHORITY_HEADER = h(AUTHORITY, EMPTY_STRING);
+  private static final Http2Header METHOD_GET_HEADER = h(METHOD, GET.asciiName());
+  private static final Http2Header METHOD_POST_HEADER = h(METHOD, POST.asciiName());
+  private static final Http2Header PATH_ROOT_HEADER = h(PATH, ROOT);
+  private static final Http2Header PATH_INDEX_HEADER = h(PATH, INDEX);
+  private static final Http2Header SCHEME_HTTP_HEADER = h(SCHEME, HTTP.name());
+  private static final Http2Header SCHEME_HTTPS_HEADER = h(SCHEME, HTTPS.name());
+  private static final Http2Header STATUS_200_HEADER = h(STATUS, OK.codeAsText());
+  private static final Http2Header STATUS_204_HEADER = h(STATUS, NO_CONTENT.codeAsText());
+  private static final Http2Header STATUS_206_HEADER = h(STATUS, PARTIAL_CONTENT.codeAsText());
+  private static final Http2Header STATUS_304_HEADER = h(STATUS, NOT_MODIFIED.codeAsText());
+  private static final Http2Header STATUS_400_HEADER = h(STATUS, BAD_REQUEST.codeAsText());
+  private static final Http2Header STATUS_404_HEADER = h(STATUS, NOT_FOUND.codeAsText());
+  private static final Http2Header STATUS_500_HEADER = h(STATUS, INTERNAL_SERVER_ERROR.codeAsText());
 
   private static final int AUTHORITY_IX = 1;
   private static final int METHOD_GET_IX = 2;
@@ -175,25 +175,25 @@ class HpackStaticTable {
   static int pseudoHeaderIndex(final AsciiString name, final AsciiString value) throws HpackEncodingException {
     switch (name.byteAt(1)) {
       case 'a':
-        if (name.equals(AUTHORITY.value())) {
+        if (name.equals(AUTHORITY)) {
           return AUTHORITY_IX | INDEXED_NAME;
         }
         break;
       case 'm':
-        if (name.equals(METHOD.value())) {
+        if (name.equals(METHOD)) {
           return methodIndex(value);
         }
         break;
       case 'p':
-        if (name.equals(PATH.value())) {
+        if (name.equals(PATH)) {
           return pathIndex(value);
         }
         break;
       case 's':
-        if (name.equals(SCHEME.value())) {
+        if (name.equals(SCHEME)) {
           return schemeIndex(value);
         }
-        if (name.equals(STATUS.value())) {
+        if (name.equals(STATUS)) {
           return statusIndex(value);
         }
         break;
@@ -296,25 +296,25 @@ class HpackStaticTable {
   static int pseudoNameIndex(final AsciiString name) throws HpackEncodingException {
     switch (name.byteAt(1)) {
       case 'A':
-        if (name.equals(AUTHORITY.value())) {
+        if (name.equals(AUTHORITY)) {
           return AUTHORITY_IX;
         }
         break;
       case 'M':
-        if (name.equals(METHOD.value())) {
+        if (name.equals(METHOD)) {
           return METHOD_GET_IX;
         }
         break;
       case 'P':
-        if (name.equals(PATH.value())) {
+        if (name.equals(PATH)) {
           return PATH_ROOT_IX;
         }
         break;
       case 'S':
-        if (name.equals(SCHEME.value())) {
+        if (name.equals(SCHEME)) {
           return SCHEME_HTTP_IX;
         }
-        if (name.equals(STATUS.value())) {
+        if (name.equals(STATUS)) {
           return STATUS_200_IX;
         }
         break;

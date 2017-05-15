@@ -1,7 +1,7 @@
 package io.norberg.http2;
 
 import static io.netty.handler.codec.http.HttpMethod.GET;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
+import static io.norberg.http2.PseudoHeaders.METHOD;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.mockito.Mockito.reset;
@@ -31,12 +31,12 @@ public class HpackDecoderTest {
   @Test
   public void testDecodeStatic() throws Exception {
     final ByteBuf block = Unpooled.buffer();
-    Hpack.writeIndexedHeaderField(block, HpackStaticTable.headerIndex(METHOD.value(), GET.asciiName()));
+    Hpack.writeIndexedHeaderField(block, HpackStaticTable.headerIndex(METHOD, GET.asciiName()));
 
     final HpackDecoder decoder = new HpackDecoder(0);
     decoder.decode(block, listener);
 
-    verify(listener).header(Http2Header.of(METHOD.value(), GET.asciiName(), false));
+    verify(listener).header(Http2Header.of(METHOD, GET.asciiName(), false));
   }
 
   @Test

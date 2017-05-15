@@ -5,15 +5,15 @@ import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
-import static io.netty.handler.codec.http2.Http2CodecUtil.WINDOW_UPDATE_FRAME_LENGTH;
-import static io.netty.handler.codec.http2.Http2Error.PROTOCOL_ERROR;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.AUTHORITY;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.METHOD;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.PATH;
-import static io.netty.handler.codec.http2.Http2Headers.PseudoHeaderName.SCHEME;
+import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
 import static io.norberg.http2.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_SIZE;
+import static io.norberg.http2.Http2WireFormat.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.norberg.http2.Http2WireFormat.writeSettings;
+import static io.norberg.http2.PseudoHeaders.AUTHORITY;
+import static io.norberg.http2.PseudoHeaders.METHOD;
+import static io.norberg.http2.PseudoHeaders.PATH;
+import static io.norberg.http2.PseudoHeaders.SCHEME;
 import static java.util.Objects.requireNonNull;
 
 import io.netty.buffer.ByteBuf;
@@ -25,9 +25,6 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.handler.codec.http.HttpResponseStatus;
-import io.netty.handler.codec.http2.Http2Exception;
-import io.netty.handler.codec.http2.Http2Headers;
-import io.netty.handler.codec.http2.Http2Settings;
 import io.netty.util.AsciiString;
 import java.nio.channels.ClosedChannelException;
 import org.slf4j.Logger;
@@ -36,10 +33,10 @@ import org.slf4j.LoggerFactory;
 class ClientConnection extends AbstractConnection<ClientConnection, ClientConnection.ClientStream> {
 
   private static final Logger log = LoggerFactory.getLogger(ClientConnection.class);
-  public static final AsciiString OK_TEXT = OK.codeAsText();
-  public static final AsciiString NOT_FOUND_TEXT = NOT_FOUND.codeAsText();
-  public static final AsciiString BAD_REQUEST_TEXT = BAD_REQUEST.codeAsText();
-  public static final AsciiString INTERNAL_SERVER_ERROR_TEXT = INTERNAL_SERVER_ERROR.codeAsText();
+  private static final AsciiString OK_TEXT = OK.codeAsText();
+  private static final AsciiString NOT_FOUND_TEXT = NOT_FOUND.codeAsText();
+  private static final AsciiString BAD_REQUEST_TEXT = BAD_REQUEST.codeAsText();
+  private static final AsciiString INTERNAL_SERVER_ERROR_TEXT = INTERNAL_SERVER_ERROR.codeAsText();
 
   private final Listener listener;
 
@@ -131,10 +128,10 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   protected int headersPayloadSize(final ClientStream stream) {
     final Http2Request request = stream.request;
     return FRAME_HEADER_SIZE +
-        Http2Header.size(METHOD.value(), request.method().asciiName()) +
-        Http2Header.size(AUTHORITY.value(), request.authority()) +
-        Http2Header.size(SCHEME.value(), request.scheme()) +
-        Http2Header.size(PATH.value(), request.path()) +
+        Http2Header.size(METHOD, request.method().asciiName()) +
+        Http2Header.size(AUTHORITY, request.authority()) +
+        Http2Header.size(SCHEME, request.scheme()) +
+        Http2Header.size(PATH, request.path()) +
         Http2WireFormat.headersPayloadSize(request);
   }
 
@@ -167,7 +164,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   @Override
   protected void readPseudoHeader(final ClientStream stream, final AsciiString name,
       final AsciiString value) throws Http2Exception {
-    if (!name.equals(Http2Headers.PseudoHeaderName.STATUS.value())) {
+    if (!name.equals(PseudoHeaders.STATUS)) {
       throw new Http2Exception(PROTOCOL_ERROR);
     }
     stream.response.status(responseStatus(value));

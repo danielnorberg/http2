@@ -1,10 +1,10 @@
 package io.norberg.http2;
 
-import static io.netty.handler.codec.http2.Http2CodecUtil.FRAME_HEADER_LENGTH;
-import static io.netty.handler.codec.http2.Http2Flags.END_HEADERS;
-import static io.netty.handler.codec.http2.Http2Flags.END_STREAM;
-import static io.netty.handler.codec.http2.Http2FrameTypes.CONTINUATION;
-import static io.netty.handler.codec.http2.Http2FrameTypes.HEADERS;
+import static io.norberg.http2.Http2Flags.END_HEADERS;
+import static io.norberg.http2.Http2Flags.END_STREAM;
+import static io.norberg.http2.Http2FrameTypes.CONTINUATION;
+import static io.norberg.http2.Http2FrameTypes.HEADERS;
+import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_LENGTH;
 import static io.norberg.http2.Http2WireFormat.writeFrameHeader;
 
 import io.netty.buffer.ByteBuf;
