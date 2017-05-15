@@ -438,7 +438,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
       implements StreamWriter<ChannelHandlerContext, STREAM> {
 
     private int streamId = 1;
-    private boolean inActive;
+    private boolean inactive;
 
     private int nextStreamId() {
       streamId += 2;
@@ -448,14 +448,14 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     @Override
     public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
       super.channelInactive(ctx);
-      inActive = true;
+      inactive = true;
     }
 
     @Override
     public void write(final ChannelHandlerContext ctx, final Object msg, final ChannelPromise promise)
         throws Exception {
 
-      if (inActive) {
+      if (inactive) {
         promise.tryFailure(new ConnectionClosedException());
         return;
       }
