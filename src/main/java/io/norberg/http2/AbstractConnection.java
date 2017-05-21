@@ -471,6 +471,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
       }
 
       flowController.start(stream);
+      flowController.end(stream);
     }
 
     @Override
