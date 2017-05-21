@@ -43,6 +43,11 @@ class Http2Stream {
    */
   boolean started;
 
+  /**
+   * Does the stream end after {@link #data} has been sent?
+   */
+  boolean endOfStream;
+
   //================================================================================
   // Incoming (local) flow control
   //================================================================================
