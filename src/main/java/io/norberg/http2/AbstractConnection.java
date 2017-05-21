@@ -502,7 +502,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     }
 
     @Override
-    public void writeInitialHeadersFrame(final ChannelHandlerContext ctx, final ByteBuf buf, final STREAM stream,
+    public void writeInitialHeadersFrames(final ChannelHandlerContext ctx, final ByteBuf buf, final STREAM stream,
         final boolean endOfStream) throws Http2Exception {
       final int headerIndex = buf.writerIndex();
 
@@ -520,8 +520,8 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
 
       final int blockSize = buf.writerIndex() - blockIndex;
 
-      final int writerIndex = HeaderFraming
-          .frameHeaderBlock(buf, headerIndex, blockSize, remoteMaxFrameSize, endOfStream, stream.id);
+      final int writerIndex = HeaderFraming.frameHeaderBlock(
+          buf, headerIndex, blockSize, remoteMaxFrameSize, endOfStream, stream.id);
       buf.writerIndex(writerIndex);
 
       // TODO: padding + fields

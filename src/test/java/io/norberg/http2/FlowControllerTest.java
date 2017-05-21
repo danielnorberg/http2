@@ -604,7 +604,7 @@ public class FlowControllerTest {
       if (op.headers) {
         final boolean endOfStream = op.headerFlags.contains(END_OF_STREAM);
         inOrder.verify(writer)
-            .writeInitialHeadersFrame(same(ctx), same(buf), same(op.stream), eq(endOfStream));
+            .writeInitialHeadersFrames(same(ctx), same(buf), same(op.stream), eq(endOfStream));
         if (endOfStream) {
           inOrder.verify(writer).streamEnd(op.stream);
         }

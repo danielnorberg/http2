@@ -170,7 +170,7 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
       // Write headers
       final boolean headersEndOfStream = stream.endOfStream && !hasContent;
-      writer.writeInitialHeadersFrame(ctx, buf, stream, headersEndOfStream);
+      writer.writeInitialHeadersFrames(ctx, buf, stream, headersEndOfStream);
 
       // End of stream?
       if (headersEndOfStream) {

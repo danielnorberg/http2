@@ -16,7 +16,7 @@ interface StreamWriter<CTX, STREAM extends Http2Stream> {
   void writeDataFrame(final CTX ctx, final ByteBuf buf, STREAM stream, int payloadSize, boolean endOfStream)
       throws Http2Exception;
 
-  void writeInitialHeadersFrame(final CTX ctx, ByteBuf buf, STREAM stream, boolean endOfStream) throws Http2Exception;
+  void writeInitialHeadersFrames(final CTX ctx, ByteBuf buf, STREAM stream, boolean endOfStream) throws Http2Exception;
 
   void writeEnd(final CTX ctx, ByteBuf buf) throws Http2Exception;
 
