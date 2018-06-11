@@ -3,11 +3,7 @@ package io.norberg.http2;
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
 import static io.norberg.http2.Http2Exception.connectionError;
-import static io.norberg.http2.Http2FrameTypes.SETTINGS;
-import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_LENGTH;
 import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_SIZE;
-import static io.norberg.http2.Http2WireFormat.SETTING_ENTRY_LENGTH;
-import static io.norberg.http2.Http2WireFormat.writeFrameHeader;
 import static io.norberg.http2.PseudoHeaders.AUTHORITY;
 import static io.norberg.http2.PseudoHeaders.METHOD;
 import static io.norberg.http2.PseudoHeaders.PATH;
@@ -137,6 +133,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
     final ServerStream stream = responsePromise.stream;
     stream.response = response;
     stream.data = response.content();
+    stream.endOfStream = true;
     return stream;
   }
 

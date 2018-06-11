@@ -15,10 +15,11 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.Unpooled;
-
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -176,6 +177,46 @@ public class FlowControllerTest {
   public void testHappyPathSingleStream() throws Exception {
     final Http2Stream stream = startStream(1, 17);
     verifyFlush(stream(stream).headers().estimate(17).write(17, END_OF_STREAM));
+  }
+
+  @Test
+  public void testHappyPathSingleStreamStreaming() throws Exception {
+    final Http2Stream stream = startStream(1, 17, false);
+    verifyFlush(stream(stream).headers().estimate(17).write(17));
+    continueStream(stream, 7);
+    verifyFlush(stream(stream).estimate(7).write(7));
+    continueStream(stream, 21);
+    continueStream(stream, 36);
+    verifyFlush(stream(stream).estimate(21 + 36).write(21 + 36));
+    endStream(stream, 13);
+    verifyFlush(stream(stream).estimate(13).write(13, END_OF_STREAM));
+  }
+
+  @Test
+  public void testSingleStreamStreamingStreamWindowExhaustion() throws Exception {
+    controller.remoteInitialStreamWindowSizeUpdate(3, emptyList());
+
+    final Http2Stream stream = startStream(1, 7, false);
+    verifyFlush(stream(stream).headers().estimate(3).write(3));
+
+    // Add data to stream but no increase of stream window and verify that nothing gets written
+    continueStream(stream, 11);
+    verifyFlush();
+
+    controller.remoteStreamWindowUpdate(stream, 5);
+    verifyFlush(stream(stream).estimate(5).write(5));
+
+    endStream(stream);
+    controller.remoteStreamWindowUpdate(stream, 32);
+    verifyFlush(stream(stream).estimate(10).write(10, END_OF_STREAM));
+  }
+
+  @Test
+  public void testSingleStreamStreamingEmptyUpdate() throws Exception {
+    final Http2Stream stream = startStream(1, 17, false);
+    verifyFlush(stream(stream).headers().estimate(17).write(17));
+    endStream(stream, 0);
+    verifyFlush(stream(stream).estimate(0).write(0, END_OF_STREAM));
   }
 
   @Test
@@ -422,9 +463,49 @@ public class FlowControllerTest {
   }
 
   private Http2Stream startStream(final int id, final int size) {
+    return startStream(id, size, true);
+  }
+
+  private Http2Stream startStream(final int id, final int size, final boolean endOfStream) {
     final ByteBuf data = randomByteBuf(size);
-    final Http2Stream stream = new Http2Stream(id, data);
+    final Http2Stream stream = new Http2Stream(id, data, endOfStream);
     controller.start(stream);
+    return stream;
+  }
+
+  private Http2Stream endStream(Http2Stream stream) {
+    return continueStream(stream, 0, true);
+  }
+
+  private Http2Stream endStream(Http2Stream stream, final int size) {
+    return continueStream(stream, size, true);
+  }
+
+  private Http2Stream continueStream(Http2Stream stream, final int size) {
+    return continueStream(stream, size, false);
+  }
+
+  private Http2Stream continueStream(Http2Stream stream, final int size, final boolean endOfStream) {
+    Preconditions.checkState(!stream.endOfStream, "Http2Stream.endOfStream = true");
+    final ByteBuf data = randomByteBuf(size);
+    final int readableBytes = (stream.data == null) ? 0 : stream.data.readableBytes();
+    final int expectedReadableBytes = readableBytes + size;
+    if (stream.data == null) {
+      stream.data = data;
+    } else {
+      final CompositeByteBuf composite;
+      if (stream.data instanceof CompositeByteBuf) {
+        composite = (CompositeByteBuf) stream.data;
+      } else {
+        composite = stream.data.alloc().compositeBuffer();
+        composite.addComponent(true, stream.data);
+        stream.data = composite;
+      }
+      composite.addComponent(true, data);
+    }
+    stream.endOfStream = endOfStream;
+    assertThat(stream.data.readableBytes(), is(expectedReadableBytes));
+    controller.update(stream);
     return stream;
   }
 

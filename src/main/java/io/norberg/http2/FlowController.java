@@ -4,6 +4,7 @@ import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
 import static io.norberg.http2.Http2Exception.connectionError;
 import static io.norberg.http2.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.http2.Http2Protocol.DEFAULT_MAX_FRAME_SIZE;
+import static java.lang.Math.min;
 
 import io.netty.buffer.ByteBuf;
 import java.util.ArrayDeque;
@@ -16,6 +17,7 @@ import java.util.Set;
 class FlowController<CTX, STREAM extends Http2Stream> {
 
   private final List<STREAM> newStreams = new ArrayList<>();
+  private final List<STREAM> updatedStreams = new ArrayList<>();
   private final Deque<STREAM> connectionWindowBlockedStreams = new ArrayDeque<>();
   private final List<STREAM> streamWindowUpdatedStreams = new ArrayList<>();
 
@@ -102,12 +104,13 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
     streamWindowUpdatedStreams.clear();
     newStreams.clear();
+    updatedStreams.clear();
   }
 
   private void writeFrames(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final int bufferSize)
       throws Http2Exception {
 
-    final ByteBuf buf = bufferSize == 0
+    final ByteBuf buf = (bufferSize == 0)
         ? null
         : writer.writeStart(ctx, bufferSize);
 
@@ -119,6 +122,10 @@ class FlowController<CTX, STREAM extends Http2Stream> {
     // Write data frames for streams that were blocking on a connection window update
     if (remoteConnectionWindowUpdated) {
       writeConnectionWindowBlockedStreams(ctx, writer, buf);
+    }
+
+    if (!updatedStreams.isEmpty()) {
+      writeUpdatedStreams(ctx, writer, buf);
     }
 
     // Write headers and data frames for new outgoing streams
@@ -140,28 +147,82 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
     for (int i = 0; i < newStreams.size(); i++) {
       final STREAM stream = newStreams.get(i);
-      final boolean hasContent = stream.data != null && stream.data.isReadable();
+      final boolean hasData = hasData(stream);
+      final boolean onlyHeaders = !hasData && stream.endOfStream;
 
       // Write headers
-      writer.writeInitialHeadersFrame(ctx, buf, stream, !hasContent);
+      writer.writeInitialHeadersFrame(ctx, buf, stream, onlyHeaders);
 
-      // Any data?
-      if (!hasContent) {
+      // End stream here?
+      if (onlyHeaders) {
         writer.streamEnd(stream);
+        continue;
+      }
+
+      // Any data to write?
+      if (!hasData) {
+        // Wait for an update
         continue;
       }
 
       // Write data
       final int size = stream.fragmentSize;
       if (size > 0) {
-        final boolean endOfStream = (stream.data.readableBytes() == size);
+        final boolean allDataWritten = (stream.data.readableBytes() == size);
+        final boolean endOfStream = allDataWritten && stream.endOfStream;
         writeDataFrames(writer, ctx, buf, stream, size, endOfStream);
         if (endOfStream) {
           writer.streamEnd(stream);
         }
       }
 
-      // Check if the connection window was exhausted
+      // Check if the stream was blocked on an exhausted connection window.
+      if (remoteConnectionWindowExhausted &&
+          stream.data.readableBytes() > 0 &&
+          stream.remoteWindow > 0) {
+        stream.pending = true;
+        connectionWindowBlockedStreams.add(stream);
+      }
+    }
+  }
+
+  private void writeUpdatedStreams(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final ByteBuf buf)
+      throws Http2Exception {
+
+    // Was the remote connection window exhausted?
+    final boolean remoteConnectionWindowExhausted = (remoteConnectionWindow == 0);
+
+    for (int i = 0; i < updatedStreams.size(); i++) {
+      final STREAM stream = updatedStreams.get(i);
+      final boolean hasData = hasData(stream);
+      final boolean endOfStreamNoData = !hasData && stream.endOfStream;
+
+      // End stream here?
+      if (endOfStreamNoData) {
+        // Write an empty data frame to end the stream
+        writeDataFrames(writer, ctx, buf, stream, 0, true);
+        writer.streamEnd(stream);
+        continue;
+      }
+
+      // Any data to write?
+      if (!hasData) {
+        // Wait for another update
+        continue;
+      }
+
+      // Write data
+      final int size = stream.fragmentSize;
+      if (size > 0) {
+        final boolean allDataWritten = (stream.data.readableBytes() == size);
+        final boolean endOfStream = allDataWritten && stream.endOfStream;
+        writeDataFrames(writer, ctx, buf, stream, size, endOfStream);
+        if (endOfStream) {
+          writer.streamEnd(stream);
+        }
+      }
+
+      // Check if the stream was blocked on an exhausted connection window.
       if (remoteConnectionWindowExhausted &&
           stream.data.readableBytes() > 0 &&
           stream.remoteWindow > 0) {
@@ -183,7 +244,7 @@ class FlowController<CTX, STREAM extends Http2Stream> {
         break;
       }
 
-      assert stream.data != null && stream.data.isReadable();
+      assert hasData(stream);
 
       // Bail if the connection window was exhausted before this stream could get any quota.
       // All following streams in the queue will still be blocked on the connection window.
@@ -193,7 +254,8 @@ class FlowController<CTX, STREAM extends Http2Stream> {
       }
 
       // Write data
-      final boolean endOfStream = (stream.data.readableBytes() == size);
+      final boolean allDataWritten = (stream.data.readableBytes() == size);
+      final boolean endOfStream = allDataWritten && stream.endOfStream;
       writeDataFrames(writer, ctx, buf, stream, size, endOfStream);
       if (endOfStream) {
         writer.streamEnd(stream);
@@ -224,11 +286,12 @@ class FlowController<CTX, STREAM extends Http2Stream> {
     for (int i = 0; i < streamWindowUpdatedStreams.size(); i++) {
       final STREAM stream = streamWindowUpdatedStreams.get(i);
 
-      assert stream.data != null && stream.data.isReadable();
+      assert hasData(stream);
 
       // Write data frames
       final int size = stream.fragmentSize;
-      final boolean endOfStream = (stream.data.readableBytes() == size);
+      final boolean allDataWritten = (stream.data.readableBytes() == size);
+      final boolean endOfStream = allDataWritten && stream.endOfStream;
       if (size > 0) {
         writeDataFrames(writer, ctx, buf, stream, size, endOfStream);
         if (endOfStream) {
@@ -261,9 +324,24 @@ class FlowController<CTX, STREAM extends Http2Stream> {
       for (final STREAM stream : connectionWindowBlockedStreams) {
         final int n = prepareDataFrames(writer, stream, ctx);
         if (n == 0) {
+          // Connection window exhausted again, bail here as the rest will remain blocked
           break;
         }
         size += n;
+      }
+    }
+
+    // Prepare data frames for updated streams
+    for (int i = 0; i < updatedStreams.size(); i++) {
+      final STREAM stream = updatedStreams.get(i);
+      stream.pending = false;
+      // End stream here with an empty data frame?
+      // TODO: Do not send empty data frame if stream has trailers
+      // TODO: refactor prepareDataFrames to handle this case
+      if (stream.endOfStream && !hasData(stream)) {
+        size += prepareEndOfStreamDataFrame(writer, stream, ctx);
+      } else {
+        size += prepareDataFrames(writer, stream, ctx);
       }
     }
 
@@ -278,9 +356,14 @@ class FlowController<CTX, STREAM extends Http2Stream> {
     return size;
   }
 
+  private int prepareEndOfStreamDataFrame(StreamWriter<CTX, STREAM> writer, STREAM stream, CTX ctx)
+      throws Http2Exception {
+    stream.fragmentSize = 0;
+    return estimateSingleFrameSize(writer, ctx, stream, 0);
+  }
+
   private void writeDataFrames(final StreamWriter<CTX, STREAM> writer, final CTX ctx, final ByteBuf buf,
-      final STREAM stream, final int size,
-      final boolean endOfStream) throws Http2Exception {
+      final STREAM stream, final int size, final boolean endOfStream) throws Http2Exception {
     assert size >= 0;
     int remaining = size;
     final int fullFrames = stream.frames - 1;
@@ -292,13 +375,24 @@ class FlowController<CTX, STREAM extends Http2Stream> {
   }
 
   void start(final STREAM stream) {
+    assert !stream.started;
     stream.started = true;
     stream.pending = true;
     stream.remoteWindow = remoteInitialStreamWindow;
     newStreams.add(stream);
   }
 
-  public void stop(final STREAM stream) {
+  void update(STREAM stream) {
+    assert stream.started;
+    if (stream.pending) {
+      return;
+    }
+    stream.pending = true;
+    updatedStreams.add(stream);
+  }
+
+  void stop(final STREAM stream) {
+    assert stream.started;
     final Set<STREAM> s = Collections.singleton(stream);
     newStreams.removeAll(s);
     connectionWindowBlockedStreams.removeAll(s);
@@ -345,11 +439,11 @@ class FlowController<CTX, STREAM extends Http2Stream> {
     this.remoteMaxFramePayloadSize = remoteMaxFrameSize;
   }
 
-  private static int min(final int a, final int b, final int c) {
-    return min(min(a, b), c);
+  private boolean hasData(STREAM stream) {
+    return isReadable(stream.data);
   }
 
-  private static int min(final int a, final int b) {
-    return Math.min(a, b);
+  private static boolean isReadable(ByteBuf data) {
+    return data != null && data.isReadable();
   }
 }
