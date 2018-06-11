@@ -43,6 +43,11 @@ class Http2Stream {
    */
   boolean started;
 
+  /**
+   * Does the outgoing stream end after all of {@link #data} has been sent?
+   */
+  boolean endOfStream;
+
   //================================================================================
   // Incoming (local) flow control
   //================================================================================
@@ -54,11 +59,16 @@ class Http2Stream {
   }
 
   Http2Stream(final int id, final ByteBuf data) {
+    this(id, data, false);
+  }
+
+  Http2Stream(final int id, final ByteBuf data, final boolean endOfStream) {
     if (id < 1) {
       throw new IllegalArgumentException("stream id cannot be < 1");
     }
     this.id = id;
     this.data = data;
+    this.endOfStream = endOfStream;
   }
 
   @Override

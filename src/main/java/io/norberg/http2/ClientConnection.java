@@ -219,7 +219,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
 
     public ClientStream(final int id, final int localWindow, final Http2Request request,
         final Http2ResponseHandler responseHandler) {
-      super(id, request.content());
+      super(id, request.content(), true);
       this.localWindow = localWindow;
       this.request = request;
       this.responseHandler = responseHandler;
