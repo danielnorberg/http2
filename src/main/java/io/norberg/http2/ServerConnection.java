@@ -11,7 +11,6 @@ import static io.norberg.http2.PseudoHeaders.SCHEME;
 import static io.norberg.http2.PseudoHeaders.STATUS;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -84,20 +83,16 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   protected void readData(final ServerStream stream, final ByteBuf data, final int padding,
       final boolean endOfStream) throws Http2Exception {
     // TODO: allow user to provide codec that can be used to parse payload directly without copying it
-
-    ByteBuf content = stream.request.content();
-    if (content == null) {
-      stream.request.content(Unpooled.copiedBuffer(data));
-    } else {
-      content.writeBytes(data);
-    }
+    stream.handler.data(data, padding);
   }
 
   @Override
   protected ServerStream inbound(final int streamId) throws Http2Exception {
     final ServerStream stream = stream(streamId);
     if (stream == null) {
+      // TODO: allow immediate rejection?
       final ServerStream newStream = new ServerStream(streamId, localInitialStreamWindow());
+      newStream.handler = requestHandler.handleRequest(newStream);
       registerStream(newStream);
       return newStream;
     }
@@ -106,18 +101,8 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
 
   @Override
   protected void inboundEnd(final ServerStream stream) throws Http2Exception {
-    // Hand off request to request handler
-    Http2Request request = stream.request;
-    stream.request = null;
-    try {
-      requestHandler.handleRequest(stream, request);
-    } catch (Exception e) {
-      log.error("Request handler threw exception", e);
-      stream.fail();
-    }
-//    request.release();
+    stream.handler.end();
   }
-
 
   @Override
   protected boolean handlesOutbound(final Object msg, final ChannelPromise promise) {
@@ -157,7 +142,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   @Override
   protected void readHeader(final ServerStream stream, final AsciiString name,
       final AsciiString value) throws Http2Exception {
-    stream.request.header(name, value);
+    stream.handler.header(name, value);
   }
 
   @Override
@@ -172,28 +157,28 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
         if (!name.equals(METHOD)) {
           throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
-        stream.request.method(HttpMethod.valueOf(value.toString()));
+        stream.handler.method(HttpMethod.valueOf(value.toString()));
         return;
       }
       case 's': {
         if (!name.equals(SCHEME)) {
           throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
-        stream.request.scheme(value);
+        stream.handler.scheme(value);
         return;
       }
       case 'a': {
         if (!name.equals(AUTHORITY)) {
           throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
-        stream.request.authority(value);
+        stream.handler.authority(value);
         return;
       }
       case 'p': {
         if (!name.equals(PATH)) {
           throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
-        stream.request.path(value);
+        stream.handler.path(value);
         return;
       }
       default:
@@ -203,7 +188,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
 
   class ServerStream extends Http2Stream implements Http2RequestContext {
 
-    private Http2Request request = new Http2Request();
+    private RequestStreamHandler handler;
     private Http2Response response;
 
     public ServerStream(final int id, final int localWindow) {
