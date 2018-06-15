@@ -147,7 +147,7 @@ class Util {
     });
   }
 
-  static ByteBuf addData(final ByteBuf buf, final ByteBuf data) {
+  static ByteBuf appendBytes(final ByteBuf buf, final ByteBuf data) {
     if (buf == null) {
       return data;
     }

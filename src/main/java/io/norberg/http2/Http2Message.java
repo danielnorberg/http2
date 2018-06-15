@@ -133,7 +133,7 @@ abstract class Http2Message<T extends Http2Message<T>> {
   }
 
   void addContent(ByteBuf data) {
-    this.content = Util.addData(content, data);
+    this.content = Util.appendBytes(content, data);
   }
 
 }
