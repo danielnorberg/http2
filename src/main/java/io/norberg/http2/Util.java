@@ -159,6 +159,6 @@ class Util {
       composite.addComponent(true, buf);
     }
     composite.addComponent(true, data);
-    return buf;
+    return composite;
   }
 }
