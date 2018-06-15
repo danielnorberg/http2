@@ -21,7 +21,6 @@ import java.util.concurrent.ThreadLocalRandom;
 class StreamingBenchmarkServer {
 
   private static final int PAYLOAD_SIZE = 128;
-  private static final ByteBuf[] PAYLOADS = BenchmarkUtil.payloads(PAYLOAD_SIZE, 1024);
   private static final byte[][] ARRAY_PAYLOADS = BenchmarkUtil.arrayPayloads(PAYLOAD_SIZE, 1024);
 
   public static void main(final String... args) throws Exception {
@@ -112,6 +111,5 @@ class StreamingBenchmarkServer {
 
   private static ByteBuf payload() {
     return Unpooled.wrappedBuffer(ARRAY_PAYLOADS[ThreadLocalRandom.current().nextInt(ARRAY_PAYLOADS.length)]);
-//    return PAYLOADS[ThreadLocalRandom.current().nextInt(PAYLOADS.length)].duplicate();
   }
 }
