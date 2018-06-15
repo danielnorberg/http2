@@ -109,9 +109,8 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
 
     // Create new stream
     final int streamId = nextStreamId();
-    final ClientStream
-        stream =
-        new ClientStream(streamId, localInitialStreamWindow(), request, requestPromise.responseHandler);
+    final ClientStream stream = new ClientStream(streamId, localInitialStreamWindow(), request,
+        requestPromise.responseHandler);
 
     registerStream(stream);
 

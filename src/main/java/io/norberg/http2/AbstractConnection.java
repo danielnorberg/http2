@@ -42,6 +42,10 @@ import org.slf4j.Logger;
 
 abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTION, STREAM>, STREAM extends Http2Stream> {
 
+  enum Command {
+    END_OF_STREAM
+  }
+
   private final Logger log;
 
   private final HpackEncoder headerEncoder = new HpackEncoder(DEFAULT_HEADER_TABLE_SIZE);
@@ -460,17 +464,23 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
         return;
       }
 
-      if (!handlesOutbound(msg, promise)) {
-        ctx.write(msg, promise);
-        return;
-      }
+      // TODO: Does this check still make sense?
+//      if (!handlesOutbound(msg, promise)) {
+//        ctx.write(msg, promise);
+//        return;
+//      }
 
       final STREAM stream = outbound(msg, promise);
       if (stream == null) {
         return;
       }
 
-      flowController.start(stream);
+      // TODO: feels odd to have this branch here, move it into flowcontroller?
+      if (stream.started) {
+        flowController.update(stream);
+      } else {
+        flowController.start(stream);
+      }
     }
 
     @Override

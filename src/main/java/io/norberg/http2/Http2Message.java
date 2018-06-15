@@ -1,5 +1,6 @@
 package io.norberg.http2;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.util.AsciiString;
 import java.util.AbstractMap;
 import java.util.Arrays;
@@ -13,8 +14,26 @@ abstract class Http2Message<T extends Http2Message<T>> {
 
   private AsciiString[] headers;
   private int headerIx;
+  private ByteBuf content;
 
   Http2Message() {
+  }
+
+  Http2Message(ByteBuf content) {
+    this.content = content;
+  }
+
+  public T content(final ByteBuf content) {
+    this.content = content;
+    return self();
+  }
+
+  public boolean hasContent() {
+    return content != null;
+  }
+
+  public ByteBuf content() {
+    return content;
   }
 
   public boolean hasHeaders() {
@@ -87,7 +106,7 @@ abstract class Http2Message<T extends Http2Message<T>> {
     }
   }
 
-  final void releaseHeaders() {
+  void releaseHeaders() {
     if (headers != null) {
       Arrays.fill(headers, null);
       headers = null;
@@ -101,8 +120,20 @@ abstract class Http2Message<T extends Http2Message<T>> {
     }
   }
 
+  public void release() {
+    releaseHeaders();
+    if (hasContent()) {
+      content.release();
+    }
+  }
+
   @SuppressWarnings("unchecked")
   private T self() {
     return (T) this;
   }
+
+  void addContent(ByteBuf data) {
+    this.content = Util.addData(content, data);
+  }
+
 }

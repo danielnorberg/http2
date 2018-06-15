@@ -1,6 +1,7 @@
 package io.norberg.http2;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
+import static io.norberg.http2.AbstractConnection.Command.END_OF_STREAM;
 import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
 import static io.norberg.http2.Http2Exception.connectionError;
 import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_SIZE;
@@ -110,15 +111,31 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   }
 
   @Override
-  protected ServerStream outbound(final Object msg, final ChannelPromise promise)
-      throws Http2Exception {
-    final Http2Response response = (Http2Response) msg;
+  protected ServerStream outbound(final Object msg, final ChannelPromise promise) {
     final ResponsePromise responsePromise = (ResponsePromise) promise;
-    // TODO: handle duplicate responses
     final ServerStream stream = responsePromise.stream;
-    stream.response = response;
-    stream.data = response.content();
-    stream.endOfStream = true;
+    if (msg instanceof Http2Response) {
+      // Initial response
+      final Http2Response response = (Http2Response) msg;
+      // TODO: handle duplicate responses
+      stream.response = response;
+      stream.data = response.content();
+      stream.endOfStream = response.end();
+    } else if (msg instanceof ByteBuf) {
+      // More data
+      stream.response.addContent((ByteBuf) msg);
+      stream.data = stream.response.content();
+    } else if (msg instanceof Command) {
+      switch ((Command) msg) {
+        case END_OF_STREAM:
+          stream.endOfStream = true;
+          break;
+        default:
+          throw new UnsupportedOperationException();
+      }
+    } else {
+      throw new IllegalArgumentException("msg");
+    }
     return stream;
   }
 
@@ -197,12 +214,22 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
     }
 
     public void respond(final Http2Response response) {
-      send(response, new ResponsePromise(channel(), this));
+      ServerConnection.this.send(response, new ResponsePromise(channel(), this));
     }
 
     public void fail() {
       // Return 500 for request handler errors
       respond(new Http2Response(INTERNAL_SERVER_ERROR));
+    }
+
+    @Override
+    public void send(ByteBuf data) {
+      ServerConnection.this.send(data, new ResponsePromise(channel(), this));
+    }
+
+    @Override
+    public void end() {
+      ServerConnection.this.send(END_OF_STREAM, new ResponsePromise(channel(), this));
     }
   }
 

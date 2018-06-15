@@ -67,6 +67,8 @@ public class Http2ClientServerTest {
       @Override
       public RequestStreamHandler handleRequest(Http2RequestContext stream) {
         return new RequestStreamHandler() {
+          private final ByteBuf payload = Unpooled.buffer();
+
           @Override
           public void method(HttpMethod method) {
             log.info("method: {}", method);
@@ -99,11 +101,17 @@ public class Http2ClientServerTest {
             } else {
               log.info("data: {}", ByteBufUtil.hexDump(data));
             }
+            payload.writeBytes(data);
           }
 
           @Override
           public void end() {
-            stream.respond(new Http2Response(OK));
+            final Http2Response response = new Http2Response(OK);
+            response.end(false);
+            stream.respond(response);
+            stream.send(ByteBufUtil.writeUtf8(UnpooledByteBufAllocator.DEFAULT, "Hello "));
+            stream.send(payload);
+            stream.end();
           }
         };
       }
@@ -123,8 +131,9 @@ public class Http2ClientServerTest {
         .header(AsciiString.of("foo"), AsciiString.of("bar"))
         .header(AsciiString.of("baz"), AsciiString.of("quux"));
     final CompletableFuture<Http2Response> future = client.send(request);
-    final Http2Response response = future.get(30, SECONDS);
+    final Http2Response response = future.get(3000, SECONDS);
     assertThat(response.status(), is(OK));
+    assertThat(response.content().toString(UTF_8), is("Hello world!"));
   }
 
   @Test

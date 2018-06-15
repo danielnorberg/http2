@@ -95,8 +95,9 @@ class StreamingBenchmarkServer {
         for (int i = 0; i < headers.size(); i += 2) {
           response.header(headers.get(i), headers.get(i + 1));
         }
-        response.content(payload());
+        response.end(false);
         context.respond(response);
+        context.send(payload());
       }
     });
 

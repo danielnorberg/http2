@@ -6,7 +6,8 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 public class Http2Response extends Http2Message<Http2Response> {
 
   private HttpResponseStatus status;
-  private ByteBuf content;
+
+  private boolean end = true;
 
   public Http2Response() {
   }
@@ -16,7 +17,7 @@ public class Http2Response extends Http2Message<Http2Response> {
   }
 
   public Http2Response(final HttpResponseStatus status, final ByteBuf content) {
-    this.content = content;
+    super(content);
     this.status = status;
   }
 
@@ -28,31 +29,21 @@ public class Http2Response extends Http2Message<Http2Response> {
     return status;
   }
 
-  public Http2Response content(final ByteBuf content) {
-    this.content = content;
+  public boolean end() {
+    return end;
+  }
+
+  public Http2Response end(boolean end) {
+    this.end = end;
     return this;
-  }
-
-  public boolean hasContent() {
-    return content != null;
-  }
-
-  public ByteBuf content() {
-    return content;
-  }
-
-  public void release() {
-    releaseHeaders();
-    if (hasContent()) {
-      content.release();
-    }
   }
 
   @Override
   public String toString() {
     return "Http2Response{" +
-        ", content=" + content +
+        ", content=" + content() +
         ", headers=" + headersToString() +
+        ", end=" + end +
         '}';
   }
 }
