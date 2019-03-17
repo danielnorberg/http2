@@ -69,10 +69,14 @@ public class Http2Server {
     return closeFuture;
   }
 
-  public static Http2Server create(final RequestHandler requestHandler) {
+  public static Http2Server of(final RequestHandler requestHandler) {
     return builder()
         .requestHandler(requestHandler)
         .build();
+  }
+
+  public static Http2Server ofFull(final FullRequestHandler requestHandler) {
+    return of(requestHandler);
   }
 
   public static Builder builder() {

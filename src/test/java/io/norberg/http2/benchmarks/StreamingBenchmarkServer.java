@@ -13,7 +13,6 @@ import io.norberg.http2.Http2Response;
 import io.norberg.http2.Http2Server;
 import io.norberg.http2.RequestHandler;
 import io.norberg.http2.RequestStreamHandler;
-import io.norberg.http2.StreamingRequestHandler;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -49,7 +48,7 @@ class StreamingBenchmarkServer {
       headers.add(value);
     }
 
-    final RequestHandler requestHandler = StreamingRequestHandler.of(context -> new RequestStreamHandler() {
+    final RequestHandler requestHandler = stream -> new RequestStreamHandler() {
 
       int size = 0;
 
@@ -95,10 +94,10 @@ class StreamingBenchmarkServer {
           response.header(headers.get(i), headers.get(i + 1));
         }
         response.end(false);
-        context.respond(response);
-        context.send(payload());
+        stream.respond(response);
+        stream.send(payload());
       }
-    });
+    };
 
     final Http2Server server = Http2Server.builder()
         .requestHandler(requestHandler)

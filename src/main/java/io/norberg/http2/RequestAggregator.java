@@ -4,21 +4,22 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.util.AsciiString;
+import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class DefaultRequestStreamHandler implements RequestStreamHandler {
+class RequestAggregator implements RequestStreamHandler {
 
-  private static final Logger log = LoggerFactory.getLogger(DefaultRequestStreamHandler.class);
+  private static final Logger log = LoggerFactory.getLogger(RequestAggregator.class);
 
-  private final RequestHandler requestHandler;
+  private final FullRequestHandler requestHandler;
   private final Http2RequestContext stream;
 
   private Http2Request request = new Http2Request();
 
-  public DefaultRequestStreamHandler(RequestHandler requestHandler, Http2RequestContext stream) {
-    this.requestHandler = requestHandler;
-    this.stream = stream;
+  private RequestAggregator(FullRequestHandler requestHandler, Http2RequestContext stream) {
+    this.requestHandler = Objects.requireNonNull(requestHandler, "requestHandler");
+    this.stream = Objects.requireNonNull(stream, "stream");
   }
 
   @Override
@@ -66,5 +67,9 @@ public class DefaultRequestStreamHandler implements RequestStreamHandler {
   @Override
   public void path(AsciiString path) {
     request.path(path);
+  }
+
+  static RequestStreamHandler of(FullRequestHandler handler, Http2RequestContext stream) {
+    return new RequestAggregator(handler, stream);
   }
 }

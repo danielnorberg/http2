@@ -63,62 +63,58 @@ public class Http2ClientServerTest {
   @Test
   public void testServerStreamHandler() throws ExecutionException, InterruptedException, TimeoutException {
 
-    final RequestHandler requestHandler = new StreamingRequestHandler() {
+    final RequestHandler requestHandler = stream -> new RequestStreamHandler() {
+
+      private final ByteBuf payload = Unpooled.buffer();
+
       @Override
-      public RequestStreamHandler handleRequest(Http2RequestContext stream) {
-        return new RequestStreamHandler() {
-          private final ByteBuf payload = Unpooled.buffer();
+      public void method(HttpMethod method) {
+        log.info("method: {}", method);
+      }
 
-          @Override
-          public void method(HttpMethod method) {
-            log.info("method: {}", method);
-          }
+      @Override
+      public void scheme(AsciiString scheme) {
+        log.info("scheme: {}", scheme);
+      }
 
-          @Override
-          public void scheme(AsciiString scheme) {
-            log.info("scheme: {}", scheme);
-          }
+      @Override
+      public void authority(AsciiString authority) {
+        log.info("authority: {}", authority);
+      }
 
-          @Override
-          public void authority(AsciiString authority) {
-            log.info("authority: {}", authority);
-          }
+      @Override
+      public void path(AsciiString path) {
+        log.info("path: {}", path);
+      }
 
-          @Override
-          public void path(AsciiString path) {
-            log.info("path: {}", path);
-          }
+      @Override
+      public void header(AsciiString name, AsciiString value) {
+        log.info("header: {}: {}", name, value);
+      }
 
-          @Override
-          public void header(AsciiString name, AsciiString value) {
-            log.info("header: {}: {}", name, value);
-          }
+      @Override
+      public void data(ByteBuf data, int padding) {
+        if (ByteBufUtil.isText(data, StandardCharsets.UTF_8)) {
+          log.info("data (utf8): {}", data.toString(StandardCharsets.UTF_8));
+        } else {
+          log.info("data: {}", ByteBufUtil.hexDump(data));
+        }
+        payload.writeBytes(data);
+      }
 
-          @Override
-          public void data(ByteBuf data, int padding) {
-            if (ByteBufUtil.isText(data, StandardCharsets.UTF_8)) {
-              log.info("data (utf8): {}", data.toString(StandardCharsets.UTF_8));
-            } else {
-              log.info("data: {}", ByteBufUtil.hexDump(data));
-            }
-            payload.writeBytes(data);
-          }
-
-          @Override
-          public void end() {
-            final Http2Response response = new Http2Response(OK);
-            response.end(false);
-            stream.respond(response);
-            stream.send(ByteBufUtil.writeUtf8(UnpooledByteBufAllocator.DEFAULT, "Hello "));
-            stream.send(payload);
-            stream.end();
-          }
-        };
+      @Override
+      public void end() {
+        final Http2Response response = new Http2Response(OK);
+        response.end(false);
+        stream.respond(response);
+        stream.send(ByteBufUtil.writeUtf8(UnpooledByteBufAllocator.DEFAULT, "Hello "));
+        stream.send(payload);
+        stream.end();
       }
     };
 
     // Start server
-    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server = autoClosing(Http2Server.of(requestHandler));
     final int port = server.bind(0).get().getPort();
 
     // Start client
@@ -139,12 +135,12 @@ public class Http2ClientServerTest {
   @Test
   public void testReqRep() throws Exception {
 
-    final RequestHandler requestHandler = (context, request) ->
+    final FullRequestHandler requestHandler = (context, request) ->
         context.respond(request.response(
             OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8)));
 
     // Start server
-    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server = autoClosing(Http2Server.ofFull(requestHandler));
     final int port = server.bind(0).get().getPort();
 
     // Start client
@@ -173,7 +169,7 @@ public class Http2ClientServerTest {
   @Test
   public void testHeaderFragmentation() throws Exception {
 
-    final RequestHandler requestHandler = (context, request) -> {
+    final FullRequestHandler requestHandler = (context, request) -> {
       Http2Response response = request.response(
           OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8));
       request.forEachHeader(response::header);
@@ -181,7 +177,7 @@ public class Http2ClientServerTest {
     };
 
     // Start server
-    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server = autoClosing(Http2Server.ofFull(requestHandler));
     final int port = server.bind(0).get().getPort();
 
     // Start client
@@ -216,13 +212,13 @@ public class Http2ClientServerTest {
       headers.add(immutableEntry(AsciiString.of("header" + i), AsciiString.of("value" + i)));
     }
 
-    final RequestHandler requestHandler = (context, request) ->
+    final FullRequestHandler requestHandler = (context, request) ->
         context.respond(request
             .response(OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8))
             .headers(headers));
 
     // Start server
-    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server = autoClosing(Http2Server.ofFull(requestHandler));
     final int port = server.bind(0).get().getPort();
 
     // Start client
@@ -245,7 +241,7 @@ public class Http2ClientServerTest {
   public void testLargeReqRep() throws Exception {
 
     // Large response
-    final RequestHandler requestHandler = (context, request) ->
+    final FullRequestHandler requestHandler = (context, request) ->
         context.respond(request.response(
             OK, Unpooled.copiedBuffer(request.content())));
 
@@ -280,12 +276,12 @@ public class Http2ClientServerTest {
 
   @Test
   public void testClientReconnects() throws Exception {
-    final RequestHandler requestHandler = (context, request) ->
+    final FullRequestHandler requestHandler = (context, request) ->
         context.respond(request.response(
             OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server
-    final Http2Server server1 = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server1 = autoClosing(Http2Server.ofFull(requestHandler));
     final int port = server1.bind(0).get().getPort();
 
     // Make a successful request
@@ -313,7 +309,7 @@ public class Http2ClientServerTest {
     }
 
     // Start server again
-    final Http2Server server2 = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server2 = autoClosing(Http2Server.ofFull(requestHandler));
     server2.bind(port).get();
     verify(listener, timeout(30_000).atLeastOnce()).connectionEstablished(client);
 

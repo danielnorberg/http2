@@ -14,9 +14,11 @@ import ch.qos.logback.classic.LoggerContext;
 import com.spotify.logging.LoggingConfigurator;
 import io.netty.buffer.Unpooled;
 import io.netty.util.ResourceLeakDetector;
+import io.norberg.http2.FullRequestHandler;
 import io.norberg.http2.Http2Client;
 import io.norberg.http2.Http2Response;
 import io.norberg.http2.Http2Server;
+import io.norberg.http2.RequestHandler;
 import java.util.ArrayList;
 import java.util.IntSummaryStatistics;
 import java.util.List;
@@ -82,8 +84,8 @@ public class Http2ClientServerIT {
     // Start server
     final Http2Server server = autoClosing(
         Http2Server.builder()
-            .requestHandler((context, request) ->
-                context.respond(request.response(OK, Unpooled.wrappedBuffer(payload))))
+            .requestHandler(FullRequestHandler.of((context, request) ->
+                context.respond(request.response(OK, Unpooled.wrappedBuffer(payload)))))
             .connectionWindow(serverConnectionWindow)
             .streamWindow(serverStreamWindow)
             .build());

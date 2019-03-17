@@ -8,6 +8,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.util.AsciiString;
 import io.netty.util.ResourceLeakDetector;
+import io.norberg.http2.FullRequestHandler;
 import io.norberg.http2.Http2Response;
 import io.norberg.http2.Http2Server;
 import io.norberg.http2.RequestHandler;
@@ -47,7 +48,7 @@ class BenchmarkServer {
       headers.add(value);
     }
 
-    final RequestHandler requestHandler = (context, request) -> {
+    final FullRequestHandler requestHandler = (context, request) -> {
       requests.inc(0);
       int size = 0;
       if (request.hasContent()) {
