@@ -87,15 +87,19 @@ class StreamingBenchmarkServer {
       }
 
       @Override
+      public void trailer(AsciiString name, AsciiString value) {
+        size += name.length() + value.length();
+      }
+
+      @Override
       public void end() {
         data.add(size, 0);
-        final Http2Response response = new Http2Response(OK);
+        final Http2Response response = Http2Response.streaming(OK);
         for (int i = 0; i < headers.size(); i += 2) {
           response.header(headers.get(i), headers.get(i + 1));
         }
-        response.end(false);
-        stream.respond(response);
-        stream.send(payload());
+        stream.send(response);
+        stream.data(payload());
       }
     };
 

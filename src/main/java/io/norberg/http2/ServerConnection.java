@@ -41,9 +41,15 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
       final ByteBuf buf) throws Http2Exception {
     final Http2Response response = stream.response;
     headerEncoder.encodeResponse(buf, response.status().codeAsText());
-    for (int i = 0; i < response.numHeaders(); i++) {
+    for (int i = 0; i < response.numInitialHeaders(); i++) {
       headerEncoder.encodeHeader(buf, response.headerName(i), response.headerValue(i), false);
     }
+  }
+
+  @Override
+  protected void encodeTrailers(ServerStream stream, HpackEncoder headerEncoder, ByteBuf buf)
+      throws Http2Exception {
+    encodeTrailers(stream.response, headerEncoder, buf);
   }
 
   @Override
@@ -53,6 +59,14 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
         Http2Header.size(STATUS, response.status().codeAsText()) +
         Http2WireFormat.headersPayloadSize(response);
 
+  }
+
+  @Override
+  protected int trailersPayloadSize(ServerStream stream) {
+    final Http2Response response = stream.response;
+    return FRAME_HEADER_SIZE +
+           Http2Header.size(STATUS, response.status().codeAsText()) +
+           Http2WireFormat.trailersPayloadSize(response);
   }
 
   @Override
@@ -114,14 +128,32 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   protected ServerStream outbound(final Object msg, final ChannelPromise promise) {
     final ResponsePromise responsePromise = (ResponsePromise) promise;
     final ServerStream stream = responsePromise.stream;
+    if (stream.closed) {
+      throw new IllegalStateException("Stream closed, cannot send additional content");
+    }
     if (msg instanceof Http2Response) {
-      // Initial response
       final Http2Response response = (Http2Response) msg;
-      // TODO: handle duplicate responses
-      stream.response = response;
-      stream.data = response.content();
+      final Http2Response streamMessage = stream.response;
+      if (streamMessage == null) {
+        // Initial response
+        stream.response = response;
+        stream.data = response.content();
+      } else {
+        verifyNotEndOfStream(stream);
+        // Stream continuation
+        if (response.hasInitialHeaders()) {
+          throw new IllegalStateException("Response started, cannot send additional headers");
+        }
+        streamMessage.addContent(response.content());
+        stream.data = stream.response.content();
+        for (int i = 0; i < response.numHeaders(); i++) {
+          streamMessage.trailingHeader(response.headerName(i), response.headerValue(i));
+        }
+      }
+      stream.hasTrailingHeaders |= response.hasTrailingHeaders();
       stream.endOfStream = response.end();
     } else if (msg instanceof ByteBuf) {
+      verifyNotEndOfStream(stream);
       // More data
       stream.response.addContent((ByteBuf) msg);
       stream.data = stream.response.content();
@@ -137,6 +169,12 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
       throw new IllegalArgumentException("msg");
     }
     return stream;
+  }
+
+  private void verifyNotEndOfStream(ServerStream stream) {
+    if (stream.endOfStream) {
+      throw new IllegalStateException("Stream already ended, cannot send additional content");
+    }
   }
 
   @Override
@@ -159,7 +197,12 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   @Override
   protected void readHeader(final ServerStream stream, final AsciiString name,
       final AsciiString value) throws Http2Exception {
-    stream.handler.header(name, value);
+    final boolean trailer = stream.headersRead;
+    if (trailer) {
+      stream.handler.trailer(name, value);
+    } else {
+      stream.handler.header(name, value);
+    }
   }
 
   @Override
@@ -213,17 +256,17 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
       this.localWindow = localWindow;
     }
 
-    public void respond(final Http2Response response) {
+    public void send(final Http2Response response) {
       ServerConnection.this.send(response, new ResponsePromise(channel(), this));
     }
 
     public void fail() {
       // Return 500 for request handler errors
-      respond(new Http2Response(INTERNAL_SERVER_ERROR));
+      send(new Http2Response(INTERNAL_SERVER_ERROR));
     }
 
     @Override
-    public void send(ByteBuf data) {
+    public void data(ByteBuf data) {
       ServerConnection.this.send(data, new ResponsePromise(channel(), this));
     }
 

@@ -1,6 +1,5 @@
 package io.norberg.http2;
 
-import static com.google.common.collect.Maps.immutableEntry;
 import static io.netty.handler.codec.http.HttpMethod.GET;
 import static io.netty.handler.codec.http.HttpMethod.POST;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
@@ -26,7 +25,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.Map.Entry;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
@@ -103,13 +101,24 @@ public class Http2ClientServerTest {
       }
 
       @Override
+      public void trailer(AsciiString name, AsciiString value) {
+        log.info("trailer: {}: {}", name, value);
+      }
+
+      @Override
       public void end() {
-        final Http2Response response = new Http2Response(OK);
-        response.end(false);
-        stream.respond(response);
-        stream.send(ByteBufUtil.writeUtf8(UnpooledByteBufAllocator.DEFAULT, "Hello "));
-        stream.send(payload);
-        stream.end();
+        // TODO: test more permutations of fragmented responding
+
+        stream.send(Http2Response.streaming()
+            .status(OK)
+            .header("foo-header", "bar-header")
+            .contentUtf8("Hello "));
+
+        stream.data(payload);
+
+        stream.end(Http2Response.streaming()
+            .contentUtf8(" Good bye!")
+            .trailingHeader("baz-trailer", "quux-trailer"));
       }
     };
 
@@ -129,15 +138,21 @@ public class Http2ClientServerTest {
     final CompletableFuture<Http2Response> future = client.send(request);
     final Http2Response response = future.get(3000, SECONDS);
     assertThat(response.status(), is(OK));
-    assertThat(response.content().toString(UTF_8), is("Hello world!"));
+    assertThat(response.contentUtf8(), is("Hello world! Good bye!"));
+    assertThat(response.numTrailingHeaders(), is(1));
+    assertThat(response.headerName(0), is(AsciiString.of("foo-header")));
+    assertThat(response.headerValue(0), is(AsciiString.of("bar-header")));
+    assertThat(response.headerName(1), is(AsciiString.of("baz-trailer")));
+    assertThat(response.headerValue(1), is(AsciiString.of("quux-trailer")));
   }
 
   @Test
   public void testReqRep() throws Exception {
 
     final FullRequestHandler requestHandler = (context, request) ->
-        context.respond(request.response(
-            OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8)));
+        context.send(request
+            .response(OK)
+            .contentUtf8("hello: " + request.path()));
 
     // Start server
     final Http2Server server = autoClosing(Http2Server.ofFull(requestHandler));
@@ -167,13 +182,45 @@ public class Http2ClientServerTest {
   }
 
   @Test
+  public void testReqRepWithHeadersAndTrailers() throws Exception {
+
+    final FullRequestHandler requestHandler = (context, request) ->
+        context.send(request
+            .response(OK)
+            .header("h1", "hv1")
+            .contentUtf8("hello: " + request.path())
+            .trailingHeader("t1", "tv1"));
+
+    // Start server
+    final Http2Server server = autoClosing(Http2Server.ofFull(requestHandler));
+    final int port = server.bind(0).get().getPort();
+
+    // Start client
+    final Http2Client client = autoClosing(
+        Http2Client.of("127.0.0.1", port));
+
+    // Make a request
+    final CompletableFuture<Http2Response> future = client.get("/world/1");
+    final Http2Response response = future.get(30, SECONDS);
+
+    // Check that the response has the expected content and header/trailer values
+    assertThat(response.status(), is(OK));
+    final String payload = response.contentUtf8();
+    assertThat(payload, is("hello: /world/1"));
+    assertThat(response.headerName(0), is(AsciiString.of("h1")));
+    assertThat(response.headerValue(0), is(AsciiString.of("hv1")));
+    assertThat(response.headerName(1), is(AsciiString.of("t1")));
+    assertThat(response.headerValue(1), is(AsciiString.of("tv1")));
+  }
+
+  @Test
   public void testHeaderFragmentation() throws Exception {
 
     final FullRequestHandler requestHandler = (context, request) -> {
       Http2Response response = request.response(
           OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8));
       request.forEachHeader(response::header);
-      context.respond(response);
+      context.send(response);
     };
 
     // Start server
@@ -207,13 +254,13 @@ public class Http2ClientServerTest {
 
     final int n = 1024;
 
-    List<Entry<AsciiString, AsciiString>> headers = new ArrayList<>();
+    Http2Headers headers = Http2Headers.of();
     for (int i = 0; i < n; i++) {
-      headers.add(immutableEntry(AsciiString.of("header" + i), AsciiString.of("value" + i)));
+      headers.add("header" + i, "value" + i);
     }
 
     final FullRequestHandler requestHandler = (context, request) ->
-        context.respond(request
+        context.send(request
             .response(OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8))
             .headers(headers));
 
@@ -234,7 +281,7 @@ public class Http2ClientServerTest {
     final String payload = response.content().toString(UTF_8);
     assertThat(payload, is("hello: /world/1"));
 
-    assertThat(response.headers().collect(toList()), is(headers));
+    assertThat(response.headers().collect(toList()), is(headers.stream().collect(toList())));
   }
 
   @Test
@@ -242,7 +289,7 @@ public class Http2ClientServerTest {
 
     // Large response
     final FullRequestHandler requestHandler = (context, request) ->
-        context.respond(request.response(
+        context.send(request.response(
             OK, Unpooled.copiedBuffer(request.content())));
 
     // Start server
@@ -277,7 +324,7 @@ public class Http2ClientServerTest {
   @Test
   public void testClientReconnects() throws Exception {
     final FullRequestHandler requestHandler = (context, request) ->
-        context.respond(request.response(
+        context.send(request.response(
             OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server

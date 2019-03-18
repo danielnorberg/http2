@@ -19,5 +19,7 @@ public interface RequestStreamHandler {
 
   void data(ByteBuf data, int padding);
 
+  void trailer(AsciiString name, AsciiString value);
+
   void end();
 }

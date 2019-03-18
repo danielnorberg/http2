@@ -40,7 +40,9 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 
-abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTION, STREAM>, STREAM extends Http2Stream> {
+abstract class AbstractConnection<
+    CONNECTION extends AbstractConnection<CONNECTION, STREAM>,
+    STREAM extends Http2Stream> {
 
   enum Command {
     END_OF_STREAM
@@ -277,6 +279,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     public void onHeadersEnd(final ChannelHandlerContext ctx, final int streamId, final boolean endOfStream)
         throws Http2Exception {
       assert stream != null;
+      stream.headersRead = true;
       endHeaders(stream, endOfStream);
       if (endOfStream) {
         inboundEnd(stream);
@@ -495,6 +498,11 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     }
 
     @Override
+    public int estimateTrailerFrameSize(ChannelHandlerContext channelHandlerContext, STREAM stream) {
+      return FRAME_HEADER_SIZE + dynamicTableSizeUpdateSize() + trailersPayloadSize(stream);
+    }
+
+    @Override
     public ByteBuf writeStart(final ChannelHandlerContext ctx, final int bufferSize) {
       return ctx.alloc().buffer(bufferSize);
     }
@@ -538,6 +546,34 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     }
 
     @Override
+    public void writeTrailerFrames(ChannelHandlerContext channelHandlerContext, ByteBuf buf, STREAM stream)
+        throws Http2Exception {
+      final boolean endOfStream = true;
+
+      final int headerIndex = buf.writerIndex();
+
+      assert buf.writableBytes() >= FRAME_HEADER_LENGTH;
+      int blockIndex = headerIndex + FRAME_HEADER_LENGTH;
+      buf.writerIndex(blockIndex);
+
+      // Signal header table size update in the beginning of the block, if necessary
+      if (headerTableSizeUpdatePending) {
+        headerTableSizeUpdatePending = false;
+        writeDynamicTableSizeUpdate(buf, headerEncoder.maxTableSize());
+      }
+
+      encodeTrailers(stream, headerEncoder, buf);
+
+      final int blockSize = buf.writerIndex() - blockIndex;
+
+      final int writerIndex = HeaderFraming
+          .frameHeaderBlock(buf, headerIndex, blockSize, remoteMaxFrameSize, endOfStream, stream.id);
+      buf.writerIndex(writerIndex);
+
+      // TODO: padding + fields
+    }
+
+    @Override
     public void writeEnd(final ChannelHandlerContext ctx, final ByteBuf buf) {
       ctx.write(buf);
     }
@@ -545,6 +581,7 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
     @Override
     public void streamEnd(final STREAM stream) {
       outboundEnd(stream);
+      stream.closed = true;
     }
   }
 
@@ -559,7 +596,20 @@ abstract class AbstractConnection<CONNECTION extends AbstractConnection<CONNECTI
   protected abstract void encodeHeaders(final STREAM stream, final HpackEncoder headerEncoder, final ByteBuf buf)
       throws Http2Exception;
 
+  protected abstract void encodeTrailers(STREAM stream, HpackEncoder headerEncoder, ByteBuf buf)
+      throws Http2Exception;
+
+  static void encodeTrailers(Http2Message<?> request, HpackEncoder headerEncoder, ByteBuf buf)
+      throws HpackEncodingException {
+    final int n = request.numHeaders();
+    for (int i = request.trailingHeaderIndex(); i < n; i++) {
+      headerEncoder.encodeHeader(buf, request.headerName(i), request.headerValue(i), false);
+    }
+  }
+
   protected abstract int headersPayloadSize(final STREAM stream);
+
+  protected abstract int trailersPayloadSize(final STREAM stream);
 
   abstract static class Builder<BUILDER extends Builder<BUILDER>> {
 

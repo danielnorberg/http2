@@ -7,6 +7,7 @@ public class Http2Response extends Http2Message<Http2Response> {
 
   private HttpResponseStatus status;
 
+  // TODO: move this property to stream send method and {Request,Response}Promise
   private boolean end = true;
 
   public Http2Response() {
@@ -21,19 +22,20 @@ public class Http2Response extends Http2Message<Http2Response> {
     this.status = status;
   }
 
-  public void status(final HttpResponseStatus status) {
+  public Http2Response status(final HttpResponseStatus status) {
     this.status = status;
+    return this;
   }
 
   public HttpResponseStatus status() {
     return status;
   }
 
-  public boolean end() {
+  boolean end() {
     return end;
   }
 
-  public Http2Response end(boolean end) {
+  Http2Response end(boolean end) {
     this.end = end;
     return this;
   }
@@ -41,9 +43,26 @@ public class Http2Response extends Http2Message<Http2Response> {
   @Override
   public String toString() {
     return "Http2Response{" +
-        ", content=" + content() +
-        ", headers=" + headersToString() +
-        ", end=" + end +
-        '}';
+           ", status=" + status +
+           ", content=" + content() +
+           ", headers=" + headersToString() +
+           ", end=" + end +
+           '}';
+  }
+
+  public static Http2Response of() {
+    return new Http2Response();
+  }
+
+  public static Http2Response of(HttpResponseStatus status) {
+    return new Http2Response(status);
+  }
+
+  public static Http2Response streaming() {
+    return Http2Response.of().end(false);
+  }
+
+  public static Http2Response streaming(HttpResponseStatus status) {
+    return streaming().status(status);
   }
 }

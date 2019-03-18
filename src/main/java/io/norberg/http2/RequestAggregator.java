@@ -34,6 +34,11 @@ class RequestAggregator implements RequestStreamHandler {
   }
 
   @Override
+  public void trailer(AsciiString name, AsciiString value) {
+    request.trailingHeader(name, value);
+  }
+
+  @Override
   public void end() {
     // Hand off request to request handler
     try {

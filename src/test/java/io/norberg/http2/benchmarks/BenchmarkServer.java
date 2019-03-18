@@ -11,7 +11,6 @@ import io.netty.util.ResourceLeakDetector;
 import io.norberg.http2.FullRequestHandler;
 import io.norberg.http2.Http2Response;
 import io.norberg.http2.Http2Server;
-import io.norberg.http2.RequestHandler;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -65,7 +64,7 @@ class BenchmarkServer {
         response.header(headers.get(i), headers.get(i + 1));
       }
       response.content(payload());
-      context.respond(response);
+      context.send(response);
       request.release();
     };
 
