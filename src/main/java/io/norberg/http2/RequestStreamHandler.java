@@ -20,7 +20,4 @@ public interface RequestStreamHandler {
   void data(ByteBuf data, int padding);
 
   void end();
-
-  @FunctionalInterface
-  interface Factory extends Function<Http2RequestContext, RequestStreamHandler> {}
 }
