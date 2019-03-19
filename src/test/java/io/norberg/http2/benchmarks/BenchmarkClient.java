@@ -43,7 +43,7 @@ public class BenchmarkClient {
 
   private static void run(String host, int port) throws Exception {
 
-    final AtomicLong maxConcurrentStreams = new AtomicLong(2000L);
+    final AtomicLong maxConcurrentStreams = new AtomicLong(1000L);
 
     final Http2Client.Listener listener = new Http2Client.ListenerAdapter() {
       @Override
@@ -67,7 +67,7 @@ public class BenchmarkClient {
     final ProgressMeter.Metric data = meter.group("throughput").metric("data", "bytes");
 
     final List<AsciiString> headers = new ArrayList<>();
-    final int numHeaders = 16;
+    final int numHeaders = 8;
     for (int i = 0; i < numHeaders; i++) {
       final AsciiString name = AsciiString.of("header" + i);
       final AsciiString value = AsciiString.of("value" + i);
