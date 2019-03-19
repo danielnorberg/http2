@@ -94,7 +94,7 @@ public class Http2Server {
   public static class Builder {
 
     private Integer maxConcurrentStreams;
-    private List<InetSocketAddress> bind;
+    private List<InetSocketAddress> bind; // TODO: use or remove
     private RequestHandler requestHandler;
     private Integer connectionWindow;
     private Integer streamWindow;
