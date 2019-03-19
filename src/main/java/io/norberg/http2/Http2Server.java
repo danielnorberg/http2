@@ -16,9 +16,11 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.GlobalEventExecutor;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,6 +69,12 @@ public class Http2Server {
 
   public CompletableFuture<Void> closeFuture() {
     return closeFuture;
+  }
+
+  public List<SocketAddress> addresses() {
+    return channels.stream()
+        .map(Channel::localAddress)
+        .collect(Collectors.toList());
   }
 
   public static Http2Server of(final RequestHandler requestHandler) {
