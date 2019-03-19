@@ -15,7 +15,6 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class BenchmarkServer {
@@ -65,7 +64,7 @@ public class BenchmarkServer {
   private static FullRequestHandler requestHandler() {
     final List<AsciiString> headers = headers();
 
-    return (context, request) -> ForkJoinPool.commonPool().execute(() -> {
+    return (context, request) -> {
       final Http2Response response = request.response(OK);
       for (int i = 0; i < headers.size(); i += 2) {
         response.header(headers.get(i), headers.get(i + 1));
@@ -74,7 +73,7 @@ public class BenchmarkServer {
       context.send(response);
       request.release();
 
-    });
+    };
   }
 
   private static FullRequestHandler meteredRequestHandler() {
