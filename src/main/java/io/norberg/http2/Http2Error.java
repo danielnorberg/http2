@@ -1,6 +1,7 @@
 package io.norberg.http2;
 
-enum Http2Error {
+public enum Http2Error {
+  // TODO: Allow extensions
   NO_ERROR(0x0),
   PROTOCOL_ERROR(0x1),
   INTERNAL_ERROR(0x2),

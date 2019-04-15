@@ -263,6 +263,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
 
     @Override
     public void abort(Http2Error error) {
+      // TODO: do not allow users to send protocol errors etc.
       ServerConnection.this.send(error, new ResponsePromise(channel(), this, true));
     }
 
