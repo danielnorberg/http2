@@ -2,7 +2,7 @@ package io.norberg.http2;
 
 import java.util.Objects;
 
-public class Http2Exception extends Exception {
+class Http2Exception extends Exception {
 
   private final int streamId;
   private final Http2Error error;
