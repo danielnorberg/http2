@@ -25,7 +25,7 @@ class Http2WireFormat {
 
   static final int WINDOW_UPDATE_FRAME_LENGTH = FRAME_HEADER_LENGTH + INT_FIELD_LENGTH;
   static final int PING_FRAME_PAYLOAD_LENGTH = 8;
-
+  static final int RST_STREAM_FRAME_PAYLOAD_LENGTH = 4;
 
   static void writeFrameHeader(final ByteBuf buf, final int offset, final int length,
       final int type, final int flags, final int streamId) {

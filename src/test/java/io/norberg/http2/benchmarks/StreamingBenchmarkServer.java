@@ -94,12 +94,12 @@ class StreamingBenchmarkServer {
       @Override
       public void end() {
         data.add(size, 0);
-        final Http2Response response = Http2Response.streaming(OK);
+        final Http2Response response = Http2Response.of(OK);
         for (int i = 0; i < headers.size(); i += 2) {
           response.header(headers.get(i), headers.get(i + 1));
         }
         stream.send(response);
-        stream.data(payload());
+        stream.end(payload());
       }
     };
 

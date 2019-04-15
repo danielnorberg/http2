@@ -84,7 +84,7 @@ public class Http2ClientServerIT {
     final Http2Server server = autoClosing(
         Http2Server.builder()
             .requestHandler(FullRequestHandler.of((context, request) ->
-                context.send(request.response(OK, Unpooled.wrappedBuffer(payload)))))
+                context.respond(request.response(OK, Unpooled.wrappedBuffer(payload)))))
             .connectionWindow(serverConnectionWindow)
             .streamWindow(serverStreamWindow)
             .build());

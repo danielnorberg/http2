@@ -40,12 +40,11 @@ class RequestAggregator implements RequestStreamHandler {
 
   @Override
   public void end() {
-    // Hand off request to request handler
     try {
       requestHandler.handleRequest(stream, request);
     } catch (Exception e) {
       log.error("Request handler threw exception", e);
-      stream.fail();
+      stream.abort(Http2Error.INTERNAL_ERROR);
     }
   }
 

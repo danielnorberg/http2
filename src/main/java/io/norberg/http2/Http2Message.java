@@ -1,7 +1,5 @@
 package io.norberg.http2;
 
-import static java.lang.Integer.max;
-import static java.lang.Integer.numberOfLeadingZeros;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import io.netty.buffer.ByteBuf;
@@ -17,10 +15,7 @@ import java.util.stream.Stream;
 
 abstract class Http2Message<T extends Http2Message<T>> {
 
-  /**
-   * A reference either to an array of {@link AsciiString} or a {@link Http2Headers}.
-   */
-  private Object headers;
+  private AsciiString[] headers;
   private int headerIx;
   private int trailingHeaders = 0;
   private ByteBuf content;
@@ -68,24 +63,28 @@ abstract class Http2Message<T extends Http2Message<T>> {
     if (headers == null) {
       throw new IndexOutOfBoundsException("Index: " + i + ", Size: " + 0);
     }
-    if (headers instanceof Http2Headers) {
-      return ((Http2Headers) headers).name(i);
-    }
-    AsciiString[] headersArray = (AsciiString[]) headers;
     final int ix = i << 1;
-    return headersArray[ix];
+    return headers[ix];
   }
 
   public AsciiString headerValue(int i) {
     if (headers == null) {
       throw new IndexOutOfBoundsException("Index: " + i + ", Size: " + 0);
     }
-    if (headers instanceof Http2Headers) {
-      return ((Http2Headers) headers).value(i);
-    }
-    AsciiString[] headersArray = (AsciiString[]) headers;
     final int ix = i << 1;
-    return headersArray[ix + 1];
+    return headers[ix + 1];
+  }
+
+  public Stream<Map.Entry<AsciiString, AsciiString>> headers() {
+    return IntStream.range(0, numHeaders())
+        .mapToObj(i -> new AbstractMap.SimpleImmutableEntry<>(headerName(i), headerValue(i)));
+  }
+
+  public void forEachHeader(BiConsumer<AsciiString, AsciiString> action) {
+    Objects.requireNonNull(action);
+    for (int i = 0; i < numHeaders(); i++) {
+      action.accept(headerName(i), headerValue(i));
+    }
   }
 
   public T header(final String name, final String value) {
@@ -94,6 +93,29 @@ abstract class Http2Message<T extends Http2Message<T>> {
 
   public T header(final AsciiString name, final AsciiString value) {
     return initialHeader(name, value);
+  }
+
+  public T headers(Iterable<Map.Entry<AsciiString, AsciiString>> headers) {
+    headers.forEach(e -> header(e.getKey(), e.getValue()));
+    return self();
+  }
+
+  public T headers(Stream<Map.Entry<AsciiString, AsciiString>> headers) {
+    headers.forEach(e -> header(e.getKey(), e.getValue()));
+    return self();
+  }
+
+  public T headers(Http2Message<?> message) {
+    initialHeaders(message);
+    trailingHeaders(message);
+    return self();
+  }
+
+  public T headers(Http2Headers headers) {
+    for (int i = 0; i < headers.size(); i++) {
+      header(headers.name(i), headers.value(i));
+    }
+    return self();
   }
 
   public T initialHeader(String name, String value) {
@@ -107,6 +129,13 @@ abstract class Http2Message<T extends Http2Message<T>> {
     return header0(name, value);
   }
 
+  public T initialHeaders(Http2Message<?> message) {
+    for (int i = 0; i < message.numInitialHeaders(); i++) {
+      header(message.headerName(i), message.headerValue(i));
+    }
+    return self();
+  }
+
   public T trailingHeader(String name, String value) {
     return trailingHeader(AsciiString.of(name), AsciiString.of(value));
   }
@@ -116,32 +145,39 @@ abstract class Http2Message<T extends Http2Message<T>> {
     return header0(name, value);
   }
 
-  private T header0(AsciiString name, AsciiString value) {
-    if (headers == null) {
-      headers = new AsciiString[16];
-    } else if (headers instanceof Http2Headers) {
-      headers = copyHeaders((Http2Headers) headers);
-    }
-    AsciiString[] headersArray = (AsciiString[]) headers;
-    if (headerIx >= headersArray.length) {
-      headersArray = Arrays.copyOf(headersArray, headersArray.length * 2);
-      headers = headersArray;
-    }
-    headersArray[headerIx] = name;
-    headersArray[headerIx + 1] = value;
-    headerIx += 2;
+  public T trailingHeaders(Http2Headers headers) {
+    headers.forEachHeader(this::trailingHeader);
     return self();
   }
 
-  private static AsciiString[] copyHeaders(Http2Headers headers) {
-    int headersSize = headers.size();
-    final int newSize = max(16, 1 << (32 - numberOfLeadingZeros(headersSize * 3)));
-    final AsciiString[] newHeaders = new AsciiString[newSize];
-    for (int i = 0; i < headersSize; i += 1) {
-      newHeaders[i] = headers.name(i);
-      newHeaders[i + 1] = headers.name(i);
+  public T trailingHeaders(Iterable<Map.Entry<AsciiString, AsciiString>> headers) {
+    headers.forEach(e -> trailingHeader(e.getKey(), e.getValue()));
+    return self();
+  }
+
+  public T trailingHeaders(Stream<Map.Entry<AsciiString, AsciiString>> headers) {
+    headers.forEach(e -> trailingHeader(e.getKey(), e.getValue()));
+    return self();
+  }
+
+  public T trailingHeaders(Http2Message<?> message) {
+    for (int i = message.numInitialHeaders(); i < message.numHeaders(); i++) {
+      trailingHeader(message.headerName(i), message.headerValue(i));
     }
-    return newHeaders;
+    return self();
+  }
+
+  private T header0(AsciiString name, AsciiString value) {
+    if (headers == null) {
+      headers = new AsciiString[16];
+    }
+    if (headerIx >= headers.length) {
+      headers = Arrays.copyOf(headers, headers.length * 2);
+    }
+    headers[headerIx] = name;
+    headers[headerIx + 1] = value;
+    headerIx += 2;
+    return self();
   }
 
   public T content(final ByteBuf content) {
@@ -149,8 +185,17 @@ abstract class Http2Message<T extends Http2Message<T>> {
     return self();
   }
 
+  public T addContent(final ByteBuf data) {
+    this.content = Util.appendBytes(content, data);
+    return self();
+  }
+
   public T contentUtf8(final String content) {
     return content(Unpooled.copiedBuffer(content, UTF_8));
+  }
+
+  public T addContentUtf8(final String content) {
+    return addContent(Unpooled.copiedBuffer(content, UTF_8));
   }
 
   public boolean hasContent() {
@@ -169,65 +214,6 @@ abstract class Http2Message<T extends Http2Message<T>> {
     headers = null;
     if (hasContent()) {
       content.release();
-    }
-  }
-
-  void addContent(ByteBuf data) {
-    this.content = Util.appendBytes(content, data);
-  }
-
-  public T headers(Http2Headers headers) {
-    if (trailingHeaders != 0) {
-      throw new IllegalStateException("Cannot add headers after trailers");
-    }
-    if (this.headers != null) {
-      headers.forEachHeader(this::header);
-    } else {
-      this.headers = headers;
-      this.headerIx = headers.size() * 2;
-    }
-    return self();
-  }
-
-  public T trailers(Http2Headers headers) {
-    if (this.headers != null) {
-      headers.forEachHeader(this::trailingHeader);
-    } else {
-      this.headers = headers;
-      this.trailingHeaders = headers.size();
-    }
-    return self();
-  }
-
-  public T headers(Iterable<Map.Entry<AsciiString, AsciiString>> headers) {
-    headers.forEach(e -> header(e.getKey(), e.getValue()));
-    return self();
-  }
-
-  public T headers(Stream<Map.Entry<AsciiString, AsciiString>> headers) {
-    headers.forEach(e -> header(e.getKey(), e.getValue()));
-    return self();
-  }
-
-  public T trailers(Iterable<Map.Entry<AsciiString, AsciiString>> headers) {
-    headers.forEach(e -> trailingHeader(e.getKey(), e.getValue()));
-    return self();
-  }
-
-  public T trailers(Stream<Map.Entry<AsciiString, AsciiString>> headers) {
-    headers.forEach(e -> trailingHeader(e.getKey(), e.getValue()));
-    return self();
-  }
-
-  public Stream<Map.Entry<AsciiString, AsciiString>> headers() {
-    return IntStream.range(0, numHeaders())
-        .mapToObj(i -> new AbstractMap.SimpleImmutableEntry<>(headerName(i), headerValue(i)));
-  }
-
-  public void forEachHeader(BiConsumer<AsciiString, AsciiString> action) {
-    Objects.requireNonNull(action);
-    for (int i = 0; i < numHeaders(); i++) {
-      action.accept(headerName(i), headerValue(i));
     }
   }
 

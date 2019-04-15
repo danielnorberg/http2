@@ -1,7 +1,5 @@
 package io.norberg.http2;
 
-import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
-import static io.norberg.http2.AbstractConnection.Command.END_OF_STREAM;
 import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
 import static io.norberg.http2.Http2Exception.connectionError;
 import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_SIZE;
@@ -131,43 +129,45 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
     if (stream.closed) {
       throw new IllegalStateException("Stream closed, cannot send additional content");
     }
+    final Http2Response streamMessage = stream.response;
     if (msg instanceof Http2Response) {
       final Http2Response response = (Http2Response) msg;
-      final Http2Response streamMessage = stream.response;
       if (streamMessage == null) {
         // Initial response
         stream.response = response;
         stream.data = response.content();
       } else {
-        verifyNotEndOfStream(stream);
         // Stream continuation
+        verifyNotEndOfStream(stream);
         if (response.hasInitialHeaders()) {
           throw new IllegalStateException("Response started, cannot send additional headers");
         }
         streamMessage.addContent(response.content());
         stream.data = stream.response.content();
-        for (int i = 0; i < response.numHeaders(); i++) {
-          streamMessage.trailingHeader(response.headerName(i), response.headerValue(i));
-        }
+        streamMessage.trailingHeaders(response);
       }
       stream.hasTrailingHeaders |= response.hasTrailingHeaders();
-      stream.endOfStream = response.end();
     } else if (msg instanceof ByteBuf) {
-      verifyNotEndOfStream(stream);
       // More data
+      if (streamMessage == null) {
+        throw new IllegalStateException("Response not started");
+      }
+      verifyNotEndOfStream(stream);
       stream.response.addContent((ByteBuf) msg);
       stream.data = stream.response.content();
-    } else if (msg instanceof Command) {
-      switch ((Command) msg) {
-        case END_OF_STREAM:
-          stream.endOfStream = true;
-          break;
-        default:
-          throw new UnsupportedOperationException();
+    } else if (msg instanceof Http2Headers) {
+      // Trailing headers
+      if (streamMessage == null) {
+        throw new IllegalStateException("Response not started");
       }
+      verifyNotEndOfStream(stream);
+      streamMessage.trailingHeaders((Http2Headers) msg);
+    } else if (msg instanceof Http2Error) {
+      abortStream(stream, (Http2Error) msg);
     } else {
       throw new IllegalArgumentException("msg");
     }
+    stream.endOfStream = responsePromise.end;
     return stream;
   }
 
@@ -256,33 +256,31 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
       this.localWindow = localWindow;
     }
 
-    public void send(final Http2Response response) {
-      ServerConnection.this.send(response, new ResponsePromise(channel(), this));
-    }
-
-    public void fail() {
-      // Return 500 for request handler errors
-      send(new Http2Response(INTERNAL_SERVER_ERROR));
+    @Override
+    public void send(final Http2Response response, final boolean end) {
+      ServerConnection.this.send(response, new ResponsePromise(channel(), this, end));
     }
 
     @Override
-    public void data(ByteBuf data) {
-      ServerConnection.this.send(data, new ResponsePromise(channel(), this));
+    public void abort(Http2Error error) {
+      ServerConnection.this.send(error, new ResponsePromise(channel(), this, true));
     }
 
     @Override
-    public void end() {
-      ServerConnection.this.send(END_OF_STREAM, new ResponsePromise(channel(), this));
+    public void send(final ByteBuf data, final boolean end) {
+      ServerConnection.this.send(data, new ResponsePromise(channel(), this, end));
     }
   }
 
   private static class ResponsePromise extends DefaultChannelPromise {
 
     final ServerStream stream;
+    final boolean end;
 
-    public ResponsePromise(final Channel channel, final ServerStream stream) {
+    public ResponsePromise(final Channel channel, final ServerStream stream, boolean end) {
       super(channel);
-      this.stream = stream;
+      this.stream = Objects.requireNonNull(stream, "stream");
+      this.end = end;
     }
   }
 

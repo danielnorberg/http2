@@ -109,14 +109,13 @@ public class Http2ClientServerTest {
       public void end() {
         // TODO: test more permutations of fragmented responding
 
-        stream.send(Http2Response.streaming()
-            .status(OK)
+        stream.send(Http2Response.of(OK)
             .header("foo-header", "bar-header")
             .contentUtf8("Hello "));
 
-        stream.data(payload);
+        stream.send(payload);
 
-        stream.end(Http2Response.streaming()
+        stream.end(Http2Response.of()
             .contentUtf8(" Good bye!")
             .trailingHeader("baz-trailer", "quux-trailer"));
       }
@@ -150,7 +149,7 @@ public class Http2ClientServerTest {
   public void testReqRep() throws Exception {
 
     final FullRequestHandler requestHandler = (context, request) ->
-        context.send(request
+        context.respond(request
             .response(OK)
             .contentUtf8("hello: " + request.path()));
 
@@ -185,7 +184,7 @@ public class Http2ClientServerTest {
   public void testReqRepWithHeadersAndTrailers() throws Exception {
 
     final FullRequestHandler requestHandler = (context, request) ->
-        context.send(request
+        context.respond(request
             .response(OK)
             .header("h1", "hv1")
             .contentUtf8("hello: " + request.path())
@@ -220,7 +219,7 @@ public class Http2ClientServerTest {
       Http2Response response = request.response(
           OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8));
       request.forEachHeader(response::header);
-      context.send(response);
+      context.respond(response);
     };
 
     // Start server
@@ -260,7 +259,7 @@ public class Http2ClientServerTest {
     }
 
     final FullRequestHandler requestHandler = (context, request) ->
-        context.send(request
+        context.respond(request
             .response(OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8))
             .headers(headers));
 
@@ -289,7 +288,7 @@ public class Http2ClientServerTest {
 
     // Large response
     final FullRequestHandler requestHandler = (context, request) ->
-        context.send(request.response(
+        context.respond(request.response(
             OK, Unpooled.copiedBuffer(request.content())));
 
     // Start server
@@ -324,7 +323,7 @@ public class Http2ClientServerTest {
   @Test
   public void testClientReconnects() throws Exception {
     final FullRequestHandler requestHandler = (context, request) ->
-        context.send(request.response(
+        context.respond(request.response(
             OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server

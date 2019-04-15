@@ -7,6 +7,7 @@ import static io.norberg.http2.Http2Flags.ACK;
 import static io.norberg.http2.Http2Flags.END_STREAM;
 import static io.norberg.http2.Http2FrameTypes.DATA;
 import static io.norberg.http2.Http2FrameTypes.PING;
+import static io.norberg.http2.Http2FrameTypes.RST_STREAM;
 import static io.norberg.http2.Http2FrameTypes.SETTINGS;
 import static io.norberg.http2.Http2Protocol.DEFAULT_HEADER_TABLE_SIZE;
 import static io.norberg.http2.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
@@ -14,6 +15,7 @@ import static io.norberg.http2.Http2Protocol.DEFAULT_MAX_FRAME_SIZE;
 import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_LENGTH;
 import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_SIZE;
 import static io.norberg.http2.Http2WireFormat.PING_FRAME_PAYLOAD_LENGTH;
+import static io.norberg.http2.Http2WireFormat.RST_STREAM_FRAME_PAYLOAD_LENGTH;
 import static io.norberg.http2.Http2WireFormat.WINDOW_UPDATE_FRAME_LENGTH;
 import static io.norberg.http2.Http2WireFormat.writeFrameHeader;
 import static io.norberg.http2.Http2WireFormat.writeWindowUpdate;
@@ -43,10 +45,6 @@ import org.slf4j.Logger;
 abstract class AbstractConnection<
     CONNECTION extends AbstractConnection<CONNECTION, STREAM>,
     STREAM extends Http2Stream> {
-
-  enum Command {
-    END_OF_STREAM
-  }
 
   private final Logger log;
 
@@ -444,12 +442,20 @@ abstract class AbstractConnection<
   private class OutboundHandler extends ChannelDuplexHandler
       implements StreamWriter<ChannelHandlerContext, STREAM> {
 
+    private ChannelHandlerContext ctx;
+
     private int streamId = 1;
     private boolean inactive;
 
     private int nextStreamId() {
       streamId += 2;
       return streamId;
+    }
+
+    @Override
+    public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+      super.channelRegistered(ctx);
+      this.ctx = ctx;
     }
 
     @Override
@@ -710,6 +716,24 @@ abstract class AbstractConnection<
 
   protected final STREAM deregisterStream(int id) {
     return streams.remove(id);
+  }
+
+  protected final void abortStream(STREAM stream, Http2Error msg) {
+    stream.closed = true;
+    if (stream.started) {
+      flowController.stop(stream);
+    }
+    outboundEnd(stream);
+    sendRstStream(stream.id, msg);
+  }
+
+  private void sendRstStream(int id, Http2Error error) {
+    final ByteBuf buf = channel.alloc().buffer(FRAME_HEADER_LENGTH + RST_STREAM_FRAME_PAYLOAD_LENGTH);
+    writeFrameHeader(buf, 0, RST_STREAM_FRAME_PAYLOAD_LENGTH, RST_STREAM, 0, id);
+    buf.writerIndex(FRAME_HEADER_LENGTH);
+    buf.writeInt(error.code());
+    channel.write(buf);
+    flusher.flush();
   }
 
   protected final Http2Settings localSettings() {

@@ -16,10 +16,10 @@ import java.util.Set;
 
 class FlowController<CTX, STREAM extends Http2Stream> {
 
-  private final List<STREAM> newStreams = new ArrayList<>();
-  private final List<STREAM> updatedStreams = new ArrayList<>();
-  private final Deque<STREAM> connectionWindowBlockedStreams = new ArrayDeque<>();
-  private final List<STREAM> streamWindowUpdatedStreams = new ArrayList<>();
+  private final ArrayList<STREAM> newStreams = new ArrayList<>();
+  private final ArrayList<STREAM> updatedStreams = new ArrayList<>();
+  private final ArrayDeque<STREAM> connectionWindowBlockedStreams = new ArrayDeque<>();
+  private final ArrayList<STREAM> streamWindowUpdatedStreams = new ArrayList<>();
 
   private int remoteInitialStreamWindow;
   private int remoteConnectionWindow;
@@ -424,10 +424,10 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
   void stop(final STREAM stream) {
     assert stream.started;
-    final Set<STREAM> s = Collections.singleton(stream);
-    newStreams.removeAll(s);
-    connectionWindowBlockedStreams.removeAll(s);
-    streamWindowUpdatedStreams.removeAll(s);
+    newStreams.remove(stream);
+    updatedStreams.remove(stream);
+    connectionWindowBlockedStreams.remove(stream);
+    streamWindowUpdatedStreams.remove(stream);
   }
 
   void remoteConnectionWindowUpdate(final int sizeIncrement) throws Http2Exception {

@@ -70,7 +70,7 @@ public class BenchmarkServer {
         response.header(headers.get(i), headers.get(i + 1));
       }
       response.content(payload());
-      context.send(response);
+      context.respond(response);
       request.release();
 
     };
@@ -101,7 +101,7 @@ public class BenchmarkServer {
         response.header(headers.get(i), headers.get(i + 1));
       }
       response.content(payload());
-      context.send(response);
+      context.respond(response);
       request.release();
     };
   }
