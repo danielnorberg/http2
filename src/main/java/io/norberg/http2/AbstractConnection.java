@@ -78,6 +78,8 @@ abstract class AbstractConnection<
   // TODO: move this state into HpackEncoder
   private boolean headerTableSizeUpdatePending;
 
+  private ChannelHandlerContext ctx;
+
   AbstractConnection(final Builder<?> builder, final Channel channel, final Logger log) {
     this.localInitialStreamWindow = Optional.ofNullable(builder.initialStreamWindowSize)
         .orElse(DEFAULT_INITIAL_WINDOW_SIZE);
@@ -110,6 +112,7 @@ abstract class AbstractConnection<
   private void connect() {
     final SslHandler sslHandler = sslContext().newHandler(channel().alloc());
 
+    // TODO: check if this can be removed
     // XXX: Discard read bytes well before consolidating
     // https://github.com/netty/netty/commit/c8a941d01e85148c21cc01bae80764bc134b1fdd
     sslHandler.setDiscardAfterReads(7);
@@ -163,6 +166,7 @@ abstract class AbstractConnection<
     @Override
     public void handlerAdded(final ChannelHandlerContext ctx) throws Exception {
       super.handlerAdded(ctx);
+      AbstractConnection.this.ctx = ctx;
       // Update connection window size
       final int sizeIncrement = localMaxConnectionWindow - DEFAULT_INITIAL_WINDOW_SIZE;
       if (sizeIncrement > 0) {
@@ -473,12 +477,6 @@ abstract class AbstractConnection<
         return;
       }
 
-      // TODO: Does this check still make sense?
-//      if (!handlesOutbound(msg, promise)) {
-//        ctx.write(msg, promise);
-//        return;
-//      }
-
       final STREAM stream = outbound(msg, promise);
       if (stream == null) {
         return;
@@ -699,6 +697,7 @@ abstract class AbstractConnection<
   protected final void handshakeDone() {
     // TODO: more robust pipeline setup
     channel.pipeline().remove(ExceptionHandler.class);
+    // TODO: merge handlers into one
     channel.pipeline().addLast(new InboundHandler(),
         new OutboundHandler(),
         new ExceptionHandler());
@@ -732,7 +731,7 @@ abstract class AbstractConnection<
     writeFrameHeader(buf, 0, RST_STREAM_FRAME_PAYLOAD_LENGTH, RST_STREAM, 0, id);
     buf.writerIndex(FRAME_HEADER_LENGTH);
     buf.writeInt(error.code());
-    channel.write(buf);
+    ctx.write(buf);
     flusher.flush();
   }
 
@@ -781,8 +780,6 @@ abstract class AbstractConnection<
   protected abstract STREAM inbound(final int streamId) throws Http2Exception;
 
   protected abstract void inboundEnd(final STREAM stream) throws Http2Exception;
-
-  protected abstract boolean handlesOutbound(final Object msg, final ChannelPromise promise);
 
   protected abstract STREAM outbound(final Object msg, final ChannelPromise promise)
       throws Http2Exception;

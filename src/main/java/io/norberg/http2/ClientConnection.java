@@ -92,11 +92,6 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   }
 
   @Override
-  protected boolean handlesOutbound(final Object msg, final ChannelPromise promise) {
-    return msg instanceof Http2Request;
-  }
-
-  @Override
   protected ClientStream outbound(final Object msg, final ChannelPromise promise) {
     final Http2Request request = (Http2Request) msg;
     final RequestPromise requestPromise = (RequestPromise) promise;

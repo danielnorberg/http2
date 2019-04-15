@@ -118,11 +118,6 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   }
 
   @Override
-  protected boolean handlesOutbound(final Object msg, final ChannelPromise promise) {
-    return msg instanceof Http2Response;
-  }
-
-  @Override
   protected ServerStream outbound(final Object msg, final ChannelPromise promise) {
     final ResponsePromise responsePromise = (ResponsePromise) promise;
     final ServerStream stream = responsePromise.stream;
