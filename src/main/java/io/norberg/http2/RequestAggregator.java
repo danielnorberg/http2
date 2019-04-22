@@ -23,7 +23,7 @@ class RequestAggregator implements RequestStreamHandler {
   }
 
   @Override
-  public void data(ByteBuf data, int padding) {
+  public void data(ByteBuf data) {
     // TODO: allow user to provide codec that can be used to parse payload directly without copying it
     final ByteBuf content = request.content();
     if (content == null) {

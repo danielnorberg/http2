@@ -15,8 +15,6 @@ import io.norberg.http2.Http2Response;
 import io.norberg.http2.Http2Server;
 import io.norberg.http2.RequestHandler;
 import io.norberg.http2.RequestStreamHandler;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 class StreamingBenchmarkServer {
@@ -90,7 +88,7 @@ class StreamingBenchmarkServer {
       }
 
       @Override
-      public void data(ByteBuf data, int padding) {
+      public void data(ByteBuf data) {
         size += data.readableBytes();
       }
 

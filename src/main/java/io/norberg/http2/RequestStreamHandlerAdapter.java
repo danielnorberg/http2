@@ -35,7 +35,7 @@ public class RequestStreamHandlerAdapter implements RequestStreamHandler {
   }
 
   @Override
-  public void data(ByteBuf data, int padding) {
+  public void data(ByteBuf data) {
   }
 
   @Override

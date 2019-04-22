@@ -101,7 +101,7 @@ public class Http2ClientServerTest {
       }
 
       @Override
-      public void data(ByteBuf data, int padding) {
+      public void data(ByteBuf data) {
         if (ByteBufUtil.isText(data, StandardCharsets.UTF_8)) {
           log.info("data (utf8): {}", data.toString(StandardCharsets.UTF_8));
         } else {

@@ -97,7 +97,7 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   protected void readData(final ServerStream stream, final ByteBuf data, final int padding,
       final boolean endOfStream) throws Http2Exception {
     // TODO: allow user to provide codec that can be used to parse payload directly without copying it
-    stream.handler.data(data, padding);
+    stream.handler.data(data);
   }
 
   @Override

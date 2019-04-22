@@ -22,7 +22,7 @@ public interface RequestStreamHandler {
 
   void endHeaders();
 
-  void data(ByteBuf data, int padding);
+  void data(ByteBuf data);
 
   void startTrailers();
 
