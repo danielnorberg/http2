@@ -11,6 +11,7 @@ import io.netty.util.AsciiString;
 import io.netty.util.ResourceLeakDetector;
 import io.norberg.http2.Http2Error;
 import io.norberg.http2.Http2Headers;
+import io.norberg.http2.Http2Request;
 import io.norberg.http2.Http2Response;
 import io.norberg.http2.Http2Server;
 import io.norberg.http2.RequestHandler;
@@ -53,37 +54,7 @@ class StreamingBenchmarkServer {
       }
 
       @Override
-      public void method(HttpMethod method) {
-        size += method.asciiName().length();
-      }
-
-      @Override
-      public void scheme(AsciiString scheme) {
-        size += scheme.length();
-      }
-
-      @Override
-      public void authority(AsciiString authority) {
-        size += authority.length();
-      }
-
-      @Override
-      public void path(AsciiString path) {
-        size += path.length();
-      }
-
-      @Override
-      public void header(AsciiString name, AsciiString value) {
-        size += name.length() + value.length();
-      }
-
-      @Override
-      public void startHeaders() {
-
-      }
-
-      @Override
-      public void endHeaders() {
+      public void headers(Http2Request request) {
 
       }
 
@@ -93,16 +64,8 @@ class StreamingBenchmarkServer {
       }
 
       @Override
-      public void startTrailers() {
-      }
+      public void trailers(Http2Headers trailers) {
 
-      @Override
-      public void trailer(AsciiString name, AsciiString value) {
-        size += name.length() + value.length();
-      }
-
-      @Override
-      public void endTrailers() {
       }
 
       @Override

@@ -196,9 +196,9 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
       throws Http2Exception {
     final boolean trailer = stream.headersRead;
     if (trailer) {
-      stream.handler.startTrailers();
+      stream.trailers = Http2Headers.of();
     } else {
-      stream.handler.startHeaders();
+      stream.headers = new Http2Request();
     }
   }
 
@@ -207,9 +207,11 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
       throws Http2Exception {
     final boolean trailer = stream.headersRead;
     if (trailer) {
-      stream.handler.endTrailers();
+      stream.handler.trailers(stream.trailers);
+      stream.trailers = null;
     } else {
-      stream.handler.endHeaders();
+      stream.handler.headers(stream.headers);
+      stream.headers = null;
     }
   }
 
@@ -218,9 +220,9 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
       final AsciiString value) throws Http2Exception {
     final boolean trailer = stream.headersRead;
     if (trailer) {
-      stream.handler.trailer(name, value);
+      stream.trailers.add(name, value);
     } else {
-      stream.handler.header(name, value);
+      stream.headers.header(name, value);
     }
   }
 
@@ -236,28 +238,28 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
         if (!name.equals(METHOD)) {
           throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
-        stream.handler.method(HttpMethod.valueOf(value.toString()));
+        stream.headers.method(HttpMethod.valueOf(value.toString()));
         return;
       }
       case 's': {
         if (!name.equals(SCHEME)) {
           throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
-        stream.handler.scheme(value);
+        stream.headers.scheme(value);
         return;
       }
       case 'a': {
         if (!name.equals(AUTHORITY)) {
           throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
-        stream.handler.authority(value);
+        stream.headers.authority(value);
         return;
       }
       case 'p': {
         if (!name.equals(PATH)) {
           throw connectionError(PROTOCOL_ERROR, "Got invalid pseudo-header: " + name + "=" + value);
         }
-        stream.handler.path(value);
+        stream.headers.path(value);
         return;
       }
       default:
@@ -271,6 +273,9 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
 
     private RequestStreamHandler handler;
     private Http2Response response;
+
+    private Http2Request headers;
+    private Http2Headers trailers;
 
     public ServerStream(final int id, final int localWindow, final SocketAddress remoteAddress) {
       super(id);

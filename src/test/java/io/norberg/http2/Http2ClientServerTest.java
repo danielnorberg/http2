@@ -68,36 +68,8 @@ public class Http2ClientServerTest {
       private final ByteBuf payload = Unpooled.buffer();
 
       @Override
-      public void method(HttpMethod method) {
-        log.info("method: {}", method);
-      }
-
-      @Override
-      public void scheme(AsciiString scheme) {
-        log.info("scheme: {}", scheme);
-      }
-
-      @Override
-      public void authority(AsciiString authority) {
-        log.info("authority: {}", authority);
-      }
-
-      @Override
-      public void path(AsciiString path) {
-        log.info("path: {}", path);
-      }
-
-      @Override
-      public void startHeaders() {
-      }
-
-      @Override
-      public void endHeaders() {
-      }
-
-      @Override
-      public void header(AsciiString name, AsciiString value) {
-        log.info("header: {}: {}", name, value);
+      public void headers(Http2Request request) {
+        log.info("headers: {}", request);
       }
 
       @Override
@@ -111,16 +83,8 @@ public class Http2ClientServerTest {
       }
 
       @Override
-      public void startTrailers() {
-      }
-
-      @Override
-      public void trailer(AsciiString name, AsciiString value) {
-        log.info("trailer: {}: {}", name, value);
-      }
-
-      @Override
-      public void endTrailers() {
+      public void trailers(Http2Headers trailers) {
+        log.info("trailers: {}", trailers);
       }
 
       @Override

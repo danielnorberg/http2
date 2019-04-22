@@ -136,7 +136,7 @@ class DefaultHttp2Headers<T extends DefaultHttp2Headers<T>> implements Http2Head
   }
 
   @SuppressWarnings("unchecked")
-  protected T self() {
+  protected final T self() {
     return (T) this;
   }
 

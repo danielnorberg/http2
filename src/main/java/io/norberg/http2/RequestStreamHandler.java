@@ -8,27 +8,11 @@ public interface RequestStreamHandler {
 
   RequestStreamHandler NOP = new RequestStreamHandlerAdapter();
 
-  void method(HttpMethod method);
-
-  void scheme(AsciiString scheme);
-
-  void authority(AsciiString authority);
-
-  void path(AsciiString path);
-
-  void header(AsciiString name, AsciiString value);
-
-  void startHeaders();
-
-  void endHeaders();
+  void headers(Http2Request request);
 
   void data(ByteBuf data);
 
-  void startTrailers();
-
-  void trailer(AsciiString name, AsciiString value);
-
-  void endTrailers();
+  void trailers(Http2Headers trailers);
 
   void end();
 

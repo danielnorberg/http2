@@ -15,11 +15,16 @@ class RequestAggregator implements RequestStreamHandler {
   private final FullRequestHandler requestHandler;
   private final Http2RequestContext stream;
 
-  private Http2Request request = new Http2Request();
+  private Http2Request request;
 
   private RequestAggregator(FullRequestHandler requestHandler, Http2RequestContext stream) {
     this.requestHandler = Objects.requireNonNull(requestHandler, "requestHandler");
     this.stream = Objects.requireNonNull(stream, "stream");
+  }
+
+  @Override
+  public void headers(Http2Request request) {
+    this.request = request;
   }
 
   @Override
@@ -34,16 +39,8 @@ class RequestAggregator implements RequestStreamHandler {
   }
 
   @Override
-  public void startTrailers() {
-  }
-
-  @Override
-  public void trailer(AsciiString name, AsciiString value) {
-    request.trailingHeader(name, value);
-  }
-
-  @Override
-  public void endTrailers() {
+  public void trailers(Http2Headers trailers) {
+    this.request.trailingHeaders(trailers);
   }
 
   @Override
@@ -60,39 +57,6 @@ class RequestAggregator implements RequestStreamHandler {
   public void reset(Http2Error error) {
     log.debug("Inbound request stream reset");
     request = null;
-  }
-
-  @Override
-  public void header(AsciiString name, AsciiString value) {
-    request.header(name, value);
-  }
-
-  @Override
-  public void startHeaders() {
-  }
-
-  @Override
-  public void endHeaders() {
-  }
-
-  @Override
-  public void method(HttpMethod method) {
-    request.method(method);
-  }
-
-  @Override
-  public void scheme(AsciiString scheme) {
-    request.scheme(scheme);
-  }
-
-  @Override
-  public void authority(AsciiString authority) {
-    request.authority(authority);
-  }
-
-  @Override
-  public void path(AsciiString path) {
-    request.path(path);
   }
 
   static RequestStreamHandler of(FullRequestHandler handler, Http2RequestContext stream) {

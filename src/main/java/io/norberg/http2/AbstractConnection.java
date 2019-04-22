@@ -283,8 +283,8 @@ abstract class AbstractConnection<
     public void onHeadersEnd(final ChannelHandlerContext ctx, final int streamId, final boolean endOfStream)
         throws Http2Exception {
       assert stream != null;
-      stream.headersRead = true;
       endHeaders(stream, endOfStream);
+      stream.headersRead = true;
       if (endOfStream) {
         inboundEnd(stream);
       }

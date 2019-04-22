@@ -218,7 +218,7 @@ abstract class Http2Message<T extends Http2Message<T>> {
   }
 
   @SuppressWarnings("unchecked")
-  protected T self() {
+  protected final T self() {
     return (T) this;
   }
 

@@ -1,6 +1,7 @@
 package io.norberg.http2;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.util.AsciiString;
@@ -29,32 +30,36 @@ public class Http2Request extends Http2Message<Http2Request> {
     return method;
   }
 
-  public void method(final HttpMethod method) {
+  public Http2Request method(final HttpMethod method) {
     this.method = method;
+    return self();
   }
 
   public AsciiString scheme() {
     return scheme;
   }
 
-  public void scheme(final AsciiString scheme) {
+  public Http2Request scheme(final AsciiString scheme) {
     this.scheme = scheme;
+    return self();
   }
 
   public AsciiString authority() {
     return authority;
   }
 
-  public void authority(final AsciiString authority) {
+  public Http2Request authority(final AsciiString authority) {
     this.authority = authority;
+    return self();
   }
 
   public AsciiString path() {
     return path;
   }
 
-  public void path(final AsciiString path) {
+  public Http2Request path(final AsciiString path) {
     this.path = path;
+    return self();
   }
 
   public Http2Response response(final HttpResponseStatus status, final ByteBuf payload) {
@@ -68,9 +73,13 @@ public class Http2Request extends Http2Message<Http2Request> {
   @Override
   public String toString() {
     return "Http2Request{" +
-        ", headers=" + headersToString() +
-        ", content=" + content() +
-        '}';
+           "method=" + method +
+           ", scheme=" + scheme +
+           ", authority=" + authority +
+           ", path=" + path +
+           ", headers=" + headersToString() +
+           ", content=" + (hasContent() ? content().readableBytes() : 0) + "b" +
+           "}";
   }
 
   public static Http2Request of(final HttpMethod method, final CharSequence path) {
