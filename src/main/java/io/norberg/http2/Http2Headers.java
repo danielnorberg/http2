@@ -9,6 +9,8 @@ import java.util.stream.Stream;
 
 public interface Http2Headers {
 
+  Http2Headers EMPTY = new EmptyHttp2Headers();
+
   int size();
 
   boolean isEmpty();
