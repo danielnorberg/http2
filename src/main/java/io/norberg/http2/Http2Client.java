@@ -232,7 +232,7 @@ public class Http2Client implements ClientConnection.Listener {
   }
 
   @Override
-  public void requestFailed(final ClientConnection connection) {
+  public void requestFailed(final ClientConnection connection, final Throwable t) {
     outstanding.decrement();
   }
 
@@ -401,6 +401,8 @@ public class Http2Client implements ClientConnection.Listener {
 
           // Notify listener that the connection was closed
           listener.connectionClosed(Http2Client.this);
+
+          // TOOD: fail outstanding requests
 
           // TODO: backoff
           connect();

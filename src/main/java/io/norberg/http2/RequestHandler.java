@@ -4,5 +4,4 @@ package io.norberg.http2;
 public interface RequestHandler {
 
   RequestStreamHandler handleRequest(Http2RequestContext stream);
-
 }

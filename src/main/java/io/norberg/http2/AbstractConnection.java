@@ -37,6 +37,8 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.util.AsciiString;
 import io.netty.util.collection.IntObjectHashMap;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -304,6 +306,10 @@ abstract class AbstractConnection<
       if (log.isDebugEnabled()) {
         log.debug("got rst stream: streamId={}, errorCode={}", streamId, errorCode);
       }
+      // TODO: tolerate stream not existing / already deregistered?
+      final STREAM stream = existingStream(streamId);
+      final Http2Error error = Http2Error.of(errorCode);
+      inboundReset(stream, error);
     }
 
     @Override
@@ -717,7 +723,7 @@ abstract class AbstractConnection<
     return streams.remove(id);
   }
 
-  protected final void abortStream(STREAM stream, Http2Error msg) {
+  protected final void resetStream(STREAM stream, Http2Error msg) {
     stream.closed = true;
     if (stream.started) {
       flowController.stop(stream);
@@ -784,12 +790,15 @@ abstract class AbstractConnection<
   protected abstract STREAM outbound(final Object msg, final ChannelPromise promise)
       throws Http2Exception;
 
-  protected abstract void outboundEnd(final STREAM stream);
-
-  protected abstract void endHeaders(final STREAM stream, final boolean endOfStream)
+  protected abstract void inboundReset(STREAM stream, Http2Error error)
       throws Http2Exception;
 
+  protected abstract void outboundEnd(final STREAM stream);
+
   protected abstract void startHeaders(final STREAM stream, final boolean endOfStream)
+      throws Http2Exception;
+
+  protected abstract void endHeaders(final STREAM stream, final boolean endOfStream)
       throws Http2Exception;
 
   protected abstract void readHeader(final STREAM stream, final AsciiString name, final AsciiString value)

@@ -18,6 +18,7 @@ import io.netty.channel.DefaultChannelPromise;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.util.AsciiString;
+import java.net.SocketAddress;
 import java.util.List;
 import java.util.Objects;
 import org.slf4j.Logger;
@@ -102,19 +103,25 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
   @Override
   protected ServerStream inbound(final int streamId) throws Http2Exception {
     final ServerStream stream = stream(streamId);
-    if (stream == null) {
-      // TODO: allow immediate rejection?
-      final ServerStream newStream = new ServerStream(streamId, localInitialStreamWindow());
-      newStream.handler = requestHandler.handleRequest(newStream);
-      registerStream(newStream);
-      return newStream;
+    if (stream != null) {
+      return stream;
     }
-    return stream;
+    final ServerStream newStream = new ServerStream(streamId, localInitialStreamWindow(), channel().remoteAddress());
+    newStream.handler = requestHandler.handleRequest(newStream);
+    if (!newStream.closed) {
+      registerStream(newStream);
+    }
+    return newStream;
   }
 
   @Override
   protected void inboundEnd(final ServerStream stream) throws Http2Exception {
     stream.handler.end();
+  }
+
+  @Override
+  protected void inboundReset(ServerStream stream, Http2Error error) throws Http2Exception {
+    stream.handler.reset(error);
   }
 
   @Override
@@ -158,7 +165,9 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
       verifyNotEndOfStream(stream);
       streamMessage.trailingHeaders((Http2Headers) msg);
     } else if (msg instanceof Http2Error) {
-      abortStream(stream, (Http2Error) msg);
+      // TODO: If NO_ERROR, finish writing response before resetting
+      resetStream(stream, (Http2Error) msg);
+      return null;
     } else {
       throw new IllegalArgumentException("msg");
     }
@@ -174,19 +183,34 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
 
   @Override
   protected void outboundEnd(final ServerStream stream) {
-    stream.response.release();
-    stream.response = null;
+    final Http2Response response = stream.response;
+    if (response != null) {
+      stream.response.release();
+      stream.response = null;
+    }
     deregisterStream(stream.id);
-  }
-
-  @Override
-  protected void endHeaders(final ServerStream stream, final boolean endOfStream)
-      throws Http2Exception {
   }
 
   @Override
   protected void startHeaders(final ServerStream stream, final boolean endOfStream)
       throws Http2Exception {
+    final boolean trailer = stream.headersRead;
+    if (trailer) {
+      stream.handler.startTrailers();
+    } else {
+      stream.handler.startHeaders();
+    }
+  }
+
+  @Override
+  protected void endHeaders(final ServerStream stream, final boolean endOfStream)
+      throws Http2Exception {
+    final boolean trailer = stream.headersRead;
+    if (trailer) {
+      stream.handler.endTrailers();
+    } else {
+      stream.handler.endHeaders();
+    }
   }
 
   @Override
@@ -243,12 +267,15 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
 
   class ServerStream extends Http2Stream implements Http2RequestContext {
 
+    private final SocketAddress remoteAddress;
+
     private RequestStreamHandler handler;
     private Http2Response response;
 
-    public ServerStream(final int id, final int localWindow) {
+    public ServerStream(final int id, final int localWindow, final SocketAddress remoteAddress) {
       super(id);
       this.localWindow = localWindow;
+      this.remoteAddress = remoteAddress;
     }
 
     @Override
@@ -257,14 +284,19 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
     }
 
     @Override
-    public void abort(Http2Error error) {
+    public void send(final ByteBuf data, final boolean end) {
+      ServerConnection.this.send(data, new ResponsePromise(channel(), this, end));
+    }
+
+    @Override
+    public void reset(Http2Error error) {
       // TODO: do not allow users to send protocol errors etc.
       ServerConnection.this.send(error, new ResponsePromise(channel(), this, true));
     }
 
     @Override
-    public void send(final ByteBuf data, final boolean end) {
-      ServerConnection.this.send(data, new ResponsePromise(channel(), this, end));
+    public SocketAddress remoteAddress() {
+      return remoteAddress;
     }
   }
 

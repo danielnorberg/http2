@@ -4,6 +4,8 @@ import static io.netty.handler.codec.http.HttpMethod.GET;
 import static io.netty.handler.codec.http.HttpMethod.POST;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.util.CharsetUtil.UTF_8;
+import static io.norberg.http2.Http2Error.REFUSED_STREAM;
+import static io.norberg.http2.RequestStreamHandler.NOP;
 import static io.norberg.http2.TestUtil.randomByteBuf;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.stream.Collectors.toList;
@@ -86,6 +88,14 @@ public class Http2ClientServerTest {
       }
 
       @Override
+      public void startHeaders() {
+      }
+
+      @Override
+      public void endHeaders() {
+      }
+
+      @Override
       public void header(AsciiString name, AsciiString value) {
         log.info("header: {}: {}", name, value);
       }
@@ -101,8 +111,16 @@ public class Http2ClientServerTest {
       }
 
       @Override
+      public void startTrailers() {
+      }
+
+      @Override
       public void trailer(AsciiString name, AsciiString value) {
         log.info("trailer: {}: {}", name, value);
+      }
+
+      @Override
+      public void endTrailers() {
       }
 
       @Override
@@ -118,6 +136,11 @@ public class Http2ClientServerTest {
         stream.end(Http2Response.of()
             .contentUtf8(" Good bye!")
             .trailingHeader("baz-trailer", "quux-trailer"));
+      }
+
+      @Override
+      public void reset(Http2Error error) {
+        log.info("reset: {}", error);
       }
     };
 
@@ -361,6 +384,38 @@ public class Http2ClientServerTest {
 
     // Make another successful request after client reconnects
     client.get("/hello2").get(30, SECONDS);
+  }
+
+  @Test
+  public void testRefuseRequestImmediately() throws Exception {
+
+    // Refuse all requests
+    final RequestHandler requestHandler = (Http2RequestContext stream) -> {
+      stream.reset(REFUSED_STREAM);
+      return NOP;
+    };
+
+    // Start server
+    final Http2Server server = autoClosing(Http2Server.of(requestHandler));
+    final int port = server.bind(0).get().getPort();
+
+    // Start client
+    final Http2Client client = autoClosing(
+        Http2Client.of("127.0.0.1", port));
+
+    // Make a request
+    final CompletableFuture<Http2Response> future = client.get("/world/1");
+
+    // Expect to be refused
+    try {
+      future.get(30, SECONDS);
+      fail("Expected failure");
+    } catch (ExecutionException e) {
+      final Throwable cause = e.getCause();
+      assertThat(cause, instanceOf(Http2Exception.class));
+      final Http2Exception http2Exception = (Http2Exception) cause;
+      assertThat(http2Exception.error(), is(REFUSED_STREAM));
+    }
   }
 
   private Http2Server autoClosing(final Http2Server server) {

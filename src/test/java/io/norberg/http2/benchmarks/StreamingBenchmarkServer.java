@@ -9,6 +9,8 @@ import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.util.AsciiString;
 import io.netty.util.ResourceLeakDetector;
+import io.norberg.http2.Http2Error;
+import io.norberg.http2.Http2Headers;
 import io.norberg.http2.Http2Response;
 import io.norberg.http2.Http2Server;
 import io.norberg.http2.RequestHandler;
@@ -35,17 +37,13 @@ class StreamingBenchmarkServer {
 
     final ProgressMeter meter = new ProgressMeter();
     final ProgressMeter.Metric requests = meter.group("throughput").metric("requests", "requests");
+    final ProgressMeter.Metric resets = meter.group("throughput").metric("resets", "requests");
     final ProgressMeter.Metric data = meter.group("throughput").metric("data", "bytes");
 
-    final List<AsciiString> headers = new ArrayList<>();
+    final Http2Headers headers = Http2Headers.of();
     final int numHeaders = 16;
     for (int i = 0; i < numHeaders; i++) {
-      final AsciiString name = AsciiString.of("header" + i);
-      final AsciiString value = AsciiString.of("value" + i);
-      name.hashCode();
-      value.hashCode();
-      headers.add(name);
-      headers.add(value);
+      headers.add("header" + i, "value" + i);
     }
 
     final RequestHandler requestHandler = stream -> new RequestStreamHandler() {
@@ -82,8 +80,22 @@ class StreamingBenchmarkServer {
       }
 
       @Override
+      public void startHeaders() {
+
+      }
+
+      @Override
+      public void endHeaders() {
+
+      }
+
+      @Override
       public void data(ByteBuf data, int padding) {
         size += data.readableBytes();
+      }
+
+      @Override
+      public void startTrailers() {
       }
 
       @Override
@@ -92,14 +104,21 @@ class StreamingBenchmarkServer {
       }
 
       @Override
+      public void endTrailers() {
+      }
+
+      @Override
       public void end() {
         data.add(size, 0);
-        final Http2Response response = Http2Response.of(OK);
-        for (int i = 0; i < headers.size(); i += 2) {
-          response.header(headers.get(i), headers.get(i + 1));
-        }
+        final Http2Response response = Http2Response.of(OK)
+            .headers(headers);
         stream.send(response);
         stream.end(payload());
+      }
+
+      @Override
+      public void reset(Http2Error error) {
+        resets.inc(0);
       }
     };
 

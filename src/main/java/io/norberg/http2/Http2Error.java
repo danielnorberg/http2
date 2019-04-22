@@ -23,6 +23,15 @@ public enum Http2Error {
     this.code = code;
   }
 
+  public static Http2Error of(long errorCode) {
+    for (final Http2Error value : values()) {
+      if (value.code == errorCode) {
+        return value;
+      }
+    }
+    throw new IllegalArgumentException("Unrecognized error code: " + errorCode);
+  }
+
   int code() {
     return code;
   }

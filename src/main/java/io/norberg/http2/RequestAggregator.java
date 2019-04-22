@@ -34,8 +34,16 @@ class RequestAggregator implements RequestStreamHandler {
   }
 
   @Override
+  public void startTrailers() {
+  }
+
+  @Override
   public void trailer(AsciiString name, AsciiString value) {
     request.trailingHeader(name, value);
+  }
+
+  @Override
+  public void endTrailers() {
   }
 
   @Override
@@ -44,13 +52,27 @@ class RequestAggregator implements RequestStreamHandler {
       requestHandler.handleRequest(stream, request);
     } catch (Exception e) {
       log.error("Request handler threw exception", e);
-      stream.abort(Http2Error.INTERNAL_ERROR);
+      stream.reset(Http2Error.INTERNAL_ERROR);
     }
+  }
+
+  @Override
+  public void reset(Http2Error error) {
+    log.debug("Inbound request stream reset");
+    request = null;
   }
 
   @Override
   public void header(AsciiString name, AsciiString value) {
     request.header(name, value);
+  }
+
+  @Override
+  public void startHeaders() {
+  }
+
+  @Override
+  public void endHeaders() {
   }
 
   @Override

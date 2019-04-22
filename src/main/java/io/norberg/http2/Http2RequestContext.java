@@ -2,6 +2,7 @@ package io.norberg.http2;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import java.net.SocketAddress;
 
 public interface Http2RequestContext {
 
@@ -94,5 +95,10 @@ public interface Http2RequestContext {
   /**
    * Abort the request and terminate the stream.
    */
-  void abort(Http2Error error);
+  void reset(Http2Error error);
+
+  /**
+   * The address of the remote peer;
+   */
+  SocketAddress remoteAddress();
 }

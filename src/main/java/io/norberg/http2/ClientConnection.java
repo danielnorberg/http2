@@ -5,6 +5,7 @@ import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
 import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
+import static io.norberg.http2.Http2Error.NO_ERROR;
 import static io.norberg.http2.Http2Error.PROTOCOL_ERROR;
 import static io.norberg.http2.Http2WireFormat.CLIENT_PREFACE;
 import static io.norberg.http2.Http2WireFormat.FRAME_HEADER_SIZE;
@@ -50,16 +51,6 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   void send(final Http2Request request, final Http2ResponseHandler responseHandler) {
     final RequestPromise promise = new RequestPromise(channel(), responseHandler);
     send(request, promise);
-  }
-
-  private void dispatchResponse(final ClientStream stream) {
-    deregisterStream(stream.id);
-    Http2Response response = stream.response;
-    Http2ResponseHandler responseHandler = stream.responseHandler;
-    stream.responseHandler = null;
-    stream.response = null;
-    succeed(responseHandler, response);
-//    response.release();
   }
 
   private int nextStreamId() {
@@ -157,9 +148,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   }
 
   @Override
-  protected void startHeaders(final ClientStream stream,
-      final boolean endOfStream) {
-
+  protected void startHeaders(final ClientStream stream, final boolean endOfStream) {
   }
 
   @Override
@@ -220,7 +209,29 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
 
   @Override
   protected void inboundEnd(final ClientStream stream) throws Http2Exception {
-    dispatchResponse(stream);
+    deregisterStream(stream.id);
+    final Http2Response response = stream.response;
+    final Http2ResponseHandler responseHandler = stream.responseHandler;
+    stream.responseHandler = null;
+    stream.response = null;
+    succeed(responseHandler, response);
+//    response.release();
+  }
+
+  @Override
+  protected void inboundReset(ClientStream stream, Http2Error error) throws Http2Exception {
+    // TODO: does this make sense?
+    deregisterStream(stream.id);
+    final Http2Response response = stream.response;
+    final Http2ResponseHandler responseHandler = stream.responseHandler;
+    stream.responseHandler = null;
+    stream.response = null;
+    // TODO: Is NO_ERROR really equivalent to receiving a successful response?
+    if (error == NO_ERROR) {
+      succeed(responseHandler, response);
+    } else {
+      fail(responseHandler, new Http2Exception(error));
+    }
   }
 
   protected static class ClientStream extends Http2Stream {
@@ -276,7 +287,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   }
 
   private void fail(final Http2ResponseHandler responseHandler, final Throwable t) {
-    listener.requestFailed(ClientConnection.this);
+    listener.requestFailed(ClientConnection.this, t);
     responseHandler.failure(t);
   }
 
@@ -291,7 +302,7 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
      */
     void peerSettingsChanged(ClientConnection connection, Http2Settings settings);
 
-    void requestFailed(ClientConnection connection);
+    void requestFailed(ClientConnection connection, Throwable t);
 
     void responseReceived(ClientConnection connection, Http2Response response);
   }

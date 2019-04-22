@@ -6,6 +6,8 @@ import io.netty.util.AsciiString;
 
 public interface RequestStreamHandler {
 
+  RequestStreamHandler NOP = new RequestStreamHandlerAdapter();
+
   void method(HttpMethod method);
 
   void scheme(AsciiString scheme);
@@ -16,9 +18,19 @@ public interface RequestStreamHandler {
 
   void header(AsciiString name, AsciiString value);
 
+  void startHeaders();
+
+  void endHeaders();
+
   void data(ByteBuf data, int padding);
+
+  void startTrailers();
 
   void trailer(AsciiString name, AsciiString value);
 
+  void endTrailers();
+
   void end();
+
+  void reset(Http2Error error);
 }
