@@ -18,8 +18,9 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
   private final ArrayList<STREAM> newStreams = new ArrayList<>();
   private final ArrayList<STREAM> updatedStreams = new ArrayList<>();
-  private final ArrayDeque<STREAM> connectionWindowBlockedStreams = new ArrayDeque<>();
   private final ArrayList<STREAM> streamWindowUpdatedStreams = new ArrayList<>();
+
+  private final ArrayDeque<STREAM> connectionWindowBlockedStreams = new ArrayDeque<>();
 
   private int remoteInitialStreamWindow;
   private int remoteConnectionWindow;
@@ -224,8 +225,8 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
       // Write data
       final int size = stream.fragmentSize;
+      final boolean allDataWritten = (stream.data.readableBytes() == size);
       if (size > 0) {
-        final boolean allDataWritten = (stream.data.readableBytes() == size);
         final boolean hasTrailers = stream.hasTrailingHeaders;
         final boolean endOfStream = allDataWritten && stream.endOfStream;
         writeDataFrames(writer, ctx, buf, stream, size, endOfStream && !hasTrailers);
@@ -239,7 +240,7 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
       // Check if the stream was blocked on an exhausted connection window.
       if (remoteConnectionWindowExhausted &&
-          stream.data.readableBytes() > 0 &&
+          !allDataWritten &&
           stream.remoteWindow > 0) {
         stream.pending = true;
         connectionWindowBlockedStreams.add(stream);
@@ -283,7 +284,7 @@ class FlowController<CTX, STREAM extends Http2Stream> {
       // Bail if the connection window was exhausted by this stream.
       // All following streams in the queue will still be blocked on the connection window.
       if (remoteConnectionWindowExhausted &&
-          stream.data.readableBytes() > 0 &&
+          !allDataWritten &&
           stream.remoteWindow > 0) {
         break;
       }
@@ -320,7 +321,7 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
       // Check if the stream was blocked on an exhausted connection window.
       if (remoteConnectionWindowExhausted &&
-          stream.data.readableBytes() > 0 &&
+          !allDataWritten &&
           stream.remoteWindow > 0) {
         stream.pending = true;
         connectionWindowBlockedStreams.add(stream);
