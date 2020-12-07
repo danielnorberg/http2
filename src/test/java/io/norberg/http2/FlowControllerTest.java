@@ -617,7 +617,7 @@ public class FlowControllerTest {
 
     // Verify that the write ended if there was anything to write
     if (ops.size() > 0) {
-      inOrder.verify(writer).writeEnd(ctx, buf);
+      inOrder.verify(writer).writeEnd(ctx, buf, );
     }
     verifyNoMoreInteractions(writer);
 

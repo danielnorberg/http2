@@ -104,6 +104,18 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   }
 
   @Override
+  protected void outboundHeadersWritten(ClientStream stream) {
+  }
+
+  @Override
+  protected void outboundDataWritten(ClientStream stream, int writtenBytes, int remainingBytes) {
+  }
+
+  @Override
+  protected void outboundTrailersWritten(ClientStream stream) {
+  }
+
+  @Override
   protected void outboundEnd(final ClientStream stream) {
     stream.request.release();
     stream.request = null;

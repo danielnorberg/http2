@@ -3,7 +3,9 @@ package io.norberg.http2;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.util.AsciiString;
 import java.util.AbstractMap;
 import java.util.Arrays;
@@ -191,11 +193,11 @@ abstract class Http2Message<T extends Http2Message<T>> {
   }
 
   public T contentUtf8(final String content) {
-    return content(Unpooled.copiedBuffer(content, UTF_8));
+    return content(ByteBufUtil.writeUtf8(UnpooledByteBufAllocator.DEFAULT, content));
   }
 
   public T addContentUtf8(final String content) {
-    return addContent(Unpooled.copiedBuffer(content, UTF_8));
+    return addContent(ByteBufUtil.writeUtf8(UnpooledByteBufAllocator.DEFAULT, content));
   }
 
   public boolean hasContent() {

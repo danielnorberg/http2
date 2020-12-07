@@ -17,11 +17,10 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
+import com.google.common.base.Strings;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
-import io.netty.buffer.UnpooledByteBufAllocator;
-import io.netty.handler.codec.http.HttpMethod;
 import io.netty.util.AsciiString;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -95,11 +94,27 @@ public class Http2ClientServerTest {
             .header("foo-header", "bar-header")
             .contentUtf8("Hello "));
 
-        stream.send(payload);
+        stream.send(payload.readBytes(64));
+      }
 
-        stream.end(Http2Response.of()
-            .contentUtf8(" Good bye!")
-            .trailingHeader("baz-trailer", "quux-trailer"));
+      @Override
+      public void dataSent(int sentBytes, int remainingBytes) {
+        log.info("data sent={}, remaining={}", sentBytes, remainingBytes);
+
+        if (remainingBytes > 32) {
+          return;
+        }
+
+        if (!payload.isReadable()) {
+          stream.end(Http2Response.of()
+              .contentUtf8(" Good bye!")
+              .trailingHeader("baz-trailer", "quux-trailer"));
+          return;
+        }
+
+        final int chunkSize = Math.min(64, payload.readableBytes());
+        log.info("sending {} bytes", chunkSize);
+        stream.send(payload.readBytes(chunkSize));
       }
 
       @Override
@@ -118,7 +133,7 @@ public class Http2ClientServerTest {
 
     // Send a request
     final Http2Request request = Http2Request.of(POST, AsciiString.of("/hello"))
-        .content(ByteBufUtil.writeUtf8(UnpooledByteBufAllocator.DEFAULT, "world!"))
+        .contentUtf8(Strings.repeat("world!", 1024))
         .header(AsciiString.of("foo"), AsciiString.of("bar"))
         .header(AsciiString.of("baz"), AsciiString.of("quux"));
     final CompletableFuture<Http2Response> future = client.send(request);

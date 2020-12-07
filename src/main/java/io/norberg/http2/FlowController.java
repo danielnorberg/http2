@@ -9,10 +9,6 @@ import static java.lang.Math.min;
 import io.netty.buffer.ByteBuf;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Deque;
-import java.util.List;
-import java.util.Set;
 
 class FlowController<CTX, STREAM extends Http2Stream> {
 
@@ -97,18 +93,21 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
   void flush(final CTX ctx, final StreamWriter<CTX, STREAM> writer) throws Http2Exception {
 
+    final ArrayList<STREAM> writtenStreams = new ArrayList<>();
+
     // Prepare frames
     final int bufferSize = prepare(ctx, writer);
 
     // Write frames
-    writeFrames(ctx, writer, bufferSize);
+    writeFrames(ctx, writer, bufferSize, writtenStreams);
 
     streamWindowUpdatedStreams.clear();
     newStreams.clear();
     updatedStreams.clear();
   }
 
-  private void writeFrames(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final int bufferSize)
+  private void writeFrames(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final int bufferSize,
+                           ArrayList<STREAM> writtenStreams)
       throws Http2Exception {
 
     final ByteBuf buf = (bufferSize == 0)
@@ -117,7 +116,7 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
     // Write data frames for streams that had window updates
     if (!streamWindowUpdatedStreams.isEmpty()) {
-      writeWindowUpdatedStreams(ctx, writer, buf);
+      writeWindowUpdatedStreams(ctx, writer, buf, writtenStreams);
     }
 
     // Write data frames for streams that were blocking on a connection window update
@@ -126,21 +125,22 @@ class FlowController<CTX, STREAM extends Http2Stream> {
     }
 
     if (!updatedStreams.isEmpty()) {
-      writeUpdatedStreams(ctx, writer, buf);
+      writeUpdatedStreams(ctx, writer, buf, writtenStreams);
     }
 
     // Write headers and data frames for new outgoing streams
     if (!newStreams.isEmpty()) {
-      writeNewStreams(ctx, writer, buf);
+      writeNewStreams(ctx, writer, buf, writtenStreams);
     }
 
     // Finish write if there was anything to write
     if (buf != null) {
-      writer.writeEnd(ctx, buf);
+      writer.writeEnd(ctx, buf, );
     }
   }
 
-  private void writeNewStreams(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final ByteBuf buf)
+  private void writeNewStreams(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final ByteBuf buf,
+                               ArrayList<STREAM> writtenStreams)
       throws Http2Exception {
 
     // Was the remote connection window exhausted?
@@ -194,7 +194,8 @@ class FlowController<CTX, STREAM extends Http2Stream> {
     }
   }
 
-  private void writeUpdatedStreams(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final ByteBuf buf)
+  private void writeUpdatedStreams(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final ByteBuf buf,
+                                   ArrayList<STREAM> writtenStreams)
       throws Http2Exception {
 
     // Was the remote connection window exhausted?
@@ -297,7 +298,8 @@ class FlowController<CTX, STREAM extends Http2Stream> {
     remoteConnectionWindowUpdated = false;
   }
 
-  private void writeWindowUpdatedStreams(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final ByteBuf buf)
+  private void writeWindowUpdatedStreams(final CTX ctx, final StreamWriter<CTX, STREAM> writer, final ByteBuf buf,
+                                         ArrayList<STREAM> writtenStreams)
       throws Http2Exception {
 
     // Was the remote connection window exhausted?

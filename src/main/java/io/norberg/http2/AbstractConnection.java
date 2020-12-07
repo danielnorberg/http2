@@ -37,8 +37,6 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.util.AsciiString;
 import io.netty.util.collection.IntObjectHashMap;
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -81,6 +79,8 @@ abstract class AbstractConnection<
   private boolean headerTableSizeUpdatePending;
 
   private ChannelHandlerContext ctx;
+
+  private int flushLevel = 0;
 
   AbstractConnection(final Builder<?> builder, final Channel channel, final Logger log) {
     this.localInitialStreamWindow = Optional.ofNullable(builder.initialStreamWindowSize)
@@ -498,6 +498,8 @@ abstract class AbstractConnection<
 
     @Override
     public void flush(final ChannelHandlerContext ctx) throws Exception {
+      flushLevel++;
+      int currentFlushLevel = flushLevel;
       flowController.flush(ctx, this);
       ctx.flush();
     }
@@ -553,6 +555,8 @@ abstract class AbstractConnection<
       buf.writerIndex(writerIndex);
 
       // TODO: padding + fields
+
+      outboundHeadersWritten(stream);
     }
 
     @Override
@@ -581,11 +585,15 @@ abstract class AbstractConnection<
       buf.writerIndex(writerIndex);
 
       // TODO: padding + fields
+
+      outboundTrailersWritten(stream);
     }
 
     @Override
-    public void writeEnd(final ChannelHandlerContext ctx, final ByteBuf buf) {
+    public void writeEnd(final ChannelHandlerContext ctx, final ByteBuf buf, List<STREAM> writtenStreams) {
       ctx.write(buf);
+      ctx.executor().execute();
+      outboundDataWritten(stream, payloadSize, stream.data.readableBytes());
     }
 
     @Override
@@ -789,6 +797,12 @@ abstract class AbstractConnection<
 
   protected abstract STREAM outbound(final Object msg, final ChannelPromise promise)
       throws Http2Exception;
+
+  protected abstract void outboundHeadersWritten(STREAM stream);
+
+  protected abstract void outboundDataWritten(STREAM stream, int writtenBytes, int remainingBytes);
+
+  protected abstract void outboundTrailersWritten(STREAM stream);
 
   protected abstract void inboundReset(STREAM stream, Http2Error error)
       throws Http2Exception;

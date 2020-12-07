@@ -17,4 +17,13 @@ public interface RequestStreamHandler {
   void end();
 
   void reset(Http2Error error);
+
+  default void dataSent(int sentBytes, int remainingBytes) {
+  }
+
+  default void headersSent() {
+  }
+
+  default void trailersSent() {
+  }
 }

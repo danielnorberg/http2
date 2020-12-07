@@ -175,6 +175,21 @@ class ServerConnection extends AbstractConnection<ServerConnection, ServerConnec
     return stream;
   }
 
+  @Override
+  protected void outboundHeadersWritten(ServerStream stream) {
+    stream.handler.headersSent();
+  }
+
+  @Override
+  protected void outboundDataWritten(ServerStream stream, int writtenBytes, int remainingBytes) {
+    stream.handler.dataSent(writtenBytes, remainingBytes);
+  }
+
+  @Override
+  protected void outboundTrailersWritten(ServerStream stream) {
+    stream.handler.trailersSent();
+  }
+
   private void verifyNotEndOfStream(ServerStream stream) {
     if (stream.endOfStream) {
       throw new IllegalStateException("Stream already ended, cannot send additional content");

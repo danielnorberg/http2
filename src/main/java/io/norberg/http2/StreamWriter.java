@@ -1,6 +1,7 @@
 package io.norberg.http2;
 
 import io.netty.buffer.ByteBuf;
+import java.util.List;
 
 
 interface StreamWriter<CTX, STREAM extends Http2Stream> {
@@ -22,7 +23,7 @@ interface StreamWriter<CTX, STREAM extends Http2Stream> {
 
   void writeTrailerFrames(final CTX ctx, ByteBuf buf, STREAM stream) throws Http2Exception;
 
-  void writeEnd(final CTX ctx, ByteBuf buf) throws Http2Exception;
+  void writeEnd(final CTX ctx, ByteBuf buf, List<STREAM> writtenStreams) throws Http2Exception;
 
   void streamEnd(STREAM stream);
 }
