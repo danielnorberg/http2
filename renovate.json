@@ -1,0 +1,11 @@
+{
+  "extends": [
+    "config:base"
+  ],
+  "packageRules": [
+    {
+      "updateTypes": ["patch", "minor"],
+      "groupName": "dependencies (non-major)"
+    }
+  ]
+}
