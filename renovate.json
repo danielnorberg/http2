@@ -4,7 +4,6 @@
   ],
   "packageRules": [
     {
-      "depTypeList": ["dependencies"],
       "updateTypes": ["patch", "minor"],
       "groupName": "dependencies (non-major)"
     }
