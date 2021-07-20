@@ -38,10 +38,22 @@ See more: http://netty.io/wiki/forked-tomcat-native.html
 Benchmark
 =========
 
+ReqRep
+------
+```
+mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath -Dio.netty.leakDetection.level=disabled io.norberg.http2.benchmarks.ReqRepBenchmark"
+```
+
+Server
+------
 ```
 mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath -Dio.netty.leakDetection.level=disabled io.norberg.http2.benchmarks.BenchmarkServer"
 ```
 
+Client
+------
 ```
 mvn exec:exec -Dexec.executable="java" -Dexec.classpathScope="test" -Dexec.args="-cp %classpath -Dio.netty.leakDetection.level=disabled io.norberg.http2.benchmarks.BenchmarkClient"
 ```
+
+
