@@ -1,0 +1,45 @@
+version: 2
+updates:
+- package-ecosystem: maven
+  directory: "/"
+  schedule:
+    interval: daily
+    time: "07:00"
+  open-pull-requests-limit: 10
+  ignore:
+  - dependency-name: io.netty:netty-tcnative-boringssl-static
+    versions:
+    - 2.0.36.Final
+    - 2.0.38.Final
+  - dependency-name: org.mockito:mockito-core
+    versions:
+    - 3.7.7
+    - 3.8.0
+  - dependency-name: io.netty:netty-transport
+    versions:
+    - 4.1.58.Final
+    - 4.1.59.Final
+  - dependency-name: io.netty:netty-resolver
+    versions:
+    - 4.1.58.Final
+    - 4.1.59.Final
+  - dependency-name: io.netty:netty-codec-http
+    versions:
+    - 4.1.58.Final
+    - 4.1.59.Final
+  - dependency-name: io.netty:netty-common
+    versions:
+    - 4.1.58.Final
+    - 4.1.59.Final
+  - dependency-name: io.netty:netty-codec
+    versions:
+    - 4.1.58.Final
+    - 4.1.59.Final
+  - dependency-name: io.netty:netty-handler
+    versions:
+    - 4.1.58.Final
+    - 4.1.59.Final
+  - dependency-name: io.netty:netty-buffer
+    versions:
+    - 4.1.58.Final
+    - 4.1.59.Final
