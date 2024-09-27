@@ -155,6 +155,9 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
       // End stream here?
       if (onlyHeaders) {
+        if (stream.hasTrailingHeaders) {
+          writer.writeTrailerFrames(ctx, buf, stream);
+        }
         writer.streamEnd(stream);
         continue;
       }
@@ -169,9 +172,13 @@ class FlowController<CTX, STREAM extends Http2Stream> {
       final int size = stream.fragmentSize;
       if (size > 0) {
         final boolean allDataWritten = (stream.data.readableBytes() == size);
+        final boolean hasTrailers = stream.hasTrailingHeaders;
         final boolean endOfStream = allDataWritten && stream.endOfStream;
-        writeDataFrames(writer, ctx, buf, stream, size, endOfStream);
+        writeDataFrames(writer, ctx, buf, stream, size, endOfStream && !hasTrailers);
         if (endOfStream) {
+          if (hasTrailers) {
+            writer.writeTrailerFrames(ctx, buf, stream);
+          }
           writer.streamEnd(stream);
         }
       }
@@ -199,8 +206,12 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
       // End stream here?
       if (endOfStreamNoData) {
-        // Write an empty data frame to end the stream
-        writeDataFrames(writer, ctx, buf, stream, 0, true);
+        if (stream.hasTrailingHeaders) {
+          writer.writeTrailerFrames(ctx, buf, stream);
+        } else {
+          // Write an empty data frame to end the stream
+          writeDataFrames(writer, ctx, buf, stream, 0, true);
+        }
         writer.streamEnd(stream);
         continue;
       }
@@ -215,9 +226,13 @@ class FlowController<CTX, STREAM extends Http2Stream> {
       final int size = stream.fragmentSize;
       if (size > 0) {
         final boolean allDataWritten = (stream.data.readableBytes() == size);
+        final boolean hasTrailers = stream.hasTrailingHeaders;
         final boolean endOfStream = allDataWritten && stream.endOfStream;
-        writeDataFrames(writer, ctx, buf, stream, size, endOfStream);
+        writeDataFrames(writer, ctx, buf, stream, size, endOfStream && !hasTrailers);
         if (endOfStream) {
+          if (hasTrailers) {
+            writer.writeTrailerFrames(ctx, buf, stream);
+          }
           writer.streamEnd(stream);
         }
       }
@@ -255,9 +270,13 @@ class FlowController<CTX, STREAM extends Http2Stream> {
 
       // Write data
       final boolean allDataWritten = (stream.data.readableBytes() == size);
+      final boolean hasTrailers = stream.hasTrailingHeaders;
       final boolean endOfStream = allDataWritten && stream.endOfStream;
-      writeDataFrames(writer, ctx, buf, stream, size, endOfStream);
+      writeDataFrames(writer, ctx, buf, stream, size, endOfStream && !hasTrailers);
       if (endOfStream) {
+        if (hasTrailers) {
+          writer.writeTrailerFrames(ctx, buf, stream);
+        }
         writer.streamEnd(stream);
       }
 
@@ -317,6 +336,9 @@ class FlowController<CTX, STREAM extends Http2Stream> {
       final STREAM stream = streamWindowUpdatedStreams.get(i);
       stream.pending = false;
       size += prepareDataFrames(writer, stream, ctx);
+      if (stream.endOfStream && stream.hasTrailingHeaders) {
+        size += writer.estimateTrailerFrameSize(ctx, stream);
+      }
     }
 
     // Prepare data frames for all streams that were blocking on a connection window update
@@ -336,10 +358,16 @@ class FlowController<CTX, STREAM extends Http2Stream> {
       final STREAM stream = updatedStreams.get(i);
       stream.pending = false;
       // End stream here with an empty data frame?
-      // TODO: Do not send empty data frame if stream has trailers
       // TODO: refactor prepareDataFrames to handle this case
-      if (stream.endOfStream && !hasData(stream)) {
-        size += prepareEndOfStreamDataFrame(writer, stream, ctx);
+      if (stream.endOfStream) {
+        if (stream.hasTrailingHeaders) {
+          size += prepareDataFrames(writer, stream, ctx);
+          size += writer.estimateTrailerFrameSize(ctx, stream);
+        } else if (hasData(stream)) {
+          size += prepareDataFrames(writer, stream, ctx);
+        } else {
+          size += prepareEndOfStreamDataFrame(writer, stream, ctx);
+        }
       } else {
         size += prepareDataFrames(writer, stream, ctx);
       }
@@ -351,6 +379,9 @@ class FlowController<CTX, STREAM extends Http2Stream> {
       stream.pending = false;
       size += writer.estimateInitialHeadersFrameSize(ctx, stream);
       size += prepareDataFrames(writer, stream, ctx);
+      if (stream.endOfStream && stream.hasTrailingHeaders) {
+        size += writer.estimateTrailerFrameSize(ctx, stream);
+      }
     }
 
     return size;

@@ -16,9 +16,11 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.GlobalEventExecutor;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -69,10 +71,20 @@ public class Http2Server {
     return closeFuture;
   }
 
-  public static Http2Server create(final RequestHandler requestHandler) {
+  public List<SocketAddress> addresses() {
+    return channels.stream()
+        .map(Channel::localAddress)
+        .collect(Collectors.toList());
+  }
+
+  public static Http2Server of(final RequestHandler requestHandler) {
     return builder()
         .requestHandler(requestHandler)
         .build();
+  }
+
+  public static Http2Server ofFull(final FullRequestHandler requestHandler) {
+    return of(requestHandler);
   }
 
   public static Builder builder() {
@@ -82,7 +94,7 @@ public class Http2Server {
   public static class Builder {
 
     private Integer maxConcurrentStreams;
-    private List<InetSocketAddress> bind;
+    private List<InetSocketAddress> bind; // TODO: use or remove
     private RequestHandler requestHandler;
     private Integer connectionWindow;
     private Integer streamWindow;

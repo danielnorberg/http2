@@ -109,9 +109,8 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
 
     // Create new stream
     final int streamId = nextStreamId();
-    final ClientStream
-        stream =
-        new ClientStream(streamId, localInitialStreamWindow(), request, requestPromise.responseHandler);
+    final ClientStream stream = new ClientStream(streamId, localInitialStreamWindow(), request,
+        requestPromise.responseHandler);
 
     registerStream(stream);
 
@@ -136,6 +135,13 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   }
 
   @Override
+  protected int trailersPayloadSize(ClientStream stream) {
+    final Http2Request request = stream.request;
+    return FRAME_HEADER_SIZE +
+           Http2WireFormat.trailersPayloadSize(request);
+  }
+
+  @Override
   protected void encodeHeaders(final ClientStream stream, final HpackEncoder headerEncoder,
       final ByteBuf buf) throws Http2Exception {
     final Http2Request request = stream.request;
@@ -144,9 +150,15 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
         request.scheme(),
         request.authority(),
         request.path());
-    for (int i = 0; i < request.numHeaders(); i++) {
+    for (int i = 0; i < request.numInitialHeaders(); i++) {
       headerEncoder.encodeHeader(buf, request.headerName(i), request.headerValue(i), false);
     }
+  }
+
+  @Override
+  protected void encodeTrailers(ClientStream stream, HpackEncoder headerEncoder, ByteBuf buf)
+      throws HpackEncodingException {
+    encodeTrailers(stream.request, headerEncoder, buf);
   }
 
   @Override
@@ -158,7 +170,12 @@ class ClientConnection extends AbstractConnection<ClientConnection, ClientConnec
   @Override
   protected void readHeader(final ClientStream stream, final AsciiString name,
       final AsciiString value) {
-    stream.response.header(name, value);
+    final boolean trailer = stream.headersRead;
+    if (trailer) {
+      stream.response.trailingHeader(name, value);
+    } else {
+      stream.response.header(name, value);
+    }
   }
 
   @Override
