@@ -6,7 +6,9 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 public class Http2Response extends Http2Message<Http2Response> {
 
   private HttpResponseStatus status;
-  private ByteBuf content;
+
+  // TODO: move this property to stream send method and {Request,Response}Promise
+  private boolean end = true;
 
   public Http2Response() {
   }
@@ -16,43 +18,51 @@ public class Http2Response extends Http2Message<Http2Response> {
   }
 
   public Http2Response(final HttpResponseStatus status, final ByteBuf content) {
-    this.content = content;
+    super(content);
     this.status = status;
   }
 
-  public void status(final HttpResponseStatus status) {
+  public Http2Response status(final HttpResponseStatus status) {
     this.status = status;
+    return this;
   }
 
   public HttpResponseStatus status() {
     return status;
   }
 
-  public Http2Response content(final ByteBuf content) {
-    this.content = content;
+  boolean end() {
+    return end;
+  }
+
+  Http2Response end(boolean end) {
+    this.end = end;
     return this;
-  }
-
-  public boolean hasContent() {
-    return content != null;
-  }
-
-  public ByteBuf content() {
-    return content;
-  }
-
-  public void release() {
-    releaseHeaders();
-    if (hasContent()) {
-      content.release();
-    }
   }
 
   @Override
   public String toString() {
     return "Http2Response{" +
-        ", content=" + content +
-        ", headers=" + headersToString() +
-        '}';
+           ", status=" + status +
+           ", content=" + content() +
+           ", headers=" + headersToString() +
+           ", end=" + end +
+           '}';
+  }
+
+  public static Http2Response of() {
+    return new Http2Response();
+  }
+
+  public static Http2Response of(HttpResponseStatus status) {
+    return new Http2Response(status);
+  }
+
+  public static Http2Response streaming() {
+    return Http2Response.of().end(false);
+  }
+
+  public static Http2Response streaming(HttpResponseStatus status) {
+    return streaming().status(status);
   }
 }

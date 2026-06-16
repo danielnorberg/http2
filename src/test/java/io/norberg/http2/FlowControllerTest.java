@@ -3,6 +3,7 @@ package io.norberg.http2;
 import static io.norberg.http2.FlowControllerTest.FlushOp.Flags.END_OF_STREAM;
 import static io.norberg.http2.Http2Protocol.DEFAULT_INITIAL_WINDOW_SIZE;
 import static io.norberg.http2.TestUtil.randomByteBuf;
+import static io.norberg.http2.Util.appendBytes;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
@@ -18,7 +19,6 @@ import static org.mockito.Mockito.when;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.Unpooled;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -36,6 +36,8 @@ import org.mockito.junit.MockitoJUnitRunner;
 
 @RunWith(MockitoJUnitRunner.class)
 public class FlowControllerTest {
+
+  // TODO: Test trailing headers
 
   interface Context {
 
@@ -490,19 +492,7 @@ public class FlowControllerTest {
     final ByteBuf data = randomByteBuf(size);
     final int readableBytes = (stream.data == null) ? 0 : stream.data.readableBytes();
     final int expectedReadableBytes = readableBytes + size;
-    if (stream.data == null) {
-      stream.data = data;
-    } else {
-      final CompositeByteBuf composite;
-      if (stream.data instanceof CompositeByteBuf) {
-        composite = (CompositeByteBuf) stream.data;
-      } else {
-        composite = stream.data.alloc().compositeBuffer();
-        composite.addComponent(true, stream.data);
-        stream.data = composite;
-      }
-      composite.addComponent(true, data);
-    }
+    stream.data = appendBytes(stream.data, data);
     stream.endOfStream = endOfStream;
     assertThat(stream.data.readableBytes(), is(expectedReadableBytes));
     controller.update(stream);

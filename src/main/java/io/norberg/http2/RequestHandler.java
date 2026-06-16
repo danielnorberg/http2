@@ -1,6 +1,8 @@
 package io.norberg.http2;
 
+@FunctionalInterface
 public interface RequestHandler {
 
-  void handleRequest(final Http2RequestContext context, Http2Request request);
+  RequestStreamHandler handleRequest(Http2RequestContext stream);
+
 }

@@ -1,7 +1,7 @@
 package io.norberg.http2;
 
-import static com.google.common.collect.Maps.immutableEntry;
 import static io.netty.handler.codec.http.HttpMethod.GET;
+import static io.netty.handler.codec.http.HttpMethod.POST;
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.util.CharsetUtil.UTF_8;
 import static io.norberg.http2.TestUtil.randomByteBuf;
@@ -16,15 +16,19 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
+import io.netty.handler.codec.http.HttpMethod;
 import io.netty.util.AsciiString;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.Map.Entry;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeoutException;
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
@@ -32,9 +36,13 @@ import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RunWith(MockitoJUnitRunner.class)
 public class Http2ClientServerTest {
+
+  private static final Logger log = LoggerFactory.getLogger(Http2ClientServerTest.class);
 
   private final List<Http2Server> servers = new ArrayList<>();
   private final List<Http2Client> clients = new ArrayList<>();
@@ -51,14 +59,103 @@ public class Http2ClientServerTest {
   }
 
   @Test
-  public void testReqRep() throws Exception {
+  public void testServerStreamHandler() throws ExecutionException, InterruptedException, TimeoutException {
 
-    final RequestHandler requestHandler = (context, request) ->
-        context.respond(request.response(
-            OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8)));
+    final RequestHandler requestHandler = stream -> new RequestStreamHandler() {
+
+      private final ByteBuf payload = Unpooled.buffer();
+
+      @Override
+      public void method(HttpMethod method) {
+        log.info("method: {}", method);
+      }
+
+      @Override
+      public void scheme(AsciiString scheme) {
+        log.info("scheme: {}", scheme);
+      }
+
+      @Override
+      public void authority(AsciiString authority) {
+        log.info("authority: {}", authority);
+      }
+
+      @Override
+      public void path(AsciiString path) {
+        log.info("path: {}", path);
+      }
+
+      @Override
+      public void header(AsciiString name, AsciiString value) {
+        log.info("header: {}: {}", name, value);
+      }
+
+      @Override
+      public void data(ByteBuf data, int padding) {
+        if (ByteBufUtil.isText(data, StandardCharsets.UTF_8)) {
+          log.info("data (utf8): {}", data.toString(StandardCharsets.UTF_8));
+        } else {
+          log.info("data: {}", ByteBufUtil.hexDump(data));
+        }
+        payload.writeBytes(data);
+      }
+
+      @Override
+      public void trailer(AsciiString name, AsciiString value) {
+        log.info("trailer: {}: {}", name, value);
+      }
+
+      @Override
+      public void end() {
+        // TODO: test more permutations of fragmented responding
+
+        stream.send(Http2Response.streaming()
+            .status(OK)
+            .header("foo-header", "bar-header")
+            .contentUtf8("Hello "));
+
+        stream.data(payload);
+
+        stream.end(Http2Response.streaming()
+            .contentUtf8(" Good bye!")
+            .trailingHeader("baz-trailer", "quux-trailer"));
+      }
+    };
 
     // Start server
-    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server = autoClosing(Http2Server.of(requestHandler));
+    final int port = server.bind(0).get().getPort();
+
+    // Start client
+    final Http2Client client = autoClosing(
+        Http2Client.of("127.0.0.1", port));
+
+    // Send a request
+    final Http2Request request = Http2Request.of(POST, AsciiString.of("/hello"))
+        .content(ByteBufUtil.writeUtf8(UnpooledByteBufAllocator.DEFAULT, "world!"))
+        .header(AsciiString.of("foo"), AsciiString.of("bar"))
+        .header(AsciiString.of("baz"), AsciiString.of("quux"));
+    final CompletableFuture<Http2Response> future = client.send(request);
+    final Http2Response response = future.get(3000, SECONDS);
+    assertThat(response.status(), is(OK));
+    assertThat(response.contentUtf8(), is("Hello world! Good bye!"));
+    assertThat(response.numTrailingHeaders(), is(1));
+    assertThat(response.headerName(0), is(AsciiString.of("foo-header")));
+    assertThat(response.headerValue(0), is(AsciiString.of("bar-header")));
+    assertThat(response.headerName(1), is(AsciiString.of("baz-trailer")));
+    assertThat(response.headerValue(1), is(AsciiString.of("quux-trailer")));
+  }
+
+  @Test
+  public void testReqRep() throws Exception {
+
+    final FullRequestHandler requestHandler = (context, request) ->
+        context.send(request
+            .response(OK)
+            .contentUtf8("hello: " + request.path()));
+
+    // Start server
+    final Http2Server server = autoClosing(Http2Server.ofFull(requestHandler));
     final int port = server.bind(0).get().getPort();
 
     // Start client
@@ -85,17 +182,49 @@ public class Http2ClientServerTest {
   }
 
   @Test
+  public void testReqRepWithHeadersAndTrailers() throws Exception {
+
+    final FullRequestHandler requestHandler = (context, request) ->
+        context.send(request
+            .response(OK)
+            .header("h1", "hv1")
+            .contentUtf8("hello: " + request.path())
+            .trailingHeader("t1", "tv1"));
+
+    // Start server
+    final Http2Server server = autoClosing(Http2Server.ofFull(requestHandler));
+    final int port = server.bind(0).get().getPort();
+
+    // Start client
+    final Http2Client client = autoClosing(
+        Http2Client.of("127.0.0.1", port));
+
+    // Make a request
+    final CompletableFuture<Http2Response> future = client.get("/world/1");
+    final Http2Response response = future.get(30, SECONDS);
+
+    // Check that the response has the expected content and header/trailer values
+    assertThat(response.status(), is(OK));
+    final String payload = response.contentUtf8();
+    assertThat(payload, is("hello: /world/1"));
+    assertThat(response.headerName(0), is(AsciiString.of("h1")));
+    assertThat(response.headerValue(0), is(AsciiString.of("hv1")));
+    assertThat(response.headerName(1), is(AsciiString.of("t1")));
+    assertThat(response.headerValue(1), is(AsciiString.of("tv1")));
+  }
+
+  @Test
   public void testHeaderFragmentation() throws Exception {
 
-    final RequestHandler requestHandler = (context, request) -> {
+    final FullRequestHandler requestHandler = (context, request) -> {
       Http2Response response = request.response(
           OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8));
       request.forEachHeader(response::header);
-      context.respond(response);
+      context.send(response);
     };
 
     // Start server
-    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server = autoClosing(Http2Server.ofFull(requestHandler));
     final int port = server.bind(0).get().getPort();
 
     // Start client
@@ -125,18 +254,18 @@ public class Http2ClientServerTest {
 
     final int n = 1024;
 
-    List<Entry<AsciiString, AsciiString>> headers = new ArrayList<>();
+    Http2Headers headers = Http2Headers.of();
     for (int i = 0; i < n; i++) {
-      headers.add(immutableEntry(AsciiString.of("header" + i), AsciiString.of("value" + i)));
+      headers.add("header" + i, "value" + i);
     }
 
-    final RequestHandler requestHandler = (context, request) ->
-        context.respond(request
+    final FullRequestHandler requestHandler = (context, request) ->
+        context.send(request
             .response(OK, Unpooled.copiedBuffer("hello: " + request.path(), UTF_8))
             .headers(headers));
 
     // Start server
-    final Http2Server server = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server = autoClosing(Http2Server.ofFull(requestHandler));
     final int port = server.bind(0).get().getPort();
 
     // Start client
@@ -152,15 +281,15 @@ public class Http2ClientServerTest {
     final String payload = response.content().toString(UTF_8);
     assertThat(payload, is("hello: /world/1"));
 
-    assertThat(response.headers().collect(toList()), is(headers));
+    assertThat(response.headers().collect(toList()), is(headers.stream().collect(toList())));
   }
 
   @Test
   public void testLargeReqRep() throws Exception {
 
     // Large response
-    final RequestHandler requestHandler = (context, request) ->
-        context.respond(request.response(
+    final FullRequestHandler requestHandler = (context, request) ->
+        context.send(request.response(
             OK, Unpooled.copiedBuffer(request.content())));
 
     // Start server
@@ -194,12 +323,12 @@ public class Http2ClientServerTest {
 
   @Test
   public void testClientReconnects() throws Exception {
-    final RequestHandler requestHandler = (context, request) ->
-        context.respond(request.response(
+    final FullRequestHandler requestHandler = (context, request) ->
+        context.send(request.response(
             OK, Unpooled.copiedBuffer("hello world", UTF_8)));
 
     // Start server
-    final Http2Server server1 = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server1 = autoClosing(Http2Server.ofFull(requestHandler));
     final int port = server1.bind(0).get().getPort();
 
     // Make a successful request
@@ -227,7 +356,7 @@ public class Http2ClientServerTest {
     }
 
     // Start server again
-    final Http2Server server2 = autoClosing(Http2Server.create(requestHandler));
+    final Http2Server server2 = autoClosing(Http2Server.ofFull(requestHandler));
     server2.bind(port).get();
     verify(listener, timeout(30_000).atLeastOnce()).connectionEstablished(client);
 

@@ -1,5 +1,7 @@
 package io.norberg.http2;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.CompositeByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -143,5 +145,20 @@ class Util {
         out.complete(value);
       }
     });
+  }
+
+  static ByteBuf appendBytes(final ByteBuf buf, final ByteBuf data) {
+    if (buf == null) {
+      return data;
+    }
+    final CompositeByteBuf composite;
+    if (buf instanceof CompositeByteBuf) {
+      composite = (CompositeByteBuf) buf;
+    } else {
+      composite = buf.alloc().compositeBuffer();
+      composite.addComponent(true, buf);
+    }
+    composite.addComponent(true, data);
+    return composite;
   }
 }

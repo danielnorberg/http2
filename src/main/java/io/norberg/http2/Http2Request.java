@@ -11,7 +11,6 @@ public class Http2Request extends Http2Message<Http2Request> {
   private AsciiString scheme;
   private AsciiString authority;
   private AsciiString path;
-  private ByteBuf content;
 
   Http2Request() {
   }
@@ -21,9 +20,9 @@ public class Http2Request extends Http2Message<Http2Request> {
   }
 
   Http2Request(final HttpMethod method, final CharSequence path, final ByteBuf content) {
+    super(content);
     this.method = method;
     this.path = AsciiString.of(path);
-    this.content = content;
   }
 
   public HttpMethod method() {
@@ -58,19 +57,6 @@ public class Http2Request extends Http2Message<Http2Request> {
     this.path = path;
   }
 
-  public boolean hasContent() {
-    return content != null;
-  }
-
-  public ByteBuf content() {
-    return content;
-  }
-
-  public Http2Request content(final ByteBuf content) {
-    this.content = content;
-    return this;
-  }
-
   public Http2Response response(final HttpResponseStatus status, final ByteBuf payload) {
     return new Http2Response(status, payload);
   }
@@ -79,18 +65,11 @@ public class Http2Request extends Http2Message<Http2Request> {
     return new Http2Response(status);
   }
 
-  public void release() {
-    releaseHeaders();
-    if (hasContent()) {
-      content.release();
-    }
-  }
-
   @Override
   public String toString() {
     return "Http2Request{" +
         ", headers=" + headersToString() +
-        ", content=" + content +
+        ", content=" + content() +
         '}';
   }
 
