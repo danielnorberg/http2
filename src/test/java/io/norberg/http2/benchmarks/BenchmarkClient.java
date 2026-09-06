@@ -22,7 +22,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 
-class BenchmarkClient {
+public class BenchmarkClient {
 
   private static final int PAYLOAD_SIZE = 128;
   private static final ByteBuf[] PAYLOADS = BenchmarkUtil.payloads(PAYLOAD_SIZE, 1024);
@@ -36,12 +36,14 @@ class BenchmarkClient {
   public static void main(final String... args) throws Exception {
     LoggingConfigurator.configureNoLogging();
     ResourceLeakDetector.setLevel(DISABLED);
-    run();
+    final String host = args.length > 0 ? args[0] : "127.0.0.1";
+    final int port = args.length > 1 ? Integer.parseInt(args[1]) : 4711;
+    run(host, port);
   }
 
-  static void run() throws Exception {
+  private static void run(String host, int port) throws Exception {
 
-    final AtomicLong maxConcurrentStreams = new AtomicLong(2000L);
+    final AtomicLong maxConcurrentStreams = new AtomicLong(1000L);
 
     final Http2Client.Listener listener = new Http2Client.ListenerAdapter() {
       @Override
@@ -56,7 +58,7 @@ class BenchmarkClient {
         .listener(listener)
         .maxConcurrentStreams(maxConcurrentStreams.intValue())
         .connectionWindow(1024 * 1024)
-        .address("127.0.0.1", 4711)
+        .address(host, port)
         .build();
 
     final ProgressMeter meter = new ProgressMeter();
@@ -65,7 +67,7 @@ class BenchmarkClient {
     final ProgressMeter.Metric data = meter.group("throughput").metric("data", "bytes");
 
     final List<AsciiString> headers = new ArrayList<>();
-    final int numHeaders = 16;
+    final int numHeaders = 8;
     for (int i = 0; i < numHeaders; i++) {
       final AsciiString name = AsciiString.of("header" + i);
       final AsciiString value = AsciiString.of("value" + i);
@@ -117,6 +119,7 @@ class BenchmarkClient {
 
       @Override
       public void failure(final Throwable e) {
+        e.printStackTrace();
         final long end = System.nanoTime();
         final long latency = end - start;
         errors.inc(latency);

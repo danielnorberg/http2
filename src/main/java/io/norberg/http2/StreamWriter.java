@@ -11,12 +11,16 @@ interface StreamWriter<CTX, STREAM extends Http2Stream> {
     return Http2WireFormat.FRAME_HEADER_SIZE + payloadSize;
   }
 
+  int estimateTrailerFrameSize(CTX ctx, STREAM stream);
+
   ByteBuf writeStart(final CTX ctx, int bufferSize) throws Http2Exception;
 
   void writeDataFrame(final CTX ctx, final ByteBuf buf, STREAM stream, int payloadSize, boolean endOfStream)
       throws Http2Exception;
 
   void writeInitialHeadersFrame(final CTX ctx, ByteBuf buf, STREAM stream, boolean endOfStream) throws Http2Exception;
+
+  void writeTrailerFrames(final CTX ctx, ByteBuf buf, STREAM stream) throws Http2Exception;
 
   void writeEnd(final CTX ctx, ByteBuf buf) throws Http2Exception;
 

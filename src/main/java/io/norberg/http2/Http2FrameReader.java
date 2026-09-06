@@ -154,6 +154,7 @@ class Http2FrameReader implements HpackDecoder.Listener, AutoCloseable {
     final short padding = readPadding(in);
     final int blockLength = length - (readFlag(PADDED) ? 1 : 0) - padding;
 
+    // TODO: incrementally read headers instead of accumulating the entire block before parsing?
     // Handle HEADERS + CONTINUATION
     if (!endHeaders) {
       assert headersBlock == null;

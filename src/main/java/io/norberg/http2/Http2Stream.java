@@ -48,9 +48,21 @@ class Http2Stream {
    */
   boolean endOfStream;
 
+  /**
+   * Is this stream (local) closed?
+   */
+  boolean closed;
+
+  /**
+   *
+   */
+  boolean hasTrailingHeaders;
+
   //================================================================================
   // Incoming (local) flow control
   //================================================================================
+
+  boolean headersRead;
 
   int localWindow;
 
